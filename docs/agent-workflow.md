@@ -18,12 +18,14 @@
 
 | 工作 | 默认模型/努力 | 切换依据 |
 | --- | --- | --- |
-| 复杂架构、状态机、AUTH/insert 归属/writer ADR | `gpt-6-astra` / high | 影响披露、恢复或跨模块事务边界 |
-| 工程实现、离线测试、CLI、UI、CI、文档和集成 | `gpt-6.1-sol` / xhigh | 已有通过 review 的 plan 与稳定输入 |
-| 安全、并发、恢复、迁移、HTTP 隐私和发布 review | 独立 `gpt-6-astra` / high | 必须独立于同一变更设计/实现作者 |
-| 普通聚焦变更 review、机械验证 | 独立 `gpt-6.1-sol` / xhigh | 不触及上述高风险边界，可升级到 Astra |
+| 复杂架构、状态机、AUTH/insert 归属/writer ADR | `gpt-6.1-sol` / xhigh | 影响披露、恢复或跨模块事务边界 |
+| 工程实现、离线测试、CLI、UI、CI、文档和集成 | `gpt-6.1-sol` / high 或 xhigh | 已有通过 review 的 plan 与稳定输入，按复杂度选努力级别 |
+| 安全、并发、恢复、迁移、HTTP 隐私和发布 review | 独立 `gpt-6.1-sol` / xhigh | 必须独立于同一变更设计/实现作者 |
+| 普通聚焦变更 review、机械验证 | 独立 Sol high/xhigh；简单有界低风险任务可用 `gpt-6-luna` | 复杂度和风险上升时使用独立 Sol xhigh |
 
-模型不会改变权限。协调 agent 根据风险和槽位选模型，不需要用户逐项批准普通调度。
+2026-10-02 用户最新指示将后续任务限定为 Sol high/xhigh 或 Luna，禁止新派工或
+reactivate Astra。模型不会改变权限、独立 review 或 gate；历史合法 review 保留
+实际模型、reviewer 与 SHA，不改写为 Sol。协调 agent 按复杂度和槽位选允许的模型。
 当前有 4 个总槽：协调加 3 个执行槽。默认 2 个 worker + 1 个 reviewer；前期设计可
 暂用 3 个 worker。只派依赖就绪且文件所有权清晰的工作，不用大量任务抢同一 shared
 schema 或同一 review 槽。已有任务阻塞时释放执行槽，安排独立离线工作。
@@ -31,10 +33,11 @@ schema 或同一 review 槽。已有任务阻塞时释放执行槽，安排独�
 ## 权限和决定来源
 
 2026-10-02 用户授权了 Phase 1 的 agent 推进方式、多 worktree、按需子 agent、
-上述模型、依赖图并行、GitHub Issue/PR 和原子提交，并要求 Compose 和 Actions
+依赖图并行、GitHub Issue/PR 和原子提交，并要求 Compose 和 Actions
 image 发布。同日用户明确批准 G0/D0，绑定
 `caba7c73895a303d329cf3eba1c89557530c38c5`；总计划 PR #2 已实际合入 main。
-技术 review/CI 没有替代该用户决定。当前推进 reviewed 工作包，详细状态在执行计划
+技术 review/CI 没有替代该用户决定。同日较晚的模型指示以本文件的最新 routing 为准；
+早期已获授权的实际审查证据保留。当前推进 reviewed 工作包，详细状态在执行计划
 D0-D8 与 [进度台账](phase-1-progress.md)；未来重要边界改变仍须用户决定。
 
 同日用户明确授权：满足独立 plan review、implementation review 和 CI 门槛后，自主
