@@ -15,9 +15,13 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | Phase 1 execution planning | User G0 approved; plan integrated | Exact approved/merged `caba7c7`; independent review/QA and candidate/main CI passed; not milestone completion |
 | P1-00 execution baseline | Integrated | PR #6 exact `2618eaf`; independent plan/implementation review, candidate/main CI passed |
 | P1-01 core/writer ADRs | Reviewed and integrated design freeze | PR #8 exact `09031e7`; core-v1/writer-v1, independent review and candidate/main CI passed; no runtime/G1 claim |
-| P1-02 test foundations | Provider/helper partial slice integrated; CT pending | PR #10 exact `c18bfbe` reviewed and candidate/main CI passed; Issue #5 stays open and M1-02 is not released until actual core compatibility/final gates pass |
-| M1-01 package/config/CLI foundation | Implemented, locally offline-tested candidate | Minimum core types, strict structural config and actual validate/show; exact candidate independent review and 3.12/3.13 CI pending |
-| M1 foundation as a whole | Incomplete | Bindings, schema/migrations, locks, complete init/doctor/config apply, rule storage and public status models remain |
+| P1-02 test foundations | Reviewed and integrated, including mandatory CT | PR #12 exact `1b7cd58`; independent review, candidate/main CI and 92 core-compatibility cases passed; Issue #5 closed, later feature-consumer tests remain |
+| M1-01 package/config/CLI foundation | Reviewed and integrated | PR #11 exact `b1e4ae0`; 287 offline tests, independent whole/closure reviews, 3.12/3.13 candidate/main CI and installed-wheel checks passed; not complete init/CLI/G1 |
+| M1-02 persistence | Implementing; reviewed value/schema slices only | Draft PR #15: exact `56eaac6` values/DDL/initializer/session reviewed with 450 tests and CI; new finite-repository slice `bf0bf0b` has 504 local tests, independent review/CI pending; whole DB-01..28 incomplete |
+| M1-03 writer/runtime/CLI | Reviewed plan; wire extension changes requested | No runtime source; closed wire/storage extension still under independent review, actual owner/view/receipt providers pending |
+| M1-04 OAuth/binding | Credential design approved; implementation pending | Actual writer/storage and credential-publication integration remain; no production OAuth or live account verification |
+| M1-05 public status/privacy | Early pure/logging source slice independently accepted; delivery candidate | PR #16 source exact `c455f71`: 488 offline tests, safe logging subprocesses, installed wheel and 3.12/3.13 CI passed; this handoff's docs/head review/CI and actual integration tracked in PR #16, not yet merged |
+| M1 foundation as a whole | Incomplete | Full persistence, process/view/credential ownership, init/doctor/config apply, authenticated bindings and real status consumers remain; G1 has not passed |
 | M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
 | M3 admission/backfill | Not implemented | Rules/authenticity, preview, fixed six-month discovery, durable backfill |
 | M4 sync + Dashboard alpha | Not implemented | History/gap recovery, reconcile, aggregate read-only Web UI |
@@ -29,6 +33,13 @@ Production imports/CLI never adopt spike cursors/tokens. The foundation tests co
 closed types, strict YAML, no-follow private reads and real CLI subprocess
 JSON/exit/privacy/zero-effect behavior, alongside all existing spike tests. They
 do not verify a production daemon, trusted admission, backfill or rendered Dashboard.
+
+The current M1-05 delivery adds independent allowlisted public models, a closed
+error catalogue/serializer and fail-closed structured logging. It does not expose
+HTTP or read actual DB/auth/runtime state. Real snapshots and raw third-party
+OAuth/provider logger consumers, browser/DOM and Compose remain later gates;
+Issue #14 stays open. Integration receipts belong to the actual PR, not a
+prediction in this candidate snapshot.
 
 ## Active implementation record
 
@@ -64,7 +75,7 @@ do not verify a production daemon, trusted admission, backfill or rendered Dashb
   inputs, not evidence that storage/writer/recovery runtime exists or G1 is closed.
 - M1-01 [plan](implementation-plans/m1-01-package-config.md) r3 received independent
   approval at SHA-256 `feeabe53d454c931da343964aa7d0a923508d86d3710a03e7c69dc413d534101`
-  before coordinator dispatch. The current candidate implements 47 canonical core
+  before coordinator dispatch. The integrated foundation implements 47 canonical core
   exports, strict bounded YAML/config defaults, safe standalone config reads and
   actual `facet config validate/show`, with empty mutable-field registry. Init/apply
   and managed reads are controlled unavailable; no temporary writer/view protocol.
@@ -74,27 +85,63 @@ do not verify a production daemon, trusted admission, backfill or rendered Dashb
   build/non-editable install smoke. Dependency bootstrap used authorized network;
   production tests made no Gmail calls and subprocess guards forbid network/spike/DB
   imports. The preexisting local 3.13.5 lacks `_sqlite3`; it is not a full-runtime
-  verification substitute. Actual candidate CI on 3.12/3.13 and independent
-  implementation/acceptance review are still pending, recorded in
-  [Issue #7](https://github.com/GhostFlying/facet/issues/7); not Gmail/deployment/G1 evidence.
-  P1-02 must pass CT compatibility against reviewed merged types before its closure
-  and M1-02 implementation release. M1-02 is only in plan preparation
-  ([Issue #9](https://github.com/GhostFlying/facet/issues/9)).
+  verification substitute. [PR #11](https://github.com/GhostFlying/facet/pull/11)
+  actually merged exact `b1e4ae08f7e361518eaa4f7fb1ae9f7f0b278f28` after independent
+  whole/affected-boundary approval and [revised candidate CI](https://github.com/GhostFlying/facet/actions/runs/36980149544).
+  [Main CI](https://github.com/GhostFlying/facet/actions/runs/36980646059) passed
+  Python 3.12/3.13 at the same SHA. [Issue #7](https://github.com/GhostFlying/facet/issues/7)
+  is closed only for this foundation, not Gmail/deployment/G1 or the full CLI.
   The earlier combined candidate `f00cf27` independently passed whole review and
   3.12/3.13 CI, but the coordinator held merge for two parser/help corrections.
   Current revised candidate adds specific child text/JSON help and canonical
   `config apply --file` parsing; apply still reads/writes nothing and returns
-  unavailable. Twelve additional subprocess regressions pass; the revised exact
-  SHA still requires affected-boundary independent review and new CI before merge.
+  unavailable. Twelve additional subprocess regressions and the required revised
+  exact-SHA review/CI passed before integration; the earlier hold is historical.
 - P1-02 provider/helper partial [PR #10](https://github.com/GhostFlying/facet/pull/10)
   actually merged exact `c18bfbee09b985ee7b9bb5c230ee2a70427c7edc` after independent
   reviewer `phase1_plan_review` approved the metadata-format correction and
   [candidate CI](https://github.com/GhostFlying/facet/actions/runs/36978399171) passed.
   [Main CI](https://github.com/GhostFlying/facet/actions/runs/36978909460) passed
   at the same SHA. This partial slice supplies synthetic API/fault/privacy helpers,
-  not a completed P1-02 compatibility gate. M1-01 preserves its atomic core/config
+  not, by itself, a completed P1-02 compatibility gate. M1-01 preserves its atomic core/config
   commits and normally merges that reviewed input without history rewriting;
   the combined tree requires a new whole-candidate review and 3.12/3.13 CI.
+- P1-02 mandatory compatibility [PR #12](https://github.com/GhostFlying/facet/pull/12)
+  actually merged exact `1b7cd58b4846aab86edcbb781a999abb968d047c`, consuming reviewed
+  merged M1-01 types. Independent review, 92 CT cases/379 full offline tests,
+  [candidate CI](https://github.com/GhostFlying/facet/actions/runs/36981977390) and
+  [main CI](https://github.com/GhostFlying/facet/actions/runs/36982879970) passed.
+  Issue #5 closed and the engineering dependency for M1-02 released; this does
+  not validate future Gmail/repository/runtime feature consumers.
+- M1-02 [Issue #9](https://github.com/GhostFlying/facet/issues/9) / [Draft PR #15](https://github.com/GhostFlying/facet/pull/15)
+  is in actual implementation against independently approved schema r3. Values
+  and 32-table STRICT/WAL initializer/session slices received independent review,
+  including real SQL sealed-snapshot/NUL negative controls. Exact `56eaac6` passed
+  450 full offline tests and [3.12/3.13 CI](https://github.com/GhostFlying/facet/actions/runs/36987351921).
+  The subsequent finite policy/queue/audit/private-read candidate `bf0bf0b` passed
+  54 new/504 full local tests; its independent review and CI are not yet accepted.
+  Whole repository, History/insert/mapping, backup/restore/migration, process-crash
+  and DB-01..28 gates remain incomplete. Typed sessions are not real process locks;
+  ordinary fresh-owner publication is a later reviewed M1-03 extension.
+- M1-03 [Issue #13](https://github.com/GhostFlying/facet/issues/13) has an approved
+  implementation plan but no runtime source. Its wire/command-storage extension
+  has local changes requested under independent design review. M1-04 credential
+  design is approved; implementation still waits for actual owner/schema
+  integration. Neither statement implies OAuth, writer or bootstrap readiness.
+- M1-05 [Issue #14](https://github.com/GhostFlying/facet/issues/14) / [Draft PR #16](https://github.com/GhostFlying/facet/pull/16)
+  early pure-model/catalogue/serializer/logging unit received independent source
+  acceptance at `c455f71ae63fa435c9bb02b82767aff4a032c30c`. Local verification passed
+  488 full offline tests (including 33 logging subprocess cases), Ruff, CLI and
+  installed-wheel export/privacy smoke; [exact source CI](https://github.com/GhostFlying/facet/actions/runs/36989013627)
+  passed Python 3.12/3.13. This coherent delivery additionally updates these two
+  current-state documents; exact-head docs review/CI and integration receipts are
+  tracked in PR #16. No PR #16 merge or post-merge main CI is claimed here.
+
+## Historical planning and bootstrap record
+
+The following records describe their then-current candidates. Current approvals,
+engineering integration and remaining gates are in the sections above.
+
 - Historical planning/normalization records below retain their original SHA/
   verification scope. Their then-pending G0/Draft states were superseded by the
   explicit approval and actual integration recorded above, not retroactively
@@ -190,11 +237,12 @@ do not verify a production daemon, trusted admission, backfill or rendered Dashb
 
 ## Next authorized development unit
 
-Complete independent implementation/acceptance review and 3.12/3.13 CI for this
-M1-01 candidate; integrate only on coordinator authorization. P1-02 closes only
-after its mandatory CT tests consume the reviewed merged core types and its own
-review/CI/integration gates pass; then M1-02 may start its reviewed implementation.
-M1-02 planning can proceed earlier. Ordinary
+Continue M1-02's reviewed finite repository and real-file fault/privacy work;
+its value/schema slices do not close whole persistence or G1. Close the M1-05
+early delivery's exact-head docs/CI gates before coordinator-authorized integration,
+then retain its actual DB/auth/runtime consumer gates. Resolve the M1-03 wire
+design findings before any writer implementation; M1-04 actual ownership/schema
+integration remains pending. M1-01 and P1-02 are actually integrated. Ordinary
 phase-internal plans/engineering PRs advance under the approved autonomous gates;
 material product/privacy/authority changes return to the user. Continue with the
 P1 interface/ADR/test work, then dependency-ready M1 packages from the
