@@ -649,10 +649,13 @@ M4 只是 alpha。未经验证的能力保持明确状态，失败的 gate 不�
 和候选 commit SHA。变更后只继承仍适用的结论，受影响证据重新验证。
 
 下文 owner 是角色，不是固定 agent。协调 agent 派工时在对应 Issue 中绑定实际
-agent、worktree、branch 和 reviewer。`S` 表示 `gpt-6.1-sol` / xhigh，主要负责
-实施、测试、文档和集成；`A` 表示 `gpt-6-astra` / high，主要负责复杂设计与高风险
-review。独立 reviewer 不能审核自己负责设计或编写的同一变更。模型选择由协调
-agent 按风险调整，不要求用户逐包指定。
+agent、worktree、branch 和 reviewer。卡片中的 `S` 保留实施、测试、文档和集成
+角色，`A` 保留复杂设计与高风险 review 角色；它们不是新的 Astra 派工许可。
+2026-10-02 用户最新指示：后续任务仅使用 `gpt-6.1-sol` high/xhigh 或
+`gpt-6-luna`，禁止新派工或 reactivate Astra。复杂设计、高风险独立 review 由
+Sol xhigh 承担；简单有界低风险任务可用 Luna，其余按复杂度用 Sol high/xhigh。
+独立 reviewer 不能审核自己负责设计或编写的同一变更；历史审查保留实际模型、
+reviewer 与 SHA。36 卡片、依赖和 gate 不变，协调 agent 在允许模型内按风险调度。
 
 当前总并发槽为 4：协调 agent 加 3 个执行槽。设计期可为 3 个独立设计/检查任务；
 实施期默认 2 个 worker 加 1 个 reviewer。Review 是共享服务，不用让所有 worker
