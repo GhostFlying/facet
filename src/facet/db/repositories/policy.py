@@ -14,6 +14,7 @@ from facet.contracts.records import AdmissionRef as Admissions
 
 from ..codecs import (
     MAX_INTEGER,
+    ActionState,
     AuditKind,
     AuditObjectKind,
     StorageFailure,
@@ -189,6 +190,17 @@ def admit_thread(uow, projection_id, thread, admission, jobs, guard):
         (("source_thread_id", thread.source_thread_id),),
     )
     _validate_admission(uow, projection_id, thread, admission)
+    if (old is None or not old.active) and admission.admission.tag == "action_label":
+        action = _get(
+            uow,
+            projection_id,
+            "action_commands",
+            (("action_command_id", admission.admission.action_command_id),),
+        )
+        # A fresh transaction is not authority to resolve this terminal action.
+        # Existing exact active-row replay preserves history, not authorization.
+        if action.state is ActionState.NEEDS_ATTENTION:
+            _conflict()
     if old is None:
         if (
             guard.tag != "untracked"

@@ -70,7 +70,7 @@ from facet.db.models import (
     RulesetRow,
     WriteReceipt,
 )
-from facet.db.repositories import actions, epochs, jobs, policy, reads
+from facet.db.repositories import actions, epochs, events, jobs, policy, reads
 from facet.db.repositories.base import _get, _insert
 
 
@@ -498,6 +498,159 @@ def test_ap05_enabled_rule_active_thread_and_job_alias_keep_original_facts(
         )
 
 
+@pytest.mark.parametrize("kind", list(ActionKind))
+@pytest.mark.parametrize("caught", [False, True])
+def test_ap05_enabled_current_member_next_revision_cannot_replace_provenance(
+    state, producer, kind, caught
+):
+    _, connection, session, _ = state
+    initial, version, sealed, member = rule_rows(kind, n=10)
+    version = replace(version, origin=RuleOrigin.CLI)
+    with session.transaction() as uow:
+        policy.publish_rules(
+            uow,
+            P,
+            (initial,),
+            (version,),
+            sealed,
+            (member,),
+            RevisionGuard(Revision(0)),
+        )
+    if kind is not ActionKind.BLACKLIST:
+        admit(session)
+    row = register(session, kind=kind)
+    selected_epoch = None if kind is ActionKind.BLACKLIST else prepare_epoch(session)
+    work = None if selected_epoch is None else expansion(selected_epoch)
+    later = Timestamp(NOW.value + timedelta(seconds=10))
+    before = image(connection)
+
+    def republish(uow):
+        begin(uow, row, producer, rule_id=10, rule_revision=2, work=work)
+        if work is not None:
+            # Real preceding SQL must disappear even if the refusal is caught.
+            jobs.enqueue(uow, P, work)
+        rule, revision, snapshot, selected = rule_rows(
+            kind, n=10, revision=2, snapshot=2, at=later
+        )
+        policy.publish_rules(
+            uow,
+            P,
+            (rule,),
+            (revision,),
+            snapshot,
+            (selected,),
+            RevisionGuard(Revision(1)),
+        )
+        actions.complete_action(
+            uow, P, executed(row, at=later), RevisionGuard(row.revision)
+        )
+
+    with pytest.raises(StorageFailure) as failure, session.transaction() as uow:
+        if caught:
+            with suppress(StorageFailure):
+                republish(uow)
+        else:
+            republish(uow)
+    assert failure.value.args == (ErrorCode.CONSISTENCY_FAILURE.value,)
+    with reopen(state) as actual:
+        assert image(actual[1]) == before
+        assert get_action(actual, row) == row
+        with view(actual) as reader:
+            assert reader.get_rule(P, lid(10)) == initial
+            assert reader.get_projection(P).ruleset_revision == Revision(1)
+
+
+@pytest.mark.parametrize("kind", list(ActionKind))
+@pytest.mark.parametrize(
+    "prior", ["preserved", "absent", "disabled", "out_of_snapshot"]
+)
+def test_ap05_preserved_rule_or_legitimate_selected_publication_commits(
+    state, producer, kind, prior
+):
+    _, connection, session, _ = state
+    if prior != "absent":
+        initial, version, sealed, member = rule_rows(kind, n=10)
+        version = replace(version, enabled=prior != "disabled", origin=RuleOrigin.CLI)
+        with session.transaction() as uow:
+            policy.publish_rules(
+                uow,
+                P,
+                (initial,),
+                (version,),
+                sealed,
+                () if prior == "out_of_snapshot" else (member,),
+                RevisionGuard(Revision(0)),
+            )
+    row = register(session, kind=kind)
+    selected_epoch = None if kind is ActionKind.BLACKLIST else prepare_epoch(session)
+    work = None if selected_epoch is None else expansion(selected_epoch)
+    later = Timestamp(NOW.value + timedelta(seconds=10))
+    revision_number = 1 if prior in {"preserved", "absent"} else 2
+    expected_snapshot = 1 if prior in {"preserved", "absent"} else 2
+    prior_rules = tuple(connection.execute("SELECT * FROM rule_revisions").fetchall())
+    with session.transaction() as uow:
+        begin(uow, row, producer, rule_id=10, rule_revision=revision_number, work=work)
+        if prior != "preserved":
+            rule, version, sealed, member = rule_rows(
+                kind,
+                n=10,
+                revision=revision_number,
+                snapshot=expected_snapshot,
+                at=later,
+            )
+            policy.publish_rules(
+                uow,
+                P,
+                (rule,),
+                (version,),
+                sealed,
+                (member,),
+                RevisionGuard(Revision(0 if prior == "absent" else 1)),
+            )
+        if work is not None:
+            tracked, admission = thread_rows()
+            tracked = replace(tracked, admitted_at=later)
+            admission = replace(
+                admission,
+                admitted_at=later,
+                admission=AdmissionRefActionLabel(
+                    "action_label", row.action_command_id
+                ),
+            )
+            policy.admit_thread(
+                uow,
+                P,
+                tracked,
+                admission,
+                (),
+                ThreadGenerationGuardUntracked("untracked"),
+            )
+            jobs.enqueue(uow, P, work)
+        actions.complete_action(
+            uow, P, executed(row, at=later), RevisionGuard(row.revision)
+        )
+    with reopen(state) as actual:
+        assert get_action(actual, row) == executed(row, at=later)
+        with view(actual) as reader:
+            assert reader.get_rule(P, lid(10)).current_revision == Revision(
+                revision_number
+            )
+            assert reader.get_projection(P).ruleset_revision == Revision(
+                expected_snapshot
+            )
+        stored_versions = tuple(
+            actual[1].execute("SELECT * FROM rule_revisions").fetchall()
+        )
+        if prior == "preserved":
+            assert stored_versions == prior_rules
+        else:
+            assert len(stored_versions) == len(prior_rules) + 1
+            assert actual[1].execute(
+                "SELECT origin,effective_at FROM rule_revisions WHERE revision=?",
+                (revision_number,),
+            ).fetchone() == ("action_label", int(later.value.timestamp() * 1_000_000))
+
+
 @pytest.mark.parametrize(
     "stage",
     [
@@ -726,6 +879,306 @@ def test_ap10_attention_is_terminal_and_cannot_hide_business_noops(state, produc
             RevisionGuard(Revision(1)),
         )
     assert get_action(state, row) == attention
+
+
+def needs_attention(row):
+    return replace(
+        row,
+        state=ActionState.NEEDS_ATTENTION,
+        error_code=ErrorCode.SOURCE_AUTH_REQUIRED,
+        revision=Revision(1),
+    )
+
+
+@pytest.mark.parametrize("attention_first", [False, True])
+@pytest.mark.parametrize("caught", [False, True])
+def test_ap10_attention_and_same_action_admission_both_orders_rollback_without_producer(
+    state, attention_first, caught
+):
+    _, connection, session, _ = state
+    assert actions._ACTION_PRODUCER_TYPES == ()
+    row = register(session)
+    attention = needs_attention(row)
+    tracked, admission = thread_rows()
+    admission = replace(
+        admission,
+        admission=AdmissionRefActionLabel("action_label", row.action_command_id),
+    )
+    before = image(connection)
+
+    def compose(uow):
+        if attention_first:
+            actions.complete_action(uow, P, attention, RevisionGuard(row.revision))
+        policy.admit_thread(
+            uow, P, tracked, admission, (), ThreadGenerationGuardUntracked("untracked")
+        )
+        if not attention_first:
+            actions.complete_action(uow, P, attention, RevisionGuard(row.revision))
+
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        if caught:
+            with suppress(StorageFailure):
+                compose(uow)
+            assert uow._failed
+        else:
+            compose(uow)
+    assert not uow._action_attention_completed
+    with reopen(state) as actual:
+        assert image(actual[1]) == before
+        assert get_action(actual, row) == row
+        with view(actual) as reader:
+            assert reader.get_thread(P, T) is None
+
+
+@pytest.mark.parametrize("operation", ["publish", "admit", "stop", "enqueue"])
+@pytest.mark.parametrize("attention_first", [False, True])
+@pytest.mark.parametrize("caught", [False, True])
+def test_ap10_attention_business_participants_are_symmetric_and_after_guard_is_presql(
+    state, operation, attention_first, caught
+):
+    _, connection, session, _ = state
+    publish(session)
+    tracked, admission = admit(session)
+    selected_epoch = prepare_epoch(session)
+    work = expansion(selected_epoch)
+    with session.transaction() as uow:
+        jobs.enqueue(uow, P, work)
+        old_member = _get(
+            uow,
+            P,
+            "ruleset_members",
+            (("ruleset_revision", Revision(1)), ("rule_id", lid(10))),
+        )
+    row = register(session)
+    attention = needs_attention(row)
+    before = image(connection)
+
+    def business(uow):
+        if operation == "publish":
+            rule, version, sealed, member = rule_rows(n=21, snapshot=2)
+            return policy.publish_rules(
+                uow,
+                P,
+                (rule,),
+                (version,),
+                sealed,
+                (replace(old_member, ruleset_revision=sealed.revision), member),
+                RevisionGuard(Revision(1)),
+            )
+        if operation == "admit":
+            return policy.admit_thread(
+                uow,
+                P,
+                tracked,
+                admission,
+                (),
+                ThreadGenerationGuardTracked("tracked", Generation(1)),
+            )
+        if operation == "stop":
+            return policy.stop_thread(
+                uow, P, T, Generation(1), NOW, ThreadStopReason.MANUAL_STOP
+            )
+        return jobs.enqueue(uow, P, work)
+
+    def compose(uow):
+        if attention_first:
+            actions.complete_action(uow, P, attention, RevisionGuard(row.revision))
+            statements = []
+            connection.set_trace_callback(statements.append)
+            try:
+                with pytest.raises(StorageFailure) as denied:
+                    business(uow)
+                assert statements == []
+                raise denied.value
+            finally:
+                connection.set_trace_callback(None)
+        business(uow)
+        actions.complete_action(uow, P, attention, RevisionGuard(row.revision))
+
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        if caught:
+            with suppress(StorageFailure):
+                compose(uow)
+            assert uow._failed
+        else:
+            compose(uow)
+    assert not uow._action_attention_completed
+    with reopen(state) as actual:
+        assert image(actual[1]) == before
+        assert get_action(actual, row) == row
+        # A separate untouched UoW still accepts the actual same business input.
+        with actual[2].transaction() as ordinary:
+            assert not ordinary._action_attention_completed
+            receipt = business(ordinary)
+            assert receipt.disposition == (
+                "created"
+                if operation == "publish"
+                else "updated"
+                if operation == "stop"
+                else "replayed"
+            )
+        assert get_action(actual, row) == row
+
+
+@pytest.mark.parametrize("caught", [False, True])
+def test_ap10_attention_scope_entry_refuses_presql_and_poisons_marker(
+    state, producer, caught
+):
+    _, connection, session, _ = state
+    row = register(session)
+    selected_epoch = prepare_epoch(session)
+    work = expansion(selected_epoch)
+    before = image(connection)
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        actions.complete_action(
+            uow, P, needs_attention(row), RevisionGuard(row.revision)
+        )
+        statements = []
+        connection.set_trace_callback(statements.append)
+        try:
+            if caught:
+                with pytest.raises(StorageFailure):
+                    begin(uow, row, producer, work=work)
+                assert uow._failed
+            else:
+                begin(uow, row, producer, work=work)
+        finally:
+            connection.set_trace_callback(None)
+            assert statements == []
+    assert uow._action_scope is None and not uow._action_attention_completed
+    with reopen(state) as actual:
+        assert image(actual[1]) == before
+        assert get_action(actual, row) == row
+
+
+@pytest.mark.parametrize("reactivate", [False, True])
+@pytest.mark.parametrize("replay", [False, True])
+@pytest.mark.parametrize("caught", [False, True])
+def test_ap10_stored_attention_cannot_create_or_reactivate_same_action_admission(
+    state, reactivate, replay, caught
+):
+    _, connection, session, _ = state
+    publish(session)
+    if reactivate:
+        admit(session)
+        with session.transaction() as uow:
+            policy.stop_thread(
+                uow, P, T, Generation(1), NOW, ThreadStopReason.MANUAL_STOP
+            )
+    row = register(session)
+    attention = needs_attention(row)
+    with session.transaction() as uow:
+        actions.complete_action(uow, P, attention, RevisionGuard(row.revision))
+        assert reads.get_action(uow, P, row.action_command_id) == attention
+    before = image(connection)
+    tracked, admission = thread_rows(
+        generation=3 if reactivate else 1, admission_revision=2 if reactivate else 1
+    )
+    unrelated = admission
+    admission = replace(
+        admission,
+        admission=AdmissionRefActionLabel("action_label", row.action_command_id),
+    )
+    guard = (
+        ThreadGenerationGuardTracked("tracked", Generation(2))
+        if reactivate
+        else ThreadGenerationGuardUntracked("untracked")
+    )
+    changes = connection.total_changes
+
+    def attempt(uow):
+        assert not uow._action_attention_completed
+        if replay:
+            receipt = actions.complete_action(
+                uow, P, attention, RevisionGuard(Revision(1))
+            )
+            assert receipt.disposition == "replayed"
+            assert not uow._action_attention_completed
+        policy.admit_thread(uow, P, tracked, admission, (), guard)
+
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        if caught:
+            with suppress(StorageFailure):
+                attempt(uow)
+            assert uow._failed
+        else:
+            attempt(uow)
+    assert connection.total_changes == changes
+    with reopen(state) as actual:
+        assert image(actual[1]) == before
+        assert get_action(actual, row) == attention
+        # The unresolved action does not block unrelated, valid future-rule work.
+        with actual[2].transaction() as ordinary:
+            policy.admit_thread(ordinary, P, tracked, unrelated, (), guard)
+        with view(actual) as reader:
+            assert reader.get_thread(P, T) == tracked
+        assert get_action(actual, row) == attention
+
+
+def test_ap10_standalone_attention_allows_registration_event_bookkeeping_and_reads(
+    state,
+):
+    _, connection, session, _ = state
+    row = register(session)
+    second_source = replace(
+        event(701, thread=T, tag="label_changed"), processing=EventProcessing.RESOLVED
+    )
+    with session.transaction() as uow:
+        _insert(uow, P, "source_events", second_source)
+    second = action_row(701, source=second_source)
+    attention = needs_attention(row)
+    with session.transaction() as uow:
+        actions.complete_action(uow, P, attention, RevisionGuard(row.revision))
+        assert uow._action_attention_completed
+        actions.register_action(uow, P, second)
+        events.enrich_event(
+            uow, P, second_source.event_id, T, RevisionGuard(Revision(0))
+        )
+        assert reads.get_action(uow, P, row.action_command_id) == attention
+        assert reads.get_action(uow, P, second.action_command_id) == second
+    assert not uow._action_attention_completed
+    with reopen(state) as actual:
+        assert get_action(actual, row) == attention
+        assert get_action(actual, second) == second
+
+
+def test_ap10_historical_attention_and_active_admission_replay_preserves_facts(
+    state,
+):
+    _, connection, session, _ = state
+    row = register(session)
+    tracked, admission = thread_rows()
+    admission = replace(
+        admission,
+        admission=AdmissionRefActionLabel("action_label", row.action_command_id),
+    )
+    # Retained preexisting authorization is not silently revoked by this repair.
+    with session.transaction() as uow:
+        policy.admit_thread(
+            uow, P, tracked, admission, (), ThreadGenerationGuardUntracked("untracked")
+        )
+    attention = needs_attention(row)
+    with session.transaction() as uow:
+        actions.complete_action(uow, P, attention, RevisionGuard(row.revision))
+    before = image(connection)
+    changes = connection.total_changes
+    with session.transaction() as uow:
+        receipt = actions.complete_action(uow, P, attention, RevisionGuard(Revision(1)))
+        assert receipt == WriteReceipt("replayed", row.action_command_id, Revision(1))
+        assert not uow._action_attention_completed
+        replayed = policy.admit_thread(
+            uow,
+            P,
+            tracked,
+            admission,
+            (),
+            ThreadGenerationGuardTracked("tracked", Generation(1)),
+        )
+        assert replayed.disposition == "replayed"
+    assert connection.total_changes == changes
+    with reopen(state) as actual:
+        assert image(actual[1]) == before
+        assert get_action(actual, row) == attention
 
 
 @pytest.mark.parametrize(

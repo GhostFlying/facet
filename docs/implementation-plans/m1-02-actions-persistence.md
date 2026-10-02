@@ -346,3 +346,54 @@ receipt is saved in a documentation-only commit before any R2 strategy code.
 The bounded R1 repair remains an existing-contract correction. Historical source
 `62d75c0253a6d66710a9d4d4a4b4346b8b55c6db` remains HOLD; no source acceptance,
 production registration, whole M1-02/RV11/G1 or migration dispatch is inferred.
+
+### R1/R2 corrected-source verification handoff
+
+The reviewed R2 strategy was saved before implementation in documentation commit
+`056f253eb835448124035a208126e4cafb9875c5`. Independently accepted OS foundation
+main `ea80db286fe110a69450076581b0b25810dcaf91` was then normally carried through
+merge `a7a5c1a24b19f602203e664c4889d4fdcf79a1a4`. All moving SQL repair bytes were
+unchanged by that merge; all accepted OS bytes remain exact. Its OS acceptance
+does not replace the separate corrected SQL source gate.
+
+The bounded R1 repair selects enabled/current-member preservation from captured
+before facts, rejects publication despite a caller-selected next revision, and
+rechecks unchanged rule/revision/member/ruleset at completion. Actual detecting
+WAL controls cover all three kinds and caught rollback after real preceding
+enqueue SQL; preserved no-op and absent/disabled/out-of-snapshot publications
+have paired positives. No existing rule identity/value is changed.
+
+R2 adds only the approved transient attention-completed UoW flag and the actual
+stored-state guard on new/reactivated action-referenced admission. Both attention/
+business orders poison and roll back the full UoW, including caught failures.
+All four later business participants and scope entry refuse before SQL/no-op;
+the flag resets on exit and historical full-row replay never arms it. Standalone
+attention, registration/non-business event bookkeeping, exact retained active
+admission replay and unrelated fresh transactions keep their reviewed semantics.
+The existing stronger CONSUMED all-mutator fence remains unchanged.
+
+Actual corrected verification on Python 3.12.13 / SQLite 3.53.1:
+
+- Full offline pytest: **1525 passed in 256.21 seconds**. Actual collection
+  retains the combined 1475-test baseline (1352 earlier SQL/ACTION plus 123
+  accepted OS controls) and adds 50 new R1/R2 cases. Original ACTION test/helper
+  AST bodies are unchanged; no original SQL test or accepted OS test was removed.
+- Combined focused ACTION/OS suite: **337 passed in 80.36 seconds**; repeated
+  AP05/AP10 subgroup: **61 passed in 25.53 seconds**. The first new positive
+  publication fixture duplicated an existing normalized rule value; it was
+  corrected to a distinct valid synthetic allocation without relaxing guards.
+- Locked offline sync, Ruff and format check (158 files), both CLI help commands,
+  production JSON version, whitespace and repository-safety checks passed.
+  Original plan185/ADR329 and reviewed R2 plan336 prefixes preserve exact hashes.
+- A fresh offline noneditable wheel build/install passed exact SQL/OS source,
+  archive and installed-byte checks outside the repository. Production action
+  producer, read-provider and qualified-runtime registries remain empty; no
+  test producer/helper/probe/private artifact is packaged. Imports create no DB,
+  file/FD, fork hook, network/subprocess participant, logging or provider effects.
+
+Historical source62 remains HOLD. This is author verification, not acceptance:
+the new exact corrected candidate needs independent non-author source/acceptance
+review and its own Python 3.12/3.13 CI before root may release integration. PR15
+stays Draft; Issue9, whole M1-02, actual M5/M103/RV11/G1 and migration source remain
+pending. No schema, API, producer/provider registration, dependency, CI, CLI,
+shared-status, Gmail, credential, deployment, image or release scope was expanded.

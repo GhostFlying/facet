@@ -146,6 +146,7 @@ def _invalidate_action_scope(uow):
         _ENROLLED_SCOPES.discard(scope)
     uow._action_scope = None
     uow._action_business_touched = False
+    uow._action_attention_completed = False
 
 
 def _rule_revision(uow, projection, rule):
@@ -175,7 +176,11 @@ def _admission(uow, projection, thread):
 
 @_mutating
 def _begin_action_effect(uow, projection_id, selection, guard, producer):
-    if uow._action_scope is not None or uow._action_business_touched:
+    if (
+        uow._action_scope is not None
+        or uow._action_business_touched
+        or uow._action_attention_completed
+    ):
         _inconsistent()
     if type(producer) not in _ACTION_PRODUCER_TYPES:
         raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
@@ -253,6 +258,10 @@ def _begin_action_effect(uow, projection_id, selection, guard, producer):
 
 
 def _business(uow, projection_id):
+    if uow._action_attention_completed:
+        # Attention is no-business in either order, including semantic no-ops.
+        # Historical exact replay does not arm this per-transaction boundary.
+        _inconsistent()
     scope = _scope(uow, projection_id)
     if scope is not None and scope.phase is not _Phase.OPEN:
         _inconsistent()
@@ -261,13 +270,27 @@ def _business(uow, projection_id):
     return scope
 
 
+def _preserves_enabled_rule(scope):
+    # Select the branch from captured facts, not the proposed after-row or
+    # caller's RuleRef revision. An enabled current member cannot be retagged
+    # by manufacturing its next revision to attach this action.
+    return (
+        scope.before_rule is not None
+        and scope.before_rule_revision is not None
+        and scope.before_rule_revision.enabled
+        and scope.before_member is not None
+        and scope.before_member.rule_revision == scope.before_rule.current_revision
+    )
+
+
 def _before_publish(uow, projection_id, rules, revisions, snapshot, members):
     scope = _business(uow, projection_id)
     if scope is None:
         return
     selected = scope.selection.rule
     if (
-        scope.rule_receipt is not None
+        _preserves_enabled_rule(scope)
+        or scope.rule_receipt is not None
         or any(row.rule_id != selected.rule_id for row in rules)
         or len(revisions) != 1
         or revisions[0].rule_id != selected.rule_id
@@ -459,14 +482,14 @@ def _verify_rule(uow, projection_id, scope, executed_at):
         or member.rule_revision != ref.revision
     ):
         _inconsistent()
-    noop = (
+    unchanged = (
         scope.before_rule == rule
         and scope.before_rule_revision == revision
         and scope.before_member == member
         and scope.before_ruleset_revision == snapshot.revision
     )
-    if noop:
-        if scope.rule_receipt is not None:
+    if _preserves_enabled_rule(scope):
+        if not unchanged or scope.rule_receipt is not None:
             _inconsistent()
     elif (
         scope.rule_receipt != WriteReceipt("created", projection_id, snapshot.revision)
@@ -678,6 +701,8 @@ def complete_action(uow, projection_id, row: ActionCommandRow, guard):
     )
     if scope is not None:
         object.__setattr__(scope, "phase", _Phase.CONSUMED)
+    else:
+        uow._action_attention_completed = True
     return WriteReceipt("updated", row.action_command_id, row.revision)
 
 

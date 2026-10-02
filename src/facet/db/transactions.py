@@ -19,6 +19,7 @@ class UnitOfWork:
         "_failed",
         "_action_scope",
         "_action_business_touched",
+        "_action_attention_completed",
     )
 
     def __init__(self, session: "WriterSession"):
@@ -28,6 +29,7 @@ class UnitOfWork:
         self._failed = False
         self._action_scope = None
         self._action_business_touched = False
+        self._action_attention_completed = False
 
     def __enter__(self) -> "UnitOfWork":
         session = self._session
@@ -46,6 +48,7 @@ class UnitOfWork:
         self._active = True
         self._action_scope = None
         self._action_business_touched = False
+        self._action_attention_completed = False
         session._uow = self
         try:
             session._check_lineage()
