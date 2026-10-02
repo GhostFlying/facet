@@ -227,3 +227,76 @@ def test_row_inventory_is_closed_required_nullable_and_immutable():
         models.WriteReceipt("anything", L, Revision(0))
     assert models.WriteReceipt("created", P, Revision(0)).object_id == P
     assert StorageFailure(ErrorCode.INVALID_INPUT).code is ErrorCode.INVALID_INPUT
+
+
+def test_key_entries_refuse_foreign_projection_before_property_access():
+    class Foreign:
+        @property
+        def value(self):
+            pytest.fail("foreign private value property was accessed")
+
+    key = SourceEventKeyMessageAdded("message_added", P, V, V)
+    partition = PartitionRefSourceWindow("source_window")
+    subject = JobSubjectProjectMessage("project_message", V, V, Generation(1))
+    for foreign in (Foreign(), "private", None):
+        for action in (
+            lambda foreign=foreign: event_key(foreign, key),
+            lambda foreign=foreign: partition_key(foreign, partition),
+            lambda foreign=foreign: job_key(foreign, subject),
+            lambda foreign=foreign: _read_key("sync_jobs", foreign, 0, L),
+            lambda foreign=foreign: _parse_read_key(
+                "sync_jobs", foreign, _read_key("sync_jobs", P, 0, L)
+            ),
+        ):
+            with pytest.raises(StorageFailure, match="^invalid_input$"):
+                action()
+
+
+@pytest.mark.parametrize("bad", [MIN_TIMESTAMP - 1, MAX_TIMESTAMP + 1, True])
+def test_read_key_rejects_out_of_range_time(bad):
+    with pytest.raises(StorageFailure, match="^invalid_input$"):
+        _read_key("sync_jobs", P, bad, L)
+
+
+def test_read_key_never_accepts_unknown_table_or_unbounded_frame():
+    for table in ("unregistered", "private", None, 1, []):
+        with pytest.raises(StorageFailure, match="^invalid_input$"):
+            _read_key(table, P, 0, L)
+        with pytest.raises(StorageFailure, match="^invalid_input$"):
+            _parse_read_key(
+                table, P, _frame(("read.unregistered", P.value, "0", L.value))
+            )
+    for key in (
+        b"x" * 8193,
+        b"",
+        b"private",
+        _frame(("read.unregistered", P.value, "0", L.value)),
+    ):
+        with pytest.raises(StorageFailure, match="^invalid_input$"):
+            models.ReadPage((), key)
+    good = _read_key("sync_jobs", P, 0, L)
+    assert models.ReadPage((), good).next_key == good
+
+
+def test_read_page_is_homogeneous_and_cursor_family_is_checked():
+    projection = models.ProjectionRow(
+        P,
+        Count(1),
+        L,
+        L,
+        Revision(0),
+        Revision(0),
+        models.SourceMode.READONLY,
+        models.BindingState.VERIFICATION_PENDING,
+        models.RestoreState.NORMAL,
+        True,
+        None,
+        Timestamp(datetime(2026, 1, 1, tzinfo=UTC)),
+    )
+    schema = models.SchemaMetadataRow(
+        Count(1), SchemaVersion(1), models.Sha256Hex("a" * 64), projection.created_at
+    )
+    with pytest.raises(StorageFailure):
+        models.ReadPage((projection, schema), None)
+    with pytest.raises(StorageFailure):
+        models.ReadPage((projection,), _read_key("sync_jobs", P, 0, L))

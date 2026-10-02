@@ -52,12 +52,16 @@ def _partition_components(partition: PartitionRef) -> tuple[str, ...]:
 
 
 def event_key(projection: ProjectionId, key: SourceEventKey) -> KeyBytes:
+    if type(projection) is not ProjectionId:
+        invalid()
     return KeyBytes(
         _frame(("event", projection.value) + _event_components(key, projection))
     )
 
 
 def partition_key(projection: ProjectionId, partition: PartitionRef) -> KeyBytes:
+    if type(projection) is not ProjectionId:
+        invalid()
     return KeyBytes(
         _frame(("partition", projection.value) + _partition_components(partition))
     )
@@ -141,9 +145,14 @@ _READ_TABLES = frozenset(
 def _read_key(
     table: str, projection: ProjectionId, timestamp: int, id: LocalId
 ) -> bytes:
+    from .codecs import MAX_TIMESTAMP, MIN_TIMESTAMP
+
     if (
-        table not in _READ_TABLES
+        type(table) is not str
+        or table not in _READ_TABLES
+        or type(projection) is not ProjectionId
         or type(timestamp) is not int
+        or not MIN_TIMESTAMP <= timestamp <= MAX_TIMESTAMP
         or type(id) is not LocalId
     ):
         invalid()
@@ -153,12 +162,27 @@ def _read_key(
 def _parse_read_key(
     table: str, projection: ProjectionId, value: bytes
 ) -> tuple[int, str]:
+    if type(table) is not str or table not in _READ_TABLES:
+        invalid()
+    if type(projection) is not ProjectionId:
+        invalid()
+    parsed_table, parsed_projection, timestamp, id = _validate_read_cursor(value)
+    if parsed_table != table or parsed_projection != projection:
+        invalid()
+    return timestamp, id.value
+
+
+def _validate_read_cursor(value: bytes) -> tuple[str, ProjectionId, int, LocalId]:
     from .codecs import timestamp_from_sql
 
     parts = _unframe(value)
-    if len(parts) != 4 or parts[:2] != ("read." + table, projection.value):
+    if len(parts) != 4 or not parts[0].startswith("read."):
+        invalid()
+    table = parts[0][5:]
+    if table not in _READ_TABLES:
         invalid()
     try:
+        projection = ProjectionId(parts[1])
         timestamp = int(parts[2])
         if str(timestamp) != parts[2]:
             invalid()
@@ -166,4 +190,4 @@ def _parse_read_key(
         id = LocalId(parts[3])
     except (ValueError, StorageFailure):
         raise StorageFailure(ErrorCode.INVALID_INPUT) from None
-    return timestamp, id.value
+    return table, projection, timestamp, id

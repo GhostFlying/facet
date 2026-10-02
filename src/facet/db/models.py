@@ -555,6 +555,8 @@ class ReadPage[T]:
     next_key: bytes | None
 
     def __post_init__(self) -> None:
+        from .keys import _validate_read_cursor
+
         if (
             type(self.items) is not tuple
             or len(self.items) > 500
@@ -562,6 +564,24 @@ class ReadPage[T]:
             or any(type(row) not in _ROW_TYPES for row in self.items)
         ):
             invalid()
+
+        if self.items and any(
+            type(row) is not type(self.items[0]) for row in self.items
+        ):
+            invalid()
+        if self.next_key is not None:
+            table, projection, _, _ = _validate_read_cursor(self.next_key)
+            family = {
+                "sync_jobs": SyncJobRow,
+                "insert_attempts": InsertAttemptRow,
+                "source_events": SourceEventRow,
+                "audit_events": AuditEventRow,
+            }[table]
+            if any(
+                type(row) is not family or row.projection_id != projection
+                for row in self.items
+            ):
+                invalid()
 
 
 @dataclass(frozen=True, slots=True, repr=False)
