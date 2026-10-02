@@ -2,9 +2,9 @@
 
 Date: 2026-10-02
 
-Status: corrections prepared; revised candidate review pending. Overall user
-Phase 1 plan approval G0 is separately pending. This technical record cannot
-authorize merging the overall plan or starting implementation.
+Status: independent technical pre-review approved for the revised candidate.
+Overall user Phase 1 plan approval G0 is separately pending. This technical
+record cannot authorize merging the overall plan or starting implementation.
 
 ## Initial review
 
@@ -24,13 +24,27 @@ authorize merging the overall plan or starting implementation.
 | R3 / P2 | M4-06 used full G3 as implementation dependency, indirectly blocking offline Runtime/Compose on live authentication scope | M4-06 depends on M3/M4 offline-verified outputs; G3 and D3 apply to final G4/live acceptance. Clarified M2-05, M5-03, M6-02/03/06 references as engineering outputs and PR integration versus milestone live acceptance in workflow |
 | C1 / optional | M6-08 mentioned token refresh/generic faults but did not explicitly require real authorization loss and re-OAuth | Added real authorization failure→CLI OAuth→pending jobs resume evidence, distinct from token refresh, with explicit fault-scope permission and user participation; missing permission keeps that gate pending |
 
-The reviewer otherwise found the product coverage, privacy, AUTH/insert
+The initial reviewer otherwise found the product coverage, privacy, AUTH/insert
 attribution design gates, Compose, Actions and supply-chain direction acceptable.
-This does not imply the corrected candidate is approved until re-review.
+The initial verdict remained changes_requested until the separate re-review.
 
 ## Revised candidate
 
-Pending: local candidate SHA, repeated document/dependency/safety checks and
-independent re-review verdict. The author's response is not self-approval. No
-product code, Gmail operation, image publication, deployment or overall plan
-merge occurred.
+- Reviewed candidate SHA: `7c68991ef5f47ba65cc61a0dcc2dfd80fdb0ca46`.
+- Base SHA: `9d8595da789e6e450a5bdb0bfe391aab34244237`.
+- Reviewer: the same independent `phase1_plan_review` agent, Astra high.
+- Verdict: `approved` for technical pre-review only; no new blocking findings.
+- R1/R2/R3 closed; C1 implemented. The reviewer confirmed consistent pending G0,
+  no overall-plan auto-merge, corrected wave prerequisites, separation of offline
+  inputs from final live gates, and permission/user participation for re-auth.
+- Independent package extraction found 36 unique packages, no missing nodes or
+  cycles; manual wave review and `git diff --check` passed. Extracted edge totals
+  vary by reference classification and are not themselves semantic proof.
+- Local locked baseline subsequently passed: environment sync, lint, format,
+  24 offline tests and spike CLI help on Python 3.13.5. It verifies the unchanged
+  spike baseline, not planned production or Gmail/deployment behavior.
+
+The following report-only metadata commit records this reviewed SHA/verdict and
+check results. It does not change the substantive plan. Overall G0 is pending;
+the draft planning PR must remain unmerged. No product code, Gmail operation,
+image publication or deployment occurred.

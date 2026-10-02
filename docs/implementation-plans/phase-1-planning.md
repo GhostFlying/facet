@@ -113,10 +113,11 @@ milestone evidence.
 ## Verification record
 
 - Revised draft contains 36 unique work-package cards. Mechanical checks of the
-  cards' implementation dependency references/ranges found no nonexistent
-  package or cycle (117 extracted implementation edges); milestone/live gates
-  remain separately reviewed acceptance conditions. The initial candidate had
-  116 extracted edges; runtime now explicitly references M3 offline evidence.
+  implementation dependency references/ranges found no nonexistent package or
+  cycle, and the independent reviewer manually checked the corrected waves.
+  Reference extraction counts vary when live/adapter references are included;
+  an edge count alone does not establish dependency semantics. Milestone/live
+  gates remain separately reviewed acceptance conditions.
 - Local links, balanced fences, heading separation, and absence of private host
   paths passed for all nine changed documentation files. Whitespace checks
   passed. No production test is claimed from these documentation checks.
@@ -130,6 +131,13 @@ milestone evidence.
 - Initial independent review at `a8e87de8e02469f018a317efeea1be6493dafdc2`
   returned changes_requested. R1-R3 and optional C1 were corrected and preserved
   in the [review record](../reviews/phase-1-plan-review.md).
-- Pending: independent technical re-review at the revised candidate SHA, draft
-  PR/CI, then explicit user overall-plan review/approval. Production M1-M6 remain
-  unimplemented; the overall planning PR stays unmerged while G0 is pending.
+- Independent technical re-review approved candidate
+  `7c68991ef5f47ba65cc61a0dcc2dfd80fdb0ca46`; R1-R3 closed and C1 implemented.
+  The follow-up commit only records this verdict and actual baseline evidence,
+  without changing task scope or product requirements.
+- Locked local baseline passed on Python 3.13.5: `uv sync --locked --extra dev`,
+  Ruff lint/format (31 files), 24 offline tests, and spike CLI help. No production
+  or live Gmail behavior is claimed.
+- Pending: draft PR/CI, then explicit user overall-plan review/approval.
+  Production M1-M6 remain unimplemented; the overall planning PR stays unmerged
+  while G0 is pending.

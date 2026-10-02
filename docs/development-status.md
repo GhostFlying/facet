@@ -12,7 +12,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | --- | --- | --- |
 | Phase 0 Gmail spike | Complete within its scope | See [redacted results](phase-0-gmail-spike-results.md); production behavior not implied |
 | Repository bootstrap | Complete | Public `main` published with account noreply identity; Python 3.11/3.12 offline CI passed |
-| Phase 1 execution planning | Draft revision; technical re-review and user G0 approval pending | 36 work packages, corrected dispatch dependencies, internal merge/GHCR scope approved conditionally; no product implementation |
+| Phase 1 execution planning | Draft; technical pre-review passed; user G0 approval pending | Reviewed `7c68991`; 36 packages, corrected dispatch dependencies, conditional internal merge/GHCR scope; no product implementation |
 | M1 foundation | Not implemented | Config, bindings, schema/migrations, locks, rule storage, public status models |
 | M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
 | M3 admission/backfill | Not implemented | Rules/authenticity, preview, fixed six-month discovery, durable backfill |
@@ -35,12 +35,18 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
   worktree is isolated. Local document links/fences/headings, whitespace, private
   host-path checks, 36-package dependency references/acyclicity and staged-index
   repository safety passed for the initial candidate. Independent review of
-  `a8e87de` requested changes; the revised draft passed document/117-edge DAG
-  checks. Technical re-review and PR CI remain pending; overall user approval G0
-  is separately pending. The [review record](reviews/phase-1-plan-review.md)
-  preserves findings and responses. No
+  `a8e87de` requested changes. Independent technical re-review approved
+  `7c68991ef5f47ba65cc61a0dcc2dfd80fdb0ca46`, closing R1-R3 and C1; 36-package
+  uniqueness/missing-node/cycle checks and manual wave review passed. PR CI and
+  overall user approval G0 remain pending. The
+  [review record](reviews/phase-1-plan-review.md) preserves both verdicts and
+  responses. No
   production package, daemon, Gmail request, deployment, or image is
   introduced by this unit.
+- This planning unit's locked local baseline passed on Python 3.13.5: environment
+  sync, Ruff lint/format (31 files), 24 offline tests and spike CLI help. These
+  checks preserve the existing spike baseline; they do not validate planned
+  production behavior. No mailbox credentials or live Gmail calls were used.
 - On 2026-10-02 the user authorized delegated Phase 1 work, multiple worktrees,
   Issue/PR tracking, atomic commits, Astra high / 6.1 Sol xhigh as needed, and
   root coordination/reporting only. Complex plans need independent review before

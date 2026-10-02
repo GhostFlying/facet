@@ -2,8 +2,8 @@
 
 日期：2026-10-02
 
-状态：计划技术预审待复审；整体计划待用户 review/明确批准（G0）；M1-M6 均
-未实现。GitHub 跟踪入口为
+状态：计划技术预审通过（reviewed `7c68991ef5f47ba65cc61a0dcc2dfd80fdb0ca46`）；
+整体计划待用户 review/明确批准（G0）；M1-M6 均未实现。GitHub 跟踪入口为
 [Phase 1 Epic #1](https://github.com/GhostFlying/facet/issues/1)。
 
 目标：交付单用户、自托管、可恢复的 Gmail projection，包含只读 Dashboard、
