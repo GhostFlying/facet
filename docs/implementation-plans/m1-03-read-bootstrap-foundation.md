@@ -248,3 +248,104 @@ Shipping read provider/runtime and ACTION registries remain EMPTY. No claim,
 seal, lease, provider, product-state open, CLI activation or external authority
 was released. This factual receipt is committed BEFORE any foundation source;
 new source freeze, independent source QA/exact CI and root integration remain.
+
+## Author source handoff: finite no-state foundation
+
+All six allocated runtime/test paths are now implemented. Existing runtime
+initializer/OS ownership, SQL/read bridge, core exports, CLI, dependencies, CI,
+shared tests and shared status are unchanged from qualified source basea9c.
+This author's implementation/testing is NOT independent source acceptance.
+
+The fixed latch verifies actual audit-hook delivery, including CPython's silent
+declined-hook behavior, before the one actual creator-owned memory probe.
+Confirmed close precedes StageB; uncertain close retains the handle and an
+invalidated latch. PID and retained Thread checks precede lifecycle effects.
+Unexpected audited SQLite/import/open/native/mutation/subprocess events
+invalidate; a refused foreign lifecycle call does not poison the genuine creator.
+Shipping read provider/runtime inventories remain EMPTY and provider remains
+null.
+
+The finite graph explicitly separates CPython's attempted-but-absent Windows
+_wmi import on supported Linux from a loaded module. Only the missing attempt
+is permitted: _wmi is NOT in the loaded-module graph. Actual harmless loaded
+and hostile implementations refuse, including before hostile state writes;
+qualification failure invalidates irreversibly. Native filenames must remain
+regular trusted CPython stdlib extensions; a real alternate native-loader path
+refuses before loading. This is not an expanded runtime trust registry.
+
+The fixed installed launcher checks nonsymlink code, ownership/modes, bounded
+distribution metadata and the three files' installed RECORD byte identities.
+Missing/replaced/hardlinked/editable/unsafe code never falls back. Actual child
+flags are -I/-S/-B/-Xutf8, environment is only fixed locale defaults, inherited
+FDs are closed, output is bounded256 total bytes and the whole-call deadline is
+10s. Actual timeout control asserts elapsed time LESS THAN10s, not a relaxed
+tolerance. Finally cleanup attempts only the freshly owned child and all pipes.
+
+Historical author verification before the final no-reset correction, on
+CPython3.12.13 / SQLite3.53.1, measured:
+
+- Focused63 PASS13.27s concurrently with the full suite; previous
+  focused63 PASS13.32s and concurrent63 PASS13.34s.
+- Full1688 PASS361.09s, retaining all1625 baseline tests plus63 additive
+  cases. First full1688 PASS363.80s also passed before tightening the timeout
+  assertion; no test was deleted/skipped or gate weakened.
+- Actual creator/live-foreign/recycled-get_ident with distinct retained Thread,
+  native retirement/held64/deadlines/joins, ten repeated real reuse children,
+  own fork/reap, probe/query/handle/allocation/uncertain-close and fixed-error
+  controls. No patched identity or skip substitutes.
+- Actual WAL/config/token/journal/lock sentinels unchanged; detecting file SQL,
+  read/write/chmod/unlink/mkdir/native/import pairs; real .pth/LD/environment
+  and inherited-FD controls; byte overflow/sensitive output/death/timeout and
+  pipe-close faults leave controlled output and reaped children.
+- Locked offline dev sync, Ruff, format168 files, both CLI helps, JSON version,
+  whitespace checks and staged safety. Fresh noneditable wheel archive/source/
+  installed bytes, empty inventories, ordinary import effects and no helpers/
+  private assets passed. Superseded wheel SHA256 was
+  bf6d4b650b6ecce6e8ecf71df5f56a79110efd01397a6ceba28e23cf4b7889de.
+
+Before source freeze, two additional actual installed regressions exposed that
+preloaded SQLite/application refusal did not consume the initial attempt:
+clearing those sys.modules entries incorrectly admitted a second begin. Both
+controls failed and remain regressions. The existing no-reset/no-retry contract
+is corrected with a private persistent refused sentinel BEFORE validation or
+allocation; no seventh latch field, registry, file/API or authority is added.
+An already existing genuine latch is checked FIRST, so foreign Thread/fork or
+repeat attempts cannot poison/retire/release it. Actual genuine-owner
+continuation pairs and real latch-allocation refusal/retry controls are retained.
+The historical1688/wheel above do not qualify the corrected candidate. Final
+corrected source/focused/full/wheel evidence binds in the handoff below.
+
+Original approved217-line plan and229-line design hashes remain EXACT. The
+250-line pre-code receipt prefix remains unchanged. Candidate SHA/actual dual
+Python CI and nonauthor verdict bind separately in the dependent Draft PR
+handoff. PR15 is still Draft/unmerged; this topic depends on it and refsIssue13,
+not full M103/M102 acceptance. No state opener, seal/lease/permit/provider, CLI
+activation, actual VFS/readonly_shm qualification, backup/provenance/bundle or
+LIVE actor/server is delivered. All downstream and external authority gates
+remain. Independent source QA/CI and separate root integration are pending.
+
+### Corrected final author verification
+
+Final exact source/test bytes measured focused64 PASS13.42s and full1689
+PASS358.69s: all1625 original cases plus64 additive cases, without skips or
+weakened gates. The preceding64 PASS13.41/13.44s and full1689 PASS362.04/361.48s
+were intermediate checkpoints before the last real-application/creator-begin
+oracle additions, not substitutes for this final run.
+
+Both preloaded/reset regressions now use actual installed imports (SQLite and
+Facet), remove their module entries after the first refusal and still refuse.
+Real allocation failure also permanently consumes the attempt. Actual foreign
+Thread, recycled-identifier Thread and fork begin/probe/StageB refusals preserve
+all six genuine creator fields; the legitimate live creator/parent continues
+through its probe/confirmed close/StageB. No caller/module clearing resets trust.
+
+Final corrected fresh noneditable wheel SHA256:
+5ef450c81a4a733bf0fa305a7867f3e42306272a065a7698babdbb5fd2e3e59a.
+Exact archive/source/installed bytes, normal owner_unavailable, actual creator/
+fork continuation, no import-time hook/SQL/child/network, graph/optional/native
+negatives, no helper/private artifacts and privacy controls passed. Locked
+offline dev sync, Ruff/format168, both CLI helps, JSON version, staged safety,
+whitespace and frozen217/229/250-prefix checks passed before source publication.
+These are author measurements only. Exact dualPython CI/nonauthor source verdict
+and separate root integration remain mandatory; production inventories remain
+EMPTY and no state/provider/CLI or whole-package acceptance is claimed.
