@@ -348,3 +348,48 @@ Final affected source review must compare the original assertions with their
 actual child execution, full regression and exact 3.12/3.13 CI. RV-11/genuine
 M1-03 provider and managed CLI remain unavailable; this arrangement certifies
 only the finite library/test-producer boundary.
+
+## Job materialization alignment appendix r5
+
+This append-only alignment preserves the preceding 350-line plan SHA256
+`cf5b16f6c69df65a82773fdfc3db3ffe1bd58d049d85560c313c44df91524e8e`.
+Input is the proposed 173-line `adrs/read-consumer-materialization-amendment.md`,
+SHA256 `7a0228af555b59cb758b4d99f3d6d5e826cd10cb5917e591f63cd504b4fd071a`.
+Both the supplement and this alignment require independent review/root dispatch
+before implementing this exception; other previously authorized work continues.
+
+The actual child get_job/list_jobs already produces a relationally validated
+SyncJobRow. Its typed resolve-event/scan subjects cannot be transported using the
+SQL codec without inventing event IDs or re-querying companion rows. Only
+row_job/page_jobs therefore use the supplement's closed same-value grammar:
+version 1 plus all 15 actual SyncJobRow fields, eleven concrete JobSubject
+branches, three concrete SourceEventKey branches (both LabelChange values), and
+four concrete PartitionRef branches. Exact subject constructors, nullability,
+production job_key, field bounds and kind/subject/projected-event consistency
+remain authoritative. No SQL reference ID, generic object map or extra query.
+
+Additional owned files are exactly tests/unit/db_view_job_values.py and
+tests/unit/test_db_view_job_values.py. The first contains only private pack_job
+and unpack_job helpers with static concrete branches and fixed errors. The
+second supplies the supplement's JM01-JM06 positive/negative controls. Existing
+db_view_adapter.py and test_db_repositories.py select these helpers solely from
+their fixed row_job/page_jobs paths; every other allocated row family retains
+the existing SQL codec, with counts/schema handling unchanged. No production
+source, core/model/schema, root conftest, dependency or wheel registration change.
+
+JM01 uses real stored resolve-event rows with durable event IDs different from
+message/history/job IDs, actual isolated getters and parent typed equality.
+JM02-JM04 cover all actual subject/event/partition constructors and the 16-field
+independent literal vector, nullable/nonzero/time fields, grammar/enum/hex/ID/
+integer/timestamp corruption, cross-projection and hostile/subclass values.
+Packing/unpacking errors are fixed harness failures, not fabricated repository
+StorageFailure evidence. JM05 preserves actual list_jobs order/cursor/500+1 and
+empty/None/error distinctions; JM06 preserves all original SQL, lifecycle,
+no-write and writer fault assertions, full regression and wheel exclusion.
+
+The parent materialization never establishes DB relationship existence or
+runtime authorization. Production getters/SQL companion validation, the fixed
+physical child guards, request/response/page/cursor bounds, production-empty
+registries and genuine M103/RV11/managed-CLI/G1 pending gates are unchanged.
+Stop for any unallocated variant, field, additional query or changed assertion;
+do not fill a fake event_id or weaken a getter to accommodate this transport.
