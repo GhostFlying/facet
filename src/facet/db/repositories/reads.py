@@ -1,6 +1,14 @@
 """Bounded typed private reads; not Dashboard serializers or snapshot stores."""
 
-from facet.contracts import Count, ErrorCode, JobState, LocalId, ProjectionId, Role
+from facet.contracts import (
+    Count,
+    ErrorCode,
+    JobState,
+    LocalId,
+    ProjectionId,
+    ProviderId,
+    Role,
+)
 
 from ..codecs import PageLimit, StorageFailure, invalid
 from ..connection import ReadSession
@@ -86,6 +94,40 @@ def get_thread(view, projection_id, id):
 
 def get_mapping(view, projection_id, id):
     return _get(view, projection_id, "message_mappings", (("source_message_id", id),))
+
+
+def get_thread_target(view, projection_id, source_thread_id, target_thread_id):
+    if (
+        type(view) is not ReadSession
+        or type(source_thread_id) is not ProviderId
+        or type(target_thread_id) is not ProviderId
+    ):
+        invalid()
+    return _get(
+        view,
+        projection_id,
+        "thread_targets",
+        (
+            ("source_thread_id", source_thread_id),
+            ("target_thread_id", target_thread_id),
+        ),
+    )
+
+
+def get_thread_anchor(view, projection_id, source_thread_id):
+    if type(view) is not ReadSession or type(source_thread_id) is not ProviderId:
+        invalid()
+    _context(view, projection_id)
+    rows = _query(
+        view,
+        "SELECT "
+        + ",".join(COLUMNS["thread_targets"])
+        + " FROM thread_targets WHERE projection_id=? AND source_thread_id=? "
+        "AND anchor=1",
+        (projection_id.value, source_thread_id.value),
+        maximum=1,
+    )
+    return _decode(view, projection_id, "thread_targets", rows[0]) if rows else None
 
 
 def get_checkpoint(view, projection_id):
