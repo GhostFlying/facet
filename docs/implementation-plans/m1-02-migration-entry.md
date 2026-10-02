@@ -336,3 +336,166 @@ engine publication or fresh predecessor fixture implementation; existing dirty
 source/tests are retained unstaged and unqualified. Preserve all original323,
 257/217 and design232 bytes. Initial18fail/sixpass and later29-case partial controls
 remain historical/partial results, not retrospectively qualified migration.
+
+## MG02 stopped-WAL test preflight correction (plan only)
+
+This appendix awaits independent nonauthor plan review and explicit root source
+release; it authorizes no test edit yet. Preserve all original338 lines (SHA-256
+`17ef18d316c726fab27f19425da88340517b496c696064bb2214b308dbafa5ea`), approved323,
+257/217 prefixes, exact232 design and the 5af1095 corrective pre-code receipt.
+The supplied-connection production engine and empty shipping provider/predecessor
+registries are unchanged. Only the existing test participant's preflight strategy
+is defective; this is not production opener/provenance or full M6 acceptance.
+
+### Actual causal evidence and current disposition
+
+The author measured 80 focused MG cases passing in 27.36s and all1705 tests
+(1625 retained plus80 new) passing in379.88s before discovering this missing WAL
+case. The fresh installed wheel SHA-256
+`7053796b092e982e6473049fd16085abd9191a1041865f32cf3c9806046e73d6`
+also passed its recorded privacy/import/export checks. Keep those historical
+passes, the initial18fail/sixpass and later partial results; none qualifies MG02
+or the unfrozen source now. No candidate source commit, push or PR was produced.
+
+On CPython3.12.13/SQLite3.53.1 and the owned trusted local test mount, a genuine
+Scope first held ownerEX/viewEX and both source-then-target credential mutexes.
+Its exact native connection committed user_version=2, with actual native
+SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE enabled only to construct the stopped WAL fixture.
+After native close and all original holder cleanup, a new genuine Scope reacquired
+all four locks. Physical main header remained1; committed WAL inspection returned2,
+while both observed ledgers still contained only the original (1,v0001,checksum)
+row. This is a refused future/contradictory fixture, not a supported migration.
+
+Actual main/WAL/SHM sizes were843776/4152/32768 bytes. Before/after snapshots covered
+the entire original fixture tree, names, device/inode/UID/mode/link-count/size,
+mtime_ns and file bytes. Raw original mode=ro observed2 then refused, but changed
+only database.db-shm; no name was added or removed. A separate unix-excl readonly
+probe had the same defect. EXCLUSIVE locking-mode readonly returned native3850,
+with no source delta but no committed-WAL inspection, so it is not a solution.
+A separate fresh private DB+WAL copy, without copying SHM, allowed readonly SQLite
+to observe committed2 and the original ledger with zero original-tree delta.
+These bounded disposable diagnostics prove feasibility only, not new acceptance.
+
+### Finite correction, source isolation and resource bounds
+
+Allocate implementation only in tests/unit/test_db_migration_entry.py and this
+plan. Retain the two existing MG process files unchanged unless an ordinary
+same-protocol assertion is necessary; no fourth test path or production edit is
+allocated. Keep Scope.preflight's return shape, two fixed provider methods and
+all entry/record/manifest APIs unchanged. A private test-only context manager may
+accept only the actual held Scope and yield its finite inspection Connection;
+it is not a path opener, registration seam, callback or installed callable.
+
+Before opening any SQLite handle on an unknown original DB, Scope.held must prove
+the same enrolled PID/strong Thread, real root/ownerEX/viewEX and both ordered
+credential locks. Require the original database and, when present, both WAL/SHM
+to be owner-only regular0600 single-link files with stable physical identities.
+One missing sidecar refuses without copy or SQLite inspection. Capture the full
+original fixture-tree oracle before any inspection output and retain the freeze
+through all captures, copying, inspection, final source comparison and cleanup.
+
+For existing WAL+SHM only, create a fresh owned0700 disposable inspection directory
+under the already verified trusted test anchor, outside the original fixture-tree
+oracle. It is independently owned test output, never inside the source root or
+an existing backup/bundle, and is cleaned in finally on success or refusal.
+Copy only the main DB and its exact committed WAL bytes to fresh0600 O_EXCL files
+using O_NOFOLLOW/CLOEXEC source descriptors, checked fstat/path/root identities
+before and after each read. Never copy or touch original SHM; SQLite may build
+only the disposable copy's own SHM. Require distinct source/output device-inode
+pairs and no hardlinks/symlink alias, existing target, permission alteration or
+source database/sidecar create/delete/rename/chmod/fsync/checkpoint/repair.
+
+The fixed synthetic fixture limit is16MiB each for main and WAL, at most32MiB
+copied bytes and64KiB read chunks. Bound the original fixture-tree file bytes to
+64MiB before capturing at most two full oracles; these are storage/buffer bounds,
+not an RSS guarantee. Use one disposable inspection Connection and at most two
+source file descriptors closed in finally. A common8-second monotonic
+capture/inspection deadline is checked while copying and by a finite SQLite
+progress handler; timeout/native fault is a failing/refused control, never a
+skip, fallback, warm-up, retry or permission trick. Qualified local test storage
+is required; this is no hard bound for a stalled kernel or NFS/SMB qualification.
+
+Open only the disposable database with native mode=ro, autocommit=True and bounded
+busy timeout. Inspect actual WAL-committed version/application/catalogue/ledger/
+digest/integrity/FKs and full state against existing compiled fixture manifests;
+compare real projection/config/binding/role credential context exactly as before.
+No immutable-main ignore-WAL branch or source RW handle may recognize such state.
+The existing immutable readonly branch is retained only for genuinely stopped
+source state with neither sidecar. Source byte/mtime/identity/name comparison
+must hold even when inspection refuses; atime from bounded reads is not claimed.
+
+This detached read image is only a test recognition oracle, NOT a backup receipt,
+SQLite snapshot primitive, native-inode provenance issuer or production preflight
+adapter. Supported predecessor recognition still invokes the actual SQLite backup
+API complete-bundle publication under the same continuous freeze BEFORE the
+original writer open. No copied image authorizes migration, no backup is claimed
+for current no-op, and no future/unknown fixture reaches original SQLite RW.
+
+### Required paired native controls and unchanged gates
+
+Add fixed stopped-WAL cases using the actual native no-checkpoint-on-close fixture
+construction and genuine reacquired owner/view/credential participants, not fake
+flags, simulated WAL bytes or connection subclasses. Verify main-header facts
+independently from committed-WAL truth; they cannot be an acceptance substitute.
+
+- A paired original-ro detecting negative observes committed future2, refuses
+  UNSUPPORTED_VERSION and proves its original SHM mutation, while the corrected
+  participant refuses the same fixed condition with complete source-tree equality.
+- The nine fixed refused WAL states are unknown0, future2, foreign application1,
+  extra view, missing audit_recent index, wrong known metadata digest, extra
+  immutable ledger row, namespace drift and config revision drift. Commit only
+  the test condition into WAL before stopped close; retain all native guards.
+  Wrong digest uses the already approved singleton replacement, preserving its
+  created_at; extra ledger uses INSERT, never forbidden old-row UPDATE/DELETE.
+  Projection-context mismatch uses actual allowed request_namespace/config drift
+  against unchanged private configuration, not mutation of immutable projection
+  keys or bypassed foreign keys/triggers. All nine refuse before original writer/
+  bundle opening, preserve physical files, and retain fixed private-safe errors.
+- Supported current-v1 WAL contains a committed allowed prior-owner change absent
+  from main; recognized state must observe that actual value, preserve source
+  through preflight and then return UNCHANGED without SQL writes or a backup.
+- Genuine known9001 WAL recognition and complete bundle then migration, and known
+  target9002 crash/reopen no-op, must consume full committed state rather than
+  main-only state. All32 tables/old ledger/timestamps/prior-owner facts remain.
+- Missing WAL versus SHM and preexisting non-private/symlink-aliased source files
+  refuse before copying, with no additional source change. Genuine disposable
+  Connection authorizer denial is a native inspection-fault cleanup control.
+  A fixed recursive readonly query must reach the actual monotonic deadline and
+  be interrupted by that Connection's real progress handler, not a fake clock,
+  caller success/failure flag or shortened acceptance deadline. Both controls
+  preserve the source and clean disposable output; kernel contenders stay busy.
+
+Instrument actual sqlite3.connect calls to prove all rejected WAL-source inspection
+occurs only in the new disposable tree, never the original SQLite path; source
+descriptor reads remain strictly readonly. Retain whole original-tree before/after
+equality, including bytes/mtime and paths, without masking SHM or directory changes.
+No old case, signal boundary, privacy oracle or production source byte is removed.
+Retain all80 existing MG cases, four actual before/after-COMMIT death/control cases,
+1625 baseline tests, all earlier faults and the native current/synthetic guards.
+
+After exact plan acceptance/root release, save the pre-code receipt and atomic
+plan-only user/noreply commit while preserving dirty source/tests; implement only
+this test strategy, run expanded focused/full suites, locked Ruff/format, both CLI
+helps/version, safety/whitespace and fresh wheel/privacy/import/empty-registry
+checks. New immutable source/PR actual Python3.12/3.13 CI and independent nonauthor
+source acceptance remain required. No claims for shipping preflight/provider,
+initializer/native binding, whole M1-02/M1-03/RV11/G1, restore or live/deployment
+are added. Stop for any additional file/API, lock/connection/schema guard change
+or inability to preserve WAL truth and original physical state simultaneously.
+
+### Exact stopped-WAL corrective pre-code release receipt
+
+Independent nonauthor amendment review APPROVED the complete484-line plan SHA-256
+`17b9fc430fb56296aea7823066e4171c8e1b94cdcc859c3daf617438bf1c1c93`.
+The complete119-line report was read, SHA-256
+`d62c5018ef0e647056368567d5825a09c34418564fd437e2eef12c9cb2ce33a0`.
+That reviewer authored the original217 prefix but not this new146-line amendment;
+it did not reapprove its own prefix or any migration source. Root read the full
+report and separately released only the existing unit-test correction and this
+receipt; process files retain only their existing same-protocol allocation.
+Preserve484/338/323/257/217 and design232 bytes, all staged unqualified source/test
+bytes and the previous5af1095 receipt. This plan-only user/noreply commit precedes
+every new inspection strategy edit. Native bounds, real progress/authorizer faults,
+source no-delta/original-ro paired controls and genuine complete-bundle publication
+remain required. Historical80/1705/wheel7053796 precede this counterexample; new
+exact source/CI and independent third SOURCE acceptance remain outstanding.
