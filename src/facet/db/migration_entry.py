@@ -144,7 +144,7 @@ def migrate_existing(
     provider: object | None,
 ) -> MigrationResult:
     """Inspect current state or apply one compiled step under a real provider."""
-    began = False
+    begin_attempted = False
     attempted_commit = False
     pid, thread = os.getpid(), threading.current_thread()
     code = ErrorCode.CONSISTENCY_FAILURE
@@ -185,8 +185,13 @@ def migrate_existing(
             return _result("unchanged", before, before)
         _backup(connection, provider, backup, before)
         _call(provider, "_check_migration_connection", connection, owner)
+        if connection.in_transaction:
+            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+        # Native BEGIN can succeed before Python receives its acknowledgement.
+        # Arm only after genuine enrollment/backup and the final idle check;
+        # refused foreign creators/external UoWs never enter owned cleanup.
+        begin_attempted = True
         connection.execute("BEGIN IMMEDIATE")
-        began = True
         if _state(connection, step.source) != before:
             raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
         _call(provider, "_check_migration_connection", connection, owner)
@@ -233,7 +238,6 @@ def migrate_existing(
         _call(provider, "_check_migration_connection", connection, owner)
         attempted_commit = True
         connection.execute("COMMIT")
-        began = False
         after = _state(connection, target)
         if after != expected:
             raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
@@ -259,11 +263,13 @@ def migrate_existing(
     if attempted_commit:
         _close_uncertain(connection)
         code = ErrorCode.PERSISTENCE_FAILURE
-    elif began:
+    elif begin_attempted:
         try:
-            connection.execute("ROLLBACK")
+            # Denied/unreached BEGIN stays idle; acknowledgement loss may not.
             if connection.in_transaction:
-                raise StorageFailure(ErrorCode.PERSISTENCE_FAILURE)
+                connection.execute("ROLLBACK")
+                if connection.in_transaction:
+                    raise StorageFailure(ErrorCode.PERSISTENCE_FAILURE)
         except BaseException:
             _close_uncertain(connection)
             code = ErrorCode.PERSISTENCE_FAILURE

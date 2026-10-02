@@ -2107,3 +2107,401 @@ def test_mg09_exact_result_values_are_private(disposition, old, new, valid):
         and len(fields(MigrationResult)) == 5
         and len(fields(MigrationBackupReceipt)) == 8
     )
+
+
+def native_writer_probe(root, *, busy=False):
+    """Measure SQLite writer ownership independently from application flock."""
+    contender = sqlite3.connect(
+        (root / "database.db").as_uri() + "?mode=rw",
+        uri=True,
+        autocommit=True,
+        timeout=0,
+    )
+    try:
+        if busy:
+            with pytest.raises(sqlite3.OperationalError) as captured:
+                contender.execute("BEGIN IMMEDIATE")
+            assert captured.value.sqlite_errorcode == sqlite3.SQLITE_BUSY
+        else:
+            contender.execute("BEGIN IMMEDIATE")
+            assert contender.in_transaction
+            contender.execute("ROLLBACK")
+        assert not contender.in_transaction
+    finally:
+        contender.close()
+
+
+def preserved_target(before, after):
+    for name in before.keys() - {"schema_metadata", "schema_migrations"}:
+        assert after[name] == before[name]
+    assert after["schema_metadata"][0][3] == before["schema_metadata"][0][3]
+    assert after["schema_migrations"][0] == before["schema_migrations"][0]
+    assert len(after["schema_migrations"]) == 2
+
+
+@contextmanager
+def native_acknowledgement_fault(connection, statements, point):
+    """Fixed real native boundaries; no Connection replacement or fake state."""
+    observed, close_calls = [], []
+    previous_profile, previous_trace = sys.getprofile(), sys.gettrace()
+
+    def profile(frame, event, operation):
+        if getattr(operation, "__self__", None) is not connection:
+            return
+        name = getattr(operation, "__name__", None)
+        if name == "close" and event == "c_call":
+            close_calls.append(operation)
+        if observed:
+            return
+        if point == "close_return" and name == "close" and event == "c_return":
+            with pytest.raises(sqlite3.ProgrammingError):
+                _ = connection.in_transaction
+            observed.append((point, "native_closed", None))
+            raise MemoryError(SENTINEL)
+        if name != "execute":
+            return
+        before_begin = (
+            point == "begin_call"
+            and event == "c_call"
+            and frame.f_code is engine.migrate_existing.__code__
+            and frame.f_locals.get("begin_attempted") is True
+            and "BEGIN IMMEDIATE" not in statements
+        )
+        phase = {
+            "begin_return": "BEGIN IMMEDIATE",
+            "rollback_denied": "BEGIN IMMEDIATE",
+            "closed_state": "BEGIN IMMEDIATE",
+            "rollback_return": "ROLLBACK",
+            "commit_return": "COMMIT",
+        }.get(point)
+        after_native = (
+            phase is not None and event == "c_return" and statements[-1:] == [phase]
+        )
+        if before_begin or after_native:
+            observed.append((point, connection.in_transaction, logical(connection)))
+            if point == "closed_state":
+                # Explicit test fault: native close rolls back before the
+                # engine's transaction-property read; this is not its cleanup.
+                connection.close()
+                with pytest.raises(sqlite3.ProgrammingError):
+                    _ = connection.in_transaction
+            raise MemoryError(SENTINEL)
+
+    def observe_cleanup(frame, event, argument):
+        if event == "call" and frame.f_code is engine._close_uncertain.__code__:
+            # CPython disables a profile callback after its deliberate exception.
+            # Re-arm observation only, before the real fallback close. The fault
+            # has already reached entry; no engine exception is suppressed.
+            sys.setprofile(profile)
+        return None
+
+    sys.settrace(observe_cleanup)
+    sys.setprofile(profile)
+    try:
+        yield observed, close_calls
+    finally:
+        sys.settrace(previous_trace)
+        sys.setprofile(previous_profile)
+
+
+@pytest.mark.parametrize("point", ["begin_return", "begin_call", "begin_denied"])
+def test_mg08_native_begin_acknowledgement_and_idle_denial_pairs(
+    fixture, point, caplog, capsys
+):
+    root = make_fixture(fixture)
+    with Scope(root) as scope:
+        connection = scope.open()
+        before = logical(connection)
+        statements, denied = [], []
+        connection.set_trace_callback(statements.append)
+
+        def authorizer(action, first, second, database, source):
+            if action == sqlite3.SQLITE_TRANSACTION and first == "BEGIN":
+                denied.append(connection.in_transaction)
+                return sqlite3.SQLITE_DENY
+            return sqlite3.SQLITE_OK
+
+        if point == "begin_denied":
+            connection.set_authorizer(authorizer)
+        try:
+            with native_acknowledgement_fault(connection, statements, point) as pair:
+                refused(lambda: run(scope), ErrorCode.PERSISTENCE_FAILURE)
+        finally:
+            connection.set_authorizer(None)
+            connection.set_trace_callback(None)
+        observed, closed = pair
+        assert closed == [] and not connection.in_transaction
+        if point == "begin_return":
+            assert observed == [(point, True, before)] and denied == []
+            assert statements.count("BEGIN IMMEDIATE") == 1
+            assert statements.count("ROLLBACK") == 1
+        else:
+            assert "BEGIN IMMEDIATE" not in statements and "ROLLBACK" not in statements
+            assert observed == (
+                [(point, False, before)] if point == "begin_call" else []
+            )
+            assert denied == ([False] if point == "begin_denied" else [])
+        assert not any(
+            sql.startswith(("CREATE", "INSERT", "DELETE", "COMMIT"))
+            for sql in statements
+        )
+        assert logical(connection) == before
+        native_writer_probe(root)
+        scope.held()
+        assert kernel_owner(root) == "owner_busy"
+        assert run(scope).disposition == "migrated"
+        after = logical(connection)
+        preserved_target(before, after)
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert reopened(root, TARGET) == after and kernel_owner(root) == "held"
+    assert caplog.records == []
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+
+
+@pytest.mark.parametrize(
+    "point",
+    [
+        "rollback_denied",
+        "rollback_return",
+        "commit_return",
+        "close_return",
+        "closed_state",
+    ],
+)
+def test_mg08_native_acknowledgement_cleanup_uncertainty_closes_once(
+    fixture, point, caplog, capsys
+):
+    root = make_fixture(fixture)
+    with Scope(root) as scope:
+        connection = scope.open()
+        before = logical(connection)
+        denied = []
+        if point in {"rollback_return", "close_return"}:
+            cuts = sql_cut(
+                connection, "after_delete", deny_rollback=point == "close_return"
+            )
+        else:
+            cuts = []
+        statements = []
+        connection.set_trace_callback(statements.append)
+
+        def deny_rollback(action, first, second, database, source):
+            if action == sqlite3.SQLITE_TRANSACTION and first == "ROLLBACK":
+                denied.append(connection.in_transaction)
+                return sqlite3.SQLITE_DENY
+            return sqlite3.SQLITE_OK
+
+        if point == "rollback_denied":
+            connection.set_authorizer(deny_rollback)
+        with native_acknowledgement_fault(connection, statements, point) as pair:
+            refused(lambda: run(scope), ErrorCode.PERSISTENCE_FAILURE)
+        observed, closed = pair
+        assert len(closed) == 1 and len(observed) == 1
+        assert statements.count("BEGIN IMMEDIATE") == 1
+        actual_point, transaction, actual = observed[0]
+        assert actual_point == point
+        if point in {"rollback_denied", "closed_state"}:
+            assert transaction is True and actual == before
+            assert "COMMIT" not in statements and "ROLLBACK" not in statements
+            assert denied == ([True] if point == "rollback_denied" else [])
+        elif point == "rollback_return":
+            assert transaction is False and actual == before and len(cuts) == 1
+            assert statements.count("ROLLBACK") == 1 and "COMMIT" not in statements
+        elif point == "commit_return":
+            assert transaction is False and "ROLLBACK" not in statements
+            assert statements.count("COMMIT") == 1
+            preserved_target(before, actual)
+        else:
+            assert transaction == "native_closed" and actual is None
+            assert len(cuts) == 1 and "COMMIT" not in statements
+        with pytest.raises(sqlite3.ProgrammingError):
+            connection.execute("SELECT 1")
+        native_writer_probe(root)
+        scope.held()
+        assert kernel_owner(root) == "owner_busy"
+    expected = TARGET if point == "commit_return" else SOURCE
+    rows = reopened(root, expected)
+    assert rows == (actual if point == "commit_return" else before)
+    if point == "commit_return":
+        bundles = tree(root / "backups")
+        with Scope(root) as scope:
+            connection = scope.open()
+            statements = []
+            connection.set_trace_callback(statements.append)
+            assert run(scope).disposition == "unchanged"
+            assert scope.receipt is None and tree(root / "backups") == bundles
+            assert not any(
+                sql.startswith(("BEGIN", "CREATE", "INSERT", "DELETE", "COMMIT"))
+                for sql in statements
+            )
+            assert logical(connection) == rows
+    assert kernel_owner(root) == "held" and caplog.records == []
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+
+
+def test_mg05_late_actual_external_transaction_is_never_owned_cleanup(
+    fixture, monkeypatch
+):
+    root = make_fixture(fixture)
+    with Scope(root) as scope:
+        connection = scope.open()
+        before = logical(connection)
+
+        class ExternalTransactionProvider:
+            def _check_migration_connection(self, supplied, owner):
+                scope._check_migration_connection(supplied, owner)
+
+            def _validate_migration_backup(self, supplied, receipt, state):
+                scope._validate_migration_backup(supplied, receipt, state)
+                supplied.execute("BEGIN IMMEDIATE")
+
+        monkeypatch.setattr(
+            engine, "_MIGRATION_PROVIDER_TYPES", (ExternalTransactionProvider,)
+        )
+        statements = []
+        connection.set_trace_callback(statements.append)
+        with native_acknowledgement_fault(connection, statements, "observe") as pair:
+            refused(
+                lambda: engine.migrate_existing(
+                    connection,
+                    scope.owner,
+                    backup=scope.receipt,
+                    provider=ExternalTransactionProvider(),
+                ),
+                ErrorCode.CONSISTENCY_FAILURE,
+            )
+        assert pair == ([], []) and connection.in_transaction
+        assert statements.count("BEGIN IMMEDIATE") == 1
+        assert "ROLLBACK" not in statements and "COMMIT" not in statements
+        native_writer_probe(root, busy=True)
+        assert logical(connection) == before
+        scope.held()
+        assert kernel_owner(root) == "owner_busy"
+        connection.set_trace_callback(None)
+        connection.execute("ROLLBACK")  # Explicit genuine caller cleanup only.
+        monkeypatch.setattr(engine, "_MIGRATION_PROVIDER_TYPES", (Scope,))
+        assert run(scope).disposition == "migrated"
+        after = logical(connection)
+        preserved_target(before, after)
+    assert reopened(root, TARGET) == after
+
+
+@pytest.mark.parametrize("foreign", ["thread", "fork", "enrollment"])
+def test_mg05_foreign_refusal_preserves_original_native_transaction(fixture, foreign):
+    root = make_fixture(fixture)
+    with Scope(root) as scope:
+        connection = scope.open()
+        before = logical(connection)
+        connection.execute("BEGIN IMMEDIATE")
+        statements, native_calls, outcomes = [], [], []
+        connection.set_trace_callback(statements.append)
+        extra = None
+        if foreign == "enrollment":
+            extra = sqlite3.connect(
+                (root / "database.db").as_uri() + "?mode=rw",
+                uri=True,
+                autocommit=True,
+                timeout=0,
+            )
+        supplied = extra if extra is not None else connection
+
+        def invoke():
+            previous = sys.getprofile()
+
+            def observe(frame, event, operation):
+                if (
+                    event == "c_call"
+                    and (
+                        getattr(operation, "__self__", None) is connection
+                        or getattr(operation, "__self__", None) is supplied
+                    )
+                    and getattr(operation, "__name__", None) in {"execute", "close"}
+                ):
+                    native_calls.append(operation)
+
+            sys.setprofile(observe)
+            try:
+                refused(
+                    lambda: engine.migrate_existing(
+                        supplied,
+                        scope.owner,
+                        backup=scope.receipt,
+                        provider=scope,
+                    ),
+                    ErrorCode.OWNER_UNAVAILABLE,
+                )
+                assert native_calls == [] and statements == []
+                outcomes.append("refused")
+            except BaseException:
+                outcomes.append("unexpected")
+            finally:
+                sys.setprofile(previous)
+
+        try:
+            if foreign == "thread":
+                participant = threading.Thread(target=invoke)
+                deadline = time.monotonic() + 8
+                participant.start()
+                try:
+                    participant.join(timeout=max(0, deadline - time.monotonic()))
+                    assert not participant.is_alive()
+                finally:
+                    participant.join(timeout=max(0, deadline - time.monotonic()))
+                assert outcomes == ["refused"]
+            elif foreign == "fork":
+                read_fd, write_fd = os.pipe()
+                deadline = time.monotonic() + 8
+                pid = os.fork()
+                if pid == 0:
+                    os.close(read_fd)
+                    try:
+                        invoke()
+                        os.write(
+                            write_fd,
+                            b"refused" if outcomes == ["refused"] else b"error",
+                        )
+                    finally:
+                        os.close(write_fd)
+                    os._exit(0)
+                os.close(write_fd)
+                reaped = False
+                try:
+                    ready, _, _ = select.select(
+                        [read_fd], [], [], max(0, deadline - time.monotonic())
+                    )
+                    assert ready and os.read(read_fd, 64) == b"refused"
+                    while time.monotonic() < deadline:
+                        actual, status = os.waitpid(pid, os.WNOHANG)
+                        if actual == pid:
+                            reaped = True
+                            assert os.waitstatus_to_exitcode(status) == 0
+                            break
+                        time.sleep(0.01)
+                    assert reaped, "owned_fork_reap_timeout"
+                finally:
+                    os.close(read_fd)
+                    if not reaped:
+                        os.kill(pid, signal.SIGKILL)
+                        os.waitpid(pid, 0)
+            else:
+                invoke()
+                assert outcomes == ["refused"]
+                assert extra.execute("SELECT 1").fetchone() == (1,)
+            assert native_calls == [] and statements == []
+            assert connection.in_transaction and logical(connection) == before
+            native_writer_probe(root, busy=True)
+            scope.held()
+            assert kernel_owner(root) == "owner_busy"
+        finally:
+            if extra is not None:
+                extra.close()
+            connection.set_trace_callback(None)
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")  # The genuine creator, not refusal.
+        native_writer_probe(root)
+        assert run(scope).disposition == "migrated"
+        after = logical(connection)
+        preserved_target(before, after)
+    assert reopened(root, TARGET) == after and kernel_owner(root) == "held"

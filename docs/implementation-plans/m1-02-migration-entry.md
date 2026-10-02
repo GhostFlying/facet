@@ -750,3 +750,54 @@ all earlier pre-code receipts and historical1d529 SOURCE HOLD/CI successes.
 Only the existing entry, unit test and factual own plan may change; models/schema/
 manifests/v0001/process helpers remain exact1d529. New focused/full/native fault/
 wheel/privacy/CLI/safety/dual-CI and independent exact-source/root gates remain.
+
+## Oct3 native-BEGIN correction handoff (author verification only)
+
+Pre-code607aac8 records independent149-line amendment approval and explicit root
+release before any correction. Original733/584/484/338/323/257/217 and exact232
+design bytes remain mechanically exact. Historical1d529 SOURCE HOLD, report
+5a0aa0d4, genuine acknowledgement-loss counterexample and successful1727/CI
+receipts are preserved; this handoff does not retroactively qualify that source.
+
+Changed only migration_entry.py and the existing unit test plus this factual
+plan. Models/schema/manifests/v0001 and both process files remain byte-identical
+to1d529. Entry arms its owned attempt before native BEGIN after final real idle
+inspection; only armed same-creator cleanup inspects native transaction state,
+rolls back once if active and closes once on uncertainty. Existing pre-COMMIT
+attempt fence, exact supplied connection/provider/records and empty shipping
+provider/predecessor registries remain. No new callable/opener/provider is added.
+
+Twelve actual added controls cover BEGIN c_return acknowledgement loss versus
+c_call and native permission denial; denied/return-loss ROLLBACK, return-loss
+COMMIT, closed native transaction-property failure and close-return loss; late
+actual external transaction and foreign Thread/fork/wrong native enrollment.
+Real native state/operation counts, writer SQLITE_BUSY/released contender pairs,
+held application kernel locks, creator continuation and complete physical old/
+target reopen distinguish actual disposition. Every32-table business row, old
+immutable ledger/created_at and FK invariant remains checked. CPython disables
+the deliberately failing profile callback; a test-only trace observer re-arms
+native-close observation at the existing cleanup helper without suppressing the
+original fault. Hooks restore in finally; no hook is installed by production.
+
+New12 passed7.77s and a fixed repeat7.86s. Focused114 passed51.22s, including all
+four original process controls. Concurrent complete1739 passed404.86s with no
+skip/failure:1625 retained plus102 original MG and12 additions. Collection
+independently confirmed1739. The original2109-line unit prefix and all58 original
+function/class ASTs are exact; no old case or detector was removed/reinterpreted.
+
+Locked offline sync, Ruff/format166, whitespace/repository safety passed on the
+qualified CPython3.12.13/SQLite3.53.1 runtime and trusted local fixture mount.
+Source/installed both helps and actual --json --version passed; an initial manual
+unsupported version argument shape was correctly invalid_input, then corrected
+without CLI edits. Fresh noneditable wheel SHA-256
+`68c16452e38365af966ce460dd981d8acb9bfe53adeab336cbd547e085321f99`
+passed all63 source/archive/installed byte checks, no test/helper/synthetic schema/
+private sentinel leakage,48 inert installed library imports with unchanged FD
+identities and empty shipping/live inventories. No FD retirement with arbitrary
+live native resources, RSS/power-loss/NFS/SMB guarantee or provider is inferred.
+
+Next gates: immutable normal user/noreply source freeze, dependent Draft PR25
+update without force, actual dual-Python checkout/tree evidence, independent
+third source acceptance and separate root disposition. No readiness/integration,
+initializer SourceA/B, production producer/complete bundle/restore/read/daemon/CLI,
+whole M1-02/M1-03/RV11/G1 or live/deployment/image/release gate is closed here.
