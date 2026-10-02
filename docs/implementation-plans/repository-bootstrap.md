@@ -72,4 +72,20 @@ choice; no saved identity override is necessary.
   remote had no branch and CI had not run. No private email or credential is
   recorded in this handoff.
 - Work stopped for the identity decision. The user subsequently authorized the
-  public/noreply follow-up above; publication and CI verification remain pending.
+  public/noreply follow-up above, completed as recorded below.
+
+## Verified completion
+
+- The configured Git identity already used the user's account/noreply email.
+  Replaced only the unpublished root commit with reset author/committer; no
+  saved Git identity settings were changed and no force push was needed.
+- `GhostFlying/facet` verified PUBLIC with default branch `main`. Initial commit
+  `53ac21b` published; GitHub API confirmed account attribution and noreply for
+  BOTH author and committer, and no parent containing the rejected old identity.
+- Published tree reviewed: 32 source/test/doc/configuration files, no private
+  runtime, credentials, or real-mail fixtures.
+- [GitHub CI](https://github.com/GhostFlying/facet/actions/runs/36955887359) passed
+  for Python 3.11 and 3.12, each with 24 offline tests, safety baseline, locked
+  install, lint, formatting, and CLI help.
+- `AGENTS.md` records public visibility and the user-authorized noreply policy.
+  Production M1-M6 remain unimplemented; license selection remains pending.

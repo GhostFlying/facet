@@ -11,7 +11,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | Unit | Status | Evidence / remaining gate |
 | --- | --- | --- |
 | Phase 0 Gmail spike | Complete within its scope | See [redacted results](phase-0-gmail-spike-results.md); production behavior not implied |
-| Repository bootstrap | Local checks passed; publication in progress | User authorized public visibility and noreply identity; publish/CI verification pending |
+| Repository bootstrap | Complete | Public `main` published with account noreply identity; Python 3.11/3.12 offline CI passed |
 | M1 foundation | Not implemented | Config, bindings, schema/migrations, locks, rule storage, public status models |
 | M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
 | M3 admission/backfill | Not implemented | Rules/authenticity, preview, fixed six-month discovery, durable backfill |
@@ -27,16 +27,23 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 ## Active implementation record
 
 - [Repository bootstrap](implementation-plans/repository-bootstrap.md).
-- Repository: [GhostFlying/facet](https://github.com/GhostFlying/facet); `origin`
-  points to it. On 2026-10-02 the user explicitly requested public visibility and
-  their account's GitHub noreply author email. Publication is being completed.
+- Repository: [GhostFlying/facet](https://github.com/GhostFlying/facet), verified
+  PUBLIC with default branch `main`; `origin` points to it. On 2026-10-02 the user
+  explicitly requested public visibility and their account's GitHub noreply email.
 - Local verification: 24 offline tests passed; Ruff lint/format, spike CLI help,
   shell syntax, tracked/staged safety scan, documentation links/fences, and staged
   whitespace checks passed. No live Gmail requests were used for this bootstrap.
-- The first push was rejected by `GH007`. The current user Git configuration now
-  matches the authorized noreply identity; reset the unpublished root commit's
-  author/committer before pushing, without changing saved Git identity settings.
-- GitHub CI verification is pending until the corrected commit is published.
+- The first push was rejected by `GH007`. The unpublished root commit was
+  replaced using the current configured user/noreply identity, without changing
+  saved Git configuration or email privacy protection. GitHub confirmed both
+  author and committer use the account's noreply identity and attribution is
+  `GhostFlying`. The rejected old commit is not in public history.
+- Initial published commit: `53ac21b`. Its [offline CI run](https://github.com/GhostFlying/facet/actions/runs/36955887359)
+  completed successfully on both Python 3.11 and 3.12: 24 tests in each job,
+  tracked-content safety baseline, locked install, lint, formatting, and CLI smoke.
+- Published GitHub tree checked: source/tests/docs/configuration only; no private
+  runtime directory or credential files. The baseline scan is not a substitute
+  for the production privacy tests still required by later milestones.
 - Runtime credentials/evidence are ignored local files. No live Gmail writes are
   part of this bootstrap, and no experimental state is adopted as production data.
 
