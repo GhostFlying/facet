@@ -69,7 +69,7 @@ do not verify a production daemon, trusted admission, backfill or rendered Dashb
   actual `facet config validate/show`, with empty mutable-field registry. Init/apply
   and managed reads are controlled unavailable; no temporary writer/view protocol.
   Local locked checks passed CPython 3.12.13 with SQLite 3.53.1: 149 foundation-snapshot
-  tests (24 retained spike plus 125 new), then 275 full tests after the normal merge
+  tests (24 retained spike plus 125 new), then 287 full tests after the normal merge
   of reviewed P1-02 partial inputs, Ruff lint/format (69 files), both entrypoint help and wheel
   build/non-editable install smoke. Dependency bootstrap used authorized network;
   production tests made no Gmail calls and subprocess guards forbid network/spike/DB
@@ -80,6 +80,12 @@ do not verify a production daemon, trusted admission, backfill or rendered Dashb
   P1-02 must pass CT compatibility against reviewed merged types before its closure
   and M1-02 implementation release. M1-02 is only in plan preparation
   ([Issue #9](https://github.com/GhostFlying/facet/issues/9)).
+  The earlier combined candidate `f00cf27` independently passed whole review and
+  3.12/3.13 CI, but the coordinator held merge for two parser/help corrections.
+  Current revised candidate adds specific child text/JSON help and canonical
+  `config apply --file` parsing; apply still reads/writes nothing and returns
+  unavailable. Twelve additional subprocess regressions pass; the revised exact
+  SHA still requires affected-boundary independent review and new CI before merge.
 - P1-02 provider/helper partial [PR #10](https://github.com/GhostFlying/facet/pull/10)
   actually merged exact `c18bfbee09b985ee7b9bb5c230ee2a70427c7edc` after independent
   reviewer `phase1_plan_review` approved the metadata-format correction and

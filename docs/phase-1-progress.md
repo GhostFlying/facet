@@ -58,7 +58,7 @@ milestone/live verified。按现有 workflow 记录 blocker 原因/下游/解除
 | [P1-00](phase-1-execution-plan.md) | W0a | integrated | PR #6 exact2618；review/candidate+main CI passed，非 G1 | 集成/docs S / 独立 A | [#3](https://github.com/GhostFlying/facet/issues/3) |
 | [P1-01](phase-1-execution-plan.md) | W0a | integrated | PR #8 exact09031；core/writer freeze+review/CI passed，非 runtime | 架构设计 A / 独立 A | [#4](https://github.com/GhostFlying/facet/issues/4) |
 | [P1-02](phase-1-execution-plan.md) | W0b | implementing | Provider/helper partial PR #10 exactc18 已 integrated；actual reviewed merged M1-01 CT 必需，Issue5 open/M1-02 未放行 | 测试 worker / 独立 reviewer | [#5](https://github.com/GhostFlying/facet/issues/5) |
-| [M1-01](phase-1-execution-plan.md) | W0b | implementation_review | Reviewed partial inputs 合树后275 offline tests passed；最终独立验收/3.12+3.13 CI/integration 待完成 | package/config S、shared docs owner / 独立 reviewer 待排 | [#7](https://github.com/GhostFlying/facet/issues/7) |
+| [M1-01](phase-1-execution-plan.md) | W0b | implementation_review | f00 全审/CI pass 后 hold 两项 parser/help 修正；修订树287 offline tests passed，新 exact review/CI/integration 待完成 | package/config S、shared docs owner / 独立 reviewer | [#7](https://github.com/GhostFlying/facet/issues/7) |
 | [M1-02](phase-1-execution-plan.md) | W1a | plan_drafting | 仅准备 persistence plan；实施等 M1-01 merged 与 P1-02 完整闭包 | persistence plan worker / 独立 reviewer 待排 | [#9](https://github.com/GhostFlying/facet/issues/9) |
 | [M1-03](phase-1-execution-plan.md) | W1b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M1-04](phase-1-execution-plan.md) | W1b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |

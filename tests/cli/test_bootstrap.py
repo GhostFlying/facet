@@ -106,7 +106,7 @@ def run(tmp_path, env, *arguments, module=False):
             "--request-id",
             "synthetic-key",
         ),
-        ("config", "apply", "--set", "web.port=9090", "--json", "--yes"),
+        ("config", "apply", "--file", "unread-input.yaml", "--json", "--yes"),
         ("config", "validate", "--json"),
     ],
 )
@@ -310,3 +310,72 @@ def test_owner_busy_fixed_exit_four(monkeypatch, capsys):
     monkeypatch.setattr(bootstrap, "config_read", failure)
     assert bootstrap.main(["config", "show", "--json"]) == 4
     assert json.loads(capsys.readouterr().out)["code"] == "owner_busy"
+
+
+@pytest.mark.parametrize(
+    "arguments,expected",
+    [
+        (("config",), "{validate,show,init,apply}"),
+        (("config", "validate"), "Validate standalone config structure only"),
+        (("config", "show"), "Show a standalone config summary"),
+        (("config", "init"), "Unavailable until single-owner init integration"),
+        (("config", "apply"), "--file FILE"),
+    ],
+)
+@pytest.mark.parametrize("json_mode", [False, True])
+def test_child_help_is_specific_and_private(tmp_path, arguments, expected, json_mode):
+    config, env = setup(tmp_path)
+    before = snapshot(tmp_path)
+    flags = ["--config", str(config), "--projection", "private-selector", "--help"]
+    if json_mode:
+        flags.append("--json")
+    result = run(tmp_path, env, *arguments, *flags)
+    assert result.returncode == 0 and result.stderr == ""
+    help_text = (
+        json.loads(result.stdout)["data"]["help"] if json_mode else result.stdout
+    )
+    assert "usage: facet config" in help_text
+    assert expected in help_text
+    assert not any(s in result.stdout for s in PRIVATE + FORBIDDEN)
+    if arguments == ("config", "apply"):
+        assert "Unavailable until single-owner execution" in help_text
+        assert "--set" not in help_text
+    assert snapshot(tmp_path) == before
+
+
+def test_canonical_apply_file_is_parsed_but_never_opened(tmp_path):
+    _, env = setup(tmp_path)
+    spike = tmp_path / ".facet-spike"
+    spike.mkdir(mode=0o700)
+    file = spike / "token.json"
+    file.write_text("BODY_CREDENTIAL_SENTINEL")
+    file.chmod(0o600)
+    before = snapshot(tmp_path)
+    result = run(
+        tmp_path,
+        env,
+        "config",
+        "apply",
+        "--file",
+        str(file),
+        "--yes",
+        "--request-id",
+        "synthetic-key",
+        "--json",
+    )
+    assert result.returncode == 4
+    assert json.loads(result.stdout)["code"] == "owner_unavailable"
+    assert result.stderr == ""
+    assert snapshot(tmp_path) == before
+    assert not any(s in result.stdout for s in PRIVATE + FORBIDDEN)
+
+
+def test_unallocated_apply_set_flag_is_refused_without_echo(tmp_path):
+    _, env = setup(tmp_path)
+    result = run(
+        tmp_path, env, "config", "apply", "--set", "BODY_CREDENTIAL_SENTINEL", "--json"
+    )
+    assert result.returncode == 2
+    assert json.loads(result.stdout)["code"] == "invalid_input"
+    assert result.stderr == ""
+    assert "SENTINEL" not in result.stdout

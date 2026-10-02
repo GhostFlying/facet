@@ -23,6 +23,7 @@ class _Parser(argparse.ArgumentParser):
 
 
 def _common(parser: _Parser) -> None:
+    parser.set_defaults(_help_parser=parser)
     for flag, destination in [
         ("--config", "config_path"),
         ("--state-dir", "state_dir"),
@@ -68,8 +69,20 @@ def build_parser() -> _Parser:
     )
     _common(config)
     actions = config.add_subparsers(dest="action", parser_class=_Parser)
-    for name in ["validate", "show", "init", "apply"]:
-        command = actions.add_parser(name, add_help=False, allow_abbrev=False)
+    descriptions = {
+        "validate": "Validate standalone config structure only; binding/state pending.",
+        "show": "Show a standalone config summary; private metadata requires opt-in.",
+        "init": "Unavailable until single-owner init integration; creates no files.",
+        "apply": "Unavailable until single-owner execution; no config read/write.",
+    }
+    for name, description in descriptions.items():
+        command = actions.add_parser(
+            name,
+            add_help=False,
+            allow_abbrev=False,
+            help=description,
+            description=description,
+        )
         _common(command)
         if name in {"init", "apply"}:
             _mutations(command)
@@ -77,7 +90,7 @@ def build_parser() -> _Parser:
             command.add_argument("--source")
             command.add_argument("--target")
         if name == "apply":
-            command.add_argument("--set", action="append")
+            command.add_argument("--file", help="planned operational-change input")
     return parser
 
 
@@ -140,7 +153,9 @@ def main(argv: list[str] | None = None) -> int:
         options = parser.parse_args(arguments)
         if getattr(options, "help", False):
             return _emit(
-                "help", data={"help": parser.format_help()}, json_mode=json_mode
+                "help",
+                data={"help": options._help_parser.format_help()},
+                json_mode=json_mode,
             )
         if getattr(options, "version", False):
             return _emit("version", data={"version": __version__}, json_mode=json_mode)

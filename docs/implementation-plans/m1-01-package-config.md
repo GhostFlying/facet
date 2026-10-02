@@ -475,3 +475,13 @@ execution without changing inventory, ownership, schema or product gates.
 - Exact final candidate review/3.12+3.13 CI/integration results belong to
   [Issue #7](https://github.com/GhostFlying/facet/issues/7) and its focused PR;
   no self-referential report-only repository commit is necessary.
+
+Parser/help correction within the approved scope: the coordinator held merge of
+the otherwise independently accepted `f00cf27` candidate for specific child help
+and canonical `config apply --file` grammar. The revised implementation removes
+the unallocated `--set` placeholder, routes text/JSON help to the selected parser,
+and adds twelve subprocess regressions. Apply parses `--file` but never opens its
+input, acquires ownership or changes state; it still returns `owner_unavailable`.
+Combined revised-tree tests pass 287 cases, lint/format 69 files. This does not
+alter the approved plan prefix, writer boundary or product scope; the new exact
+candidate needs review/CI again rather than inheriting the old head's result.
