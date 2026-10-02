@@ -213,3 +213,138 @@ test-consumer semantic drift, new provider/IPC/API requirements, missing runtime
 qualification, or a no-create counterexample. Submit the finite evidence and
 missing interface to root/design review. Never fix a failing filesystem gate by
 weakening its assertion, masking sidecar changes or using immutable on a live DB.
+
+## Finite consumer execution appendix r4 (review required before adaptation)
+
+This appendix preserves the approved 215-line r3 prefix. Base is
+`eb7dde4ff33c349b3a5e7270c5ac480a292f425b`: the first real isolated producer tests
+are committed, but their independent acceptance is separate from this proposed
+consumer adaptation. No production API, schema or registration changes here.
+
+The existing parent pytest process owns a writer and cannot be a qualified
+reader. Its `view(state)` helper will capture only committed synthetic metadata
+with the actual SQLite backup API from the explicitly supplied current writer
+connection. Use a separate owner-only temporary root, private fixed lock files,
+and a closed pristine destination with no sidecars. Never copy the main DB,
+implicitly reopen a retired writer, or create a reader in the writer process.
+Tests retaining an old state tuple after explicit reopen will pass the actual
+reopened connection/session/info instead. A capture fails with an open source
+transaction; it does not silently exclude a test's uncommitted assumptions.
+
+`view(state)` now yields an explicitly test-only SnapshotProbe, NOT ReadSession
+or a substitute accepted by production functions. Each named method launches a
+fresh fixed `-I -S` child on that same captured snapshot. It executes one actual
+production getter under a genuine stopped permit and ReadSession, checks the
+actual connection has no writes/open transaction, closes SQLite/inventory/lease,
+then returns a bounded synthetic materialization for parent assertions. Parent
+object/type/closed checks do not count as production-context evidence. Calls
+change explicitly to the test probe's methods; no monkeypatch of production
+reads, weakened `_context`, fake `_connection`, or masquerading session exists.
+
+### Closed case inventory and transport
+
+The fixed entry/provider files and the existing `test_db_repositories.py` helper
+contain the entire test transport. No additional product or test framework,
+import loader, arbitrary SQL callback, arbitrary table/model selector, pickle,
+dynamic `getattr` dispatch or configurable URI is introduced. Exactly these
+case IDs map directly to the named existing production function:
+
+| Case IDs / exact getter | Typed input after instance/projection | Exact permitted result |
+| --- | --- | --- |
+| `row_projection` / get_projection | none | ProjectionRow or None |
+| `schema` / inspect_schema | none | SchemaMetadataRow and tuple of SchemaMigrationRow |
+| `row_binding` / get_binding | Role | BindingRow or None |
+| `row_binding_revision` / get_binding_revision | Role, Revision | BindingRevisionRow or None |
+| `row_rule`, `row_epoch`, `row_event`, `row_job`, `row_attempt`, `row_action` / corresponding get_* | LocalId | RuleRow, EpochRow, SourceEventRow, SyncJobRow, InsertAttemptRow, ActionCommandRow respectively, or None |
+| `row_thread`, `row_mapping` / get_thread, get_mapping | ProviderId | TrackedThreadRow, MessageMappingRow respectively, or None |
+| `row_thread_target` / get_thread_target | source ProviderId, target ProviderId | ThreadTargetRow or None |
+| `row_thread_anchor` / get_thread_anchor | source ProviderId | ThreadTargetRow or None |
+| `row_checkpoint` / get_checkpoint | none | HistoryCheckpointRow or None |
+| `row_history_poll` / get_history_poll | poll LocalId | HistoryPollRow or None |
+| `row_history_page` / get_history_page | poll LocalId, Count ordinal | HistoryPageRow or None |
+| `page_jobs`, `page_attempts`, `page_events`, `page_audit` / list_jobs, list_attempts, list_events, list_audit | PageLimit, bounded cursor bytes or None | ReadPage of its one registered row family |
+| `counts` / counts | epoch LocalId or None | CountsSnapshot with closed JobStateCount tuple |
+
+Transport has one exact case, expected-instance LocalId and projection plus only
+that case's fixed scalar selector fields. Reject surplus fields, wrong primitive
+types and unknown case before touching a provider. Request JSON is at most 32768
+UTF-8 bytes: an 8192-byte cursor needs 16384 hex characters plus its envelope.
+IDs retain their actual core bounds, ordinal/limit use real Count/PageLimit
+guards and valid cursors are at most 8192 bytes. Response
+is at most 2 MiB, page count at most 500, and schema ledger at most 500. Bounded
+primitive cells use the existing registered `_encode_row`/`_decode_row` only for
+the result family fixed by the case; a returned model/table name never selects a
+codec. Bytes use bounded exact hex cells. Counts use explicit fixed fields and
+all closed JobState values, not arbitrary dictionaries. Output is synthetic test
+metadata only, never a product export/IPC or actual private account data.
+
+None and fixed StorageFailure codes have distinct envelopes; no exception
+traceback/SQL/path/provider payload is returned. A typed invalid-input result
+must come from the actual child production call, not its parent facade. Page
+keyset/cross-family tests retain their cursor values and production rejection.
+Parent round-trip materialization equality is serialization evidence only;
+independent child assertions below establish SQL/lifetime/guard evidence.
+
+### Original assertion preservation and fixed physical cases
+
+Pure committed-row equality, missing/foreign projection, unique counts, epoch/
+job/attempt/event/mapping state and keyset ordering stay in their current tests,
+with actual getters executed in the child. These are explicitly snapshot-content
+assertions, not proof of live source visibility. Writer fault injection, rollback,
+SIGKILL, History lost acknowledgments and reopen retain their original real
+writer operations; only their later committed inspection uses this capture.
+
+The following case IDs execute assertions IN the actual isolated child, not on
+SnapshotProbe; parameters are limited to their fixed synthetic IDs/variants:
+
+- `guard_history_types`: all existing Trap view/projection/poll/ordinal variants
+  and Count(0), actual get_history_poll/page, foreign properties never evaluated.
+- `guard_history_lifetime`: actual foreign Thread get_poll/page failures, same
+  creator remains usable, then actual ReadSession close and both getters refuse.
+  Existing wrong-UoW tests remain actual writer-context calls in the parent.
+- `guard_thread_reads`: preserve mappings' actual get_thread_target calls with
+  naked source/target strings, get_thread_anchor on a foreign Thread, creator's
+  subsequent valid read and missing-projection None, then actual closed-view
+  get_thread_target refusal. Preserve the original parent get_thread_anchor on
+  a real UoW refusal with `_failed` still false; no SnapshotProbe pre-rejection
+  counts as any of these named production guards.
+- `guard_binding_role`: preserve repositories' get_binding(actual ReadSession,
+  projection, naked "source") fixed INVALID_INPUT. The child passes that plain
+  string directly, not Role("source"); afterward the same creator's typed Role
+  read remains valid. Parent schema/count/equality assertions stay unchanged.
+- `read_zero_write`: actual getter reads preserve total_changes and end each
+  transaction; preserve history projection/missing/zero-write assertions.
+- `keyset_501`: actual two pages (500+1), tuple ordering, cursors, no retained
+  transaction/cursor, query_only=1; retain original expected-job equality.
+- `guard_read_cursor`: actual production list functions reject the fixed empty,
+  malformed/unregistered, wrong-family/projection and 8193-byte cases. Construct
+  the latter in the child, not a facade rejection or oversized transport. Keep
+  existing pure codec boundary tests unchanged; normal generated frames (four
+  components, projection <=64 ASCII characters) are far smaller than 8192 bytes.
+- `read_step_fault`: actual second/third SQLite row-step failure caught with
+  rollback, fixed error and subsequent valid read; no proxy error substitution.
+- `read_attach_failure`: actual accepted permit then schema/instance/SQL failure
+  closes SQLite before retirement/release; foreign unaccepted handle untouched.
+- `snapshot_reject_read_source`: actual ReadSession and its already admitted
+  exact SQLite handle passed to snapshot_database. The exact-WriterSession source
+  guard short-circuits before destination/alias/pristine checks; assert fixed
+  INVALID_INPUT, zero SQL trace and original reader remains usable. No second
+  SQLite open violates the audit inventory. Keep the old parent's pristine
+  destination unchanged, but do not claim that as the child's guard proof.
+- `live_schema_revision`: original schema read test moves to separate writer and
+  sealed reader on the SAME inode; actual `_read` sees revision 0 then writer's
+  committed 1, rejects UPDATE, no creation/reader file mutation, releases short
+  snapshots. Reader assertions and controlled writer handshakes remain bounded.
+
+Real live tests additionally retain all RV owner-death, final writer-close/view
+EX exclusion, missing/replaced sidecars, dirty ordinary-ro provenance and paired
+qualified readers. A stopped snapshot cannot replace any of these conditions.
+Trace/index/fault checks needing real reader handles run fixed child assertions,
+not parent-provided SQL. If another original live/connection assertion appears
+during adaptation, stop and extend this explicit inventory before changing it.
+
+Independent review of this appendix is required before consumer modification.
+Final affected source review must compare the original assertions with their
+actual child execution, full regression and exact 3.12/3.13 CI. RV-11/genuine
+M1-03 provider and managed CLI remain unavailable; this arrangement certifies
+only the finite library/test-producer boundary.
