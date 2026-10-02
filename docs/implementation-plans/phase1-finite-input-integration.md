@@ -416,3 +416,77 @@ nine installed helpers/114MG/native/WAL/ownedSIGKILL/freshwheel/CLI/privacy/lint
 safety, fresh exact-tree dualCI and third combined-source QA remain mandatory.
 No combined measurement/acceptance, initializer/calibration/restore/provider,
 SourceA/B or whole milestone/external authority follows from this release.
+
+## Actual normal-carry candidate verification handoff
+
+Date: 2026-10-03 PRC. These are AUTHOR/INTEGRATION verification receipts, not
+independent combined SOURCE acceptance. Main and all three accepted input
+branches remain clean/unmodified at1bb/a9/4506/dd1. Their PR readiness or merge
+state has not changed. No business source or accepted test was edited.
+
+The factual pre-integration plan-only commit is
+73fed7d3a5e577ec0765422cafdb4f417e5280b7, parent exact1bb. Actual fixed normal
+merges, without conflicts or whole-document replacement, are:
+
+- 4be051126f1c482df70169f8a763c3cf399cc2fc, parents[73fed7d,a9c4e36].
+- 907d5515e02a5956591090f2337cfba090c5acd8, parents[4be0511,4506f917].
+- 7e0612a460509383f5e5e85ae51e0ffc668b0b57, parents[907d551,dd1faa9].
+
+Each merge was held before commit for exact index manifest, staged whitespace,
+repository safety and BOTH configured user/noreply identities. All original
+ancestry is retained. The tested carry tree is
+ec782027e244a088eec8e02b75907b34577652c4. Its179 selected input path/mode/blobs
+and sole extra ownplan match the full approved manifest BEFORE and AFTER checks.
+All main106 blobs, eight foundation additions and nine migration paths retain
+the selected exact bytes; the three reviewed descendant DB replacements are
+not incorrectly compared with their different ancestral a9 bytes. All accepted
+plan/design prefixes, canonical contracts/cards/DAG, CI/dependencies/authority,
+empty shipping provider/predecessor/producer/runtime registries survive.
+
+Actual local runtime: CPython3.12.13, SQLite3.53.1, uv0.12.2 and the existing
+qualified local kernel. Locked offline dev sync used the exact existing runtime,
+without downloads. Actual fresh combined results on unchanged selected bytes:
+
+- Collection1810; entire offline suite1810 PASS418.45s, no skip/failure.
+- SQL R3 focused73 PASS16.67s,214 other ACTION tests deselected only in this
+  additional focused run; the whole suite above retained every case.
+- OS/harness150 PASS89.07s, including twenty complete nine-scenario actual
+  Thread child batches, original holders/paired mode-phase/sibling/fork/SIGKILL/
+  physical-root/lifetime and uncertain-descriptor cleanup controls.
+- Foundation71 FOCUSED PASS13.69s, including real native-binding/builtin errno
+  causal pair, no-reset/creator/closed graph and actual installed fixture tests.
+- Migration114 focused PASS51.64s, all originalMG01–09/WAL/32-table/FK/ledger/
+  actual full-bundle freeze and both ownedSIGKILL boundaries retained.
+- Native MG08 twelve corrected actual acknowledgement-loss/denial/rollback/
+  COMMIT/close/noninterference controls additionally repeated PASS8.12s.
+- Eight actual R3/WAL public-lifecycle probes against the NEW installed wheel
+  and byte-identical current test helpers PASS0.64s, not an inherited receipt.
+- Fresh actual CLI subprocess/privacy40 PASS4.66s; source and installed both
+  helps/production JSON version PASS. One queued invocation named a nonexistent
+  CLI test path and collected no cases; the correct existing CLI path passed
+  above. This is retained as an invocation diagnostic, not a candidate failure
+  or a claimed pass at that nonexistent path; no source/test correction occurred.
+- Ruff PASS and format175 PASS; staged/tracked safety and whitespace PASS.
+
+Fresh offline noneditable wheel SHA-256
+684f3bae64949e086049ed2b095a6e12a0100f2f079b46d037aa05fbb27fbb90.
+Fresh isolated installation used the unchanged locked non-dev dependency export
+and local cache. All66 source/archive/installed Python/static bytes match; no
+tests/helpers/plans/private assets/synthetic9001/9002 or fixture participants
+ship. Runtime initializer remains empty. All51 scoped non-main Facet library
+imports in a fresh isolated process have zero guarded SQLite/network/process/
+FS-write/Fork-hook/Thread/log effects, unchanged actual FD identity and empty
+shipping/live inventories. Executable entry modules are separately CLI-tested.
+All58 original migration test function/class ASTs and its2109-line historical
+prefix remain exact. Nine actual fresh installed fixed helper controls also
+PASS: normal,builtin/nonbuiltin errno,fork,live/recycled Thread,uncertain close,
+extra memory and preloaded SQLite. Nine installed controls are NOT71 focused
+cases;51 combined library imports are NOT a relabelled earlier45/48 input count.
+
+Only this factual ownplan handoff changes after checks, not any selected input
+blob. Freeze a normal atomic user/noreply documentation candidate, reverify the
+179-entry union, then authorized ordinary push/dependent Draft PR to exacta9.
+Fresh dualCI actual checkout/parents/tree and third independent combined SOURCE
+review/root qualification remain PENDING. No inferred CI result, sourceA/B,
+initializer/provider/daemon/bundle/restore/RV11/wholeM1/G1 or external authority.
+All original failed/HOLD candidates and unexecuted calibration facts survive.
