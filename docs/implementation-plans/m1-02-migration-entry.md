@@ -255,3 +255,84 @@ whole M1-02/M1-03/RV11/G1 and live/deployment/image/release gates remain distinc
 The future focused Draft PR targets `feat/m1-02-persistence`, depends on PR15 and
 references Issue9 without closing the whole package. New exact-source independent
 acceptance/CI and separate root integration release remain required.
+
+## MG native immutable-metadata alignment amendment (plan only)
+
+The first actual MG fixture batch found an existing compiled-schema constraint,
+not accepted migration evidence: v0001's `schema_metadata_immutable_columns`
+trigger rejects changing schema_version/registry_digest by SQL UPDATE, and its
+`schema_migrations_immutable_delete` trigger rejects converting an initialized
+v1 ledger into the synthetic predecessor. The batch reported 18 failures and six
+value-test passes; most failures occurred during fixture construction. A separate
+current no-op failure is a test's positional OwnerSessionInfo construction error
+(owner_run_id precedes instance/namespace), not a new data-model contract.
+
+Preserve the original 257-line pre-code plan, 217-line approval and complete
+232-line design. This narrow amendment awaits independent review and explicit
+root source release. Until then do not implement the following publication or
+fixture strategy. Existing dirty source is unqualified; all historical accepted
+SQL/OS inputs, production v0001 and shared documents remain unchanged.
+
+Within the same already allocated one-step BEGIN IMMEDIATE interval, after exact
+predecessor/state reinspection, replace only the singleton schema_metadata row
+using fixed DELETE followed by INSERT. Read its exact original created_at cell
+inside that transaction and preserve it byte/value-for-value, together with
+singleton=1; only compiled target version/digest differ. Require exactly one old
+row and one replacement. No UPDATE-trigger disabling, DROP/rebuild of a production
+table/trigger, REPLACE conflict behavior, connection dbconfig toggle, arbitrary
+SQL, extra callable/input/record field or additional transaction is introduced.
+Every immutable-column trigger remains present and enabled. Append only the one
+new schema_migrations row; never update/delete a predecessor ledger row/time.
+Target catalogue/state inspection, COMMIT/final-check uncertainty, rollback and
+connection disposition remain exactly the approved protocol.
+
+Build the fixed test-only 9001 database as a new fixture from compiled v0001 table
+and index statements and actual rows seeded through accepted v1 typed repositories.
+Capture all 32 tables before closing the genuine v1 WriterSession. Insert those
+same fixed rows into the fresh fixture, with only the explicitly synthetic initial
+metadata/ledger facts changed. Install every exact compiled trigger before fixture
+publication, then check exact source manifest, integrity and all foreign keys.
+This avoids modifying an immutable v1 ledger, relaxing any shipping guard or
+attaching a fake current WriterSession to 9001. Original real rules, mappings,
+jobs, intents, identities, bindings and their timestamps must compare exactly.
+All source/target manifest bytes still differ only by the one fixed target index
+and explicitly test-labelled metadata/ledger. No synthetic schema ships.
+
+Add paired native controls proving UPDATE of metadata and UPDATE/DELETE of old
+ledger rows still refuse under both manifests, while the fixed transactional
+singleton publication succeeds with created_at and old ledger timestamps intact.
+Inject a real SQL fault after singleton DELETE, after replacement INSERT, after
+new ledger INSERT, after user_version and before COMMIT; rollback/reopen must show
+the original singleton, all old ledger rows/times, complete predecessor catalogue,
+all 32-table business rows and prior owner. Existing complete-bundle, ownership,
+no-create refusal, fork/Thread, SIGKILL, uncertain COMMIT/ROLLBACK, target no-op,
+privacy/wheel and every retained baseline gate remain mandatory and unchanged.
+
+Scope remains the existing four production modules, three MG test files, this
+plan and untouched design copy. This allocates no production predecessor,
+provider, schema-version bump, initializer/provenance policy, restore or CLI.
+
+The exact compiled metadata trigger is BEFORE UPDATE with OLD/NEW inequality
+for every metadata column and RAISE(ABORT,'consistency_failure'); old ledger rows
+have unconditional BEFORE UPDATE and BEFORE DELETE guards. No compiled v0001
+foreign key references schema_metadata, so the fixed singleton replacement
+requires no FK suspension or deferment: entry foreign_keys=1 and final empty
+foreign_key_check remain required throughout. A read-only disposable native
+SQLite diagnostic confirmed UPDATE refusal and DELETE/INSERT rollback restoring
+the original singleton/version/created_at under unchanged compiled triggers.
+That feasibility probe is not migration-source acceptance or a durable-file test.
+
+### Exact corrective pre-code release receipt
+
+Independent nonauthor Sol xhigh review APPROVED the exact 323-line plan SHA-256
+`fd60c0ed5fce0d0fae555de068b374920db550dd4be997fe767a1e8eba9cf33d`.
+The complete 123-line review was read, SHA-256
+`435e30eec68cbe3217cd7ea08a49a76510b4c7c6164477664ebf0afa7ba8cd4a`.
+Its own unchanged-a9 native WAL/FK/trigger five-cut feasibility is only plan
+evidence, not 9001/provider/process or complete source acceptance. Root separately
+rechecked the plan/prefixes/design and released only this finite corrective
+strategy. This receipt and original amendment are committed before any corrective
+engine publication or fresh predecessor fixture implementation; existing dirty
+source/tests are retained unstaged and unqualified. Preserve all original323,
+257/217 and design232 bytes. Initial18fail/sixpass and later29-case partial controls
+remain historical/partial results, not retrospectively qualified migration.
