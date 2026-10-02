@@ -397,3 +397,105 @@ review and its own Python 3.12/3.13 CI before root may release integration. PR15
 stays Draft; Issue9, whole M1-02, actual M5/M103/RV11/G1 and migration source remain
 pending. No schema, API, producer/provider registration, dependency, CI, CLI,
 shared-status, Gmail, credential, deployment, image or release scope was expanded.
+
+### R3 clarification: creator validation precedes lifecycle mutation
+
+Independent non-author acceptance of exact source
+`2466834f79c41dbbf95e2919072ea9f57f36e7cc` is HOLD despite its 1525 passing
+tests and successful exact CI37028021323. The reviewer verified the R1/R2
+repairs, then reproduced a public UoW lifecycle counterexample: a foreign Thread
+calls `uow.__exit__(None, None, None)`, receives OWNER_UNAVAILABLE, but the
+session-check failure handler first removes the creator's enrolled scope and
+resets its business/attention flags. Creator exit can consequently commit OPEN
+business effects without completion, or accept business after CONSUMED or a new
+NEEDS_ATTENTION transition. No raw SQL or private-state mutation is needed.
+Historical source62 and corrected source246 remain HOLD; this appendix is plan
+only until independent review and an explicit finite root source release.
+
+The existing thread-affine owner/finality contract requires refusal without
+mutating another creator's transaction. Add a fixed private WriterSession
+creator check, using its actual creator PID and a strongly retained exact
+`threading.current_thread()` object, not only a reusable numeric thread ID.
+The check compares identity before probing the connection, changing a flag,
+removing enrollment, poisoning, rolling back, closing or invoking cleanup. It
+returns OWNER_UNAVAILABLE on a foreign Thread or inherited fork process and has
+no SQL, connection-close, registry or creator-state effect. No at-fork hook is
+installed. Capture identity during the existing WriterSession construction; it
+does not constitute a real M103 owner/provider or filesystem-opening capability.
+
+Apply that check at WriterSession check/invalidation and each UoW lifecycle
+boundary. Entry performs it before any entry flag or BEGIN; check/execute before
+failure mutation; exit before its exception-handler cleanup; rollback before
+SQL and finally cleanup; scope retirement before enrolled-set/flag changes.
+Refused foreign entry/exit/cleanup cannot alter `_entered`, `_active`, `_failed`,
+the session's current UoW, exact scope identity/phase/enrollment, captured facts,
+receipts, business-touched or attention-completed state. Numeric thread-ID reuse
+does not authorize a new Thread. Foreign refusal must not close or poison the
+legitimate creator, including a connection with `check_same_thread=False`.
+
+After creator validation, active-UoW identity is checked before taking lifecycle
+actions: a stale/reused/inactive UoW cannot retire or roll back a different live
+UoW on that session. An unentered UoW may be entered only by its session creator.
+The genuine creator still performs the existing one-shot transaction sequence:
+forgotten OPEN completion rolls back; CONSUMED permits reads but denies every
+repository mutation; attention denies the four business operations/scope entry
+including no-ops; caught owned failures poison and roll back the complete UoW.
+Successful commit, owned rollback, owned close and failed/ambiguous persistence
+retire only the actual owned scope and reset transient flags. The latter closes
+the unusable writer and cannot return a success receipt. Creator identity alone
+is not a substitute for active session, current-UoW or lineage checks; legitimate
+closed/broken-session cleanup remains possible after identity is established.
+No cleanup is attempted on an inherited SQLite connection in a refused child.
+
+#### Finite R3 files and independent evidence
+
+This correction allocates only these existing files and this plan:
+
+- `src/facet/db/connection.py`: WriterSession-only retained PID/Thread fields,
+  fixed private `_check_creator()` and creator-first writer check/invalidation.
+  Preserve `_Session`/ReadSession behavior, permit bridge and read provider; no
+  runtime lock factory, public export, callback or general connection protocol.
+- `src/facet/db/transactions.py`: creator-first entry/check/exit/rollback and
+  exact-current-UoW retirement ordering, including owned uncertain cleanup.
+- `src/facet/db/repositories/actions.py`: creator-first scope invalidation;
+  retain the same fixed enrollment, OPEN/CONSUMED phases and R1/R2 semantics.
+- `tests/unit/test_db_actions.py`: bounded owned Thread/child controls and
+  actual WAL/full-image/close-reopen evidence; no shared conftest or changes to
+  existing test bodies. Keep all retained 1525 cases and original SQL controls.
+
+Extend AP08/AP10 with each of the reviewer's actual OPEN, CONSUMED and attention
+counterexamples. The foreign public exit must issue zero SQL and leave all
+creator facts unchanged; pair creator forgotten-completion rollback, legitimate
+EXECUTED/read/commit, and later-business detecting rollback after each refused
+foreign call. Test foreign unentered entry, entered/repeated exit, exception exit
+and session close; retain exact session/UoW/scope state and let the creator finish
+its valid sequence. Add stale-UoW exit while a different UoW is active and verify
+zero interference. Include `check_same_thread=False`, retained creator-Thread
+versus an actual newly allocated Thread with recycled numeric ID, and an owned
+fork child that invokes the public lifecycle then uses immediate child exit
+without inherited SQLite finalizers; the parent remains usable. All joins and
+child waits are bounded and clean up only the test's own participants.
+
+Pair legitimate creator rollback/close with real preceding SQL and full-schema
+reopen comparisons. Retain actual after-SQL abort, caught-failure and ambiguous
+commit/rollback controls; add scope/flag/enrollment retirement checks without
+relaxing uncertainty handling. Do not assert rollback after an ambiguous commit
+as a guarantee; independently reopen to inspect the durable old/new outcome.
+No migration, restore, row/table/core enum, producer registration, dependency,
+CI, CLI, Gmail, credential, runtime lock source or shared-document change is
+allocated. A further material ownership strategy or extra file requires a new
+written amendment before code. Save exact independent approval/root release in
+a pre-strategy documentation commit, then require new exact source, measured
+full/targeted suites, fresh noneditable wheel, both Python CI jobs and non-author
+acceptance before any integration or downstream migration release.
+
+#### R3 independent approval and finite source-release receipt
+
+Independent non-author Sol xhigh reviewer `phase1_os_acceptance_sol` approved the
+exact 490-line R3 clarification at SHA256
+`01f36afd3066f95729c54b3648a42cba73e99d320b11f25a156f4cf982c925f6`.
+Root read the complete review and released only the finite WriterSession/UoW/
+scope correction and additive tests above. This receipt is saved in a normal
+documentation-only commit before any R3 strategy source. Neither historical62
+nor source246 is accepted; downstream migration source and restore plan remain
+paused, and a new exact candidate needs separate non-author acceptance and CI.
