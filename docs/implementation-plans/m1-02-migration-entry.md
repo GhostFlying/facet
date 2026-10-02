@@ -582,3 +582,171 @@ and separate root integration dispatch. PR15 is unmerged; foundation/source
 HOLDs are separate and unchanged. Actual production preflight/native provenance,
 complete coordinated bundle/provider, initializer/restore/read/daemon/CLI/live
 and whole M1-02/M1-03/RV11/G1 gates remain open. No shared documents are changed.
+
+## MG08 native BEGIN acknowledgement-loss correction (plan only)
+
+This appendix is a proposal awaiting independent nonauthor amendment review and
+explicit root source release. No corrective source/test edit is authorized yet.
+Preserve the complete584-line prefix SHA-256
+`d4fd3e5acf5cd7155ffe92776210ff0a6295bc01ad7527a10f6acce8d23617c1`,
+all approved484/338/323/257/217 prefixes, exact232 design and bc4b634/5af1095/
+fa8859d pre-code receipts. Candidate1d529e91507fc1f5cda6d8b719cbb73516065662
+and its source/test bytes remain frozen. Only this owned plan is changed now.
+
+### Actual counterexample, attribution and retained historical evidence
+
+Root confirmed the nonauthor's genuine native-Connection probe, SHA-256
+`0e7023e907ef8cecc64eee6537ce41d4d8056ab065d4f83e4f83d7eeee719f47`.
+The probe used the exact1d529 engine, a published complete private fixture bundle,
+actual ownerEX/viewEX and both ordered credential locks. A test-only sys.setprofile
+c_return callback raised MemoryError after that exact Connection.execute executed
+BEGIN IMMEDIATE natively, but before the engine assigned began=True. The callback
+observed real in_transaction=True. Candidate returned fixed PERSISTENCE_FAILURE
+with no cause/context, while its trace contained BEGIN and no ROLLBACK/close.
+A separate fresh native mode=rw, autocommit=True, zero-timeout SQLite contender
+received actual SQLITE_BUSY on BEGIN IMMEDIATE. All32 original logical tables
+were unchanged; kernel owner contention and genuine provider freeze remained.
+
+Probe-only explicit ROLLBACK/close and safe physical reopen restored the complete
+predecessor rows. The paired native authorizer-denied BEGIN observed actual
+in_transaction=False, left no transaction, then a genuine creator migration reached
+the exact target with business rows/created_at/old ledger intact. Neither probe
+cleanup nor this negative control repairs the frozen candidate. The confirmed
+source finding is HOLD despite earlier102 focused/1727 full/wheel7053796 passes.
+PR25 remains Draft/open; no source acceptance, readiness or integration is claimed.
+
+Exact CI37055251917 completed successfully on both Python jobs. Both actual
+checkout logs name synthetic merge2526dd5b784f557a9b53f04507438f12be734076,
+parents a9c4e36 and1d529, whose tree2fb8ed1d70d9944d282bb3fffc5732c2b8e39267
+equals the source tree. Python3.12.3 passed1727 in375.15s and CLI40 in4.48s;
+Python3.13.16 passed1727 in316.16s and CLI40 in3.86s. These actual successful
+receipts, earlier failed fixture batches and the MG02 counterexample are retained;
+none waives the native lifecycle defect or retroactively closes MG08.
+
+### Finite owned-attempt and cleanup fences
+
+Allocate corrective implementation only in src/facet/db/migration_entry.py and
+tests/unit/test_db_migration_entry.py, plus this plan's factual receipts. Preserve
+models, schema, migration manifests/v0001 and both process helpers byte-for-byte
+at1d529. There is no new entry, provider method, record, registration or callback.
+The supplied exact native Connection, two fixed provider methods, empty shipping
+provider/predecessor inventories and existing return/error contracts stay fixed.
+
+Replace the post-native began=True acknowledgement dependency with a private
+local owned-BEGIN-attempt fence armed BEFORE the single native BEGIN call. Arm
+it only after all exact-type/creator/enrollment checks, initial no-external-UoW
+conditions, trusted predecessor/owner state, complete backup validation and the
+last real provider check have passed. Immediately before arming, require the
+exact native connection still idle; an already active external transaction is
+refused with the fence unarmed and is never rolled back, adopted or closed.
+Arming is local control flow, not ownership evidence or a provider-caller flag.
+
+On failure before attempted COMMIT, the armed same-PID/strong-Thread invocation
+must inspect the exact native connection.in_transaction. If genuinely active,
+attempt exactly one ROLLBACK and then require actual in_transaction=False. If
+idle, do not issue ROLLBACK: BEGIN may have been denied or never reached SQLite.
+A return acknowledgement, Python flag or trace count is not native disposition.
+The original failure propagates as its fixed normalized code after confirmed
+cleanup; the MemoryError acknowledgement-loss case is PERSISTENCE_FAILURE.
+
+Failure to inspect transaction state, refused/failed ROLLBACK, lost ROLLBACK
+acknowledgement or unconfirmed idle state is cleanup uncertainty. Attempt close
+on this exact owned Connection once and return PERSISTENCE_FAILURE; never retry
+ROLLBACK/BEGIN/close, fabricate success or replace/re-enroll a handle. Native
+COMMIT-attempt fencing remains BEFORE COMMIT and dominates BEGIN cleanup: a
+COMMIT or final-check exception still closes once, with no speculative ROLLBACK
+or assumption about old versus target. Safe provider-owned reopen must determine
+the exact old-or-target state before any later separately authorized invocation.
+
+An unarmed refusal must never inspect/rollback/close on behalf of a foreign
+creator or external UoW. Existing PID/strong-Thread checks also prevent a fork or
+changed invocation identity from cleaning the parent's resource. The fixed
+provider retains real owner/view/both credential resources through disposition;
+the entry never releases locks, mutates enrollment or opens another connection.
+Cleanup after an owned attempt does not depend on a failed ownership recheck
+pretending there was no transaction. It concerns only the already enrolled exact
+connection, not another provider resource or another invocation's transaction.
+
+One close attempt is not a guarantee against an unavailable native close or an
+arbitrary continuing interpreter fault. No uncertain handle becomes a usable
+session/result; the provider retains cleanup responsibility and its freeze.
+Process death remains the actual MG07 recovery case, not Python-finally proof.
+Do not suppress profiling exceptions, install a production hook/finalizer, change
+SQLite guards, add an opener/provenance issuer or retry until a test passes.
+
+### Required real positive, detecting-negative and uncertainty controls
+
+Use only the exact native Connection and existing genuine fixed Scope. Preserve
+all102 MG cases and1625 retained baseline cases. New profile faults must identify
+the actual bound native execute/close and exact BEGIN/ROLLBACK/COMMIT trace phase;
+observe real in_transaction and actual row/catalogue facts before raising a
+synthetic sensitive MemoryError. Restore the caller's previous profile in finally;
+each deliberate fault must propagate through the candidate, not be swallowed.
+No fake Connection, bool, transaction flag, ID, shortened deadline or skip.
+
+- Native BEGIN c_return acknowledgement loss must first observe an actual open
+  transaction. The corrected entry emits exactly one BEGIN and one ROLLBACK,
+  no DDL/COMMIT/close, leaves the exact connection idle and all32 rows unchanged.
+  A fresh zero-timeout native contender can then BEGIN/ROLLBACK on the same known
+  fixture while the original kernel owner contender still reports owner_busy.
+  The genuine creator can subsequently migrate with complete preservation.
+- Pair this with native c_call BEGIN failure before execution and an independent
+  SQLite authorizer-denied BEGIN. Both remain idle, do not ROLLBACK/close or write,
+  retain genuine freeze, and permit the creator's later successful migration.
+  The original exact1d529 probe remains the historical detecting negative that
+  observed the leaked transaction and SQLITE_BUSY; do not rewrite its outcome.
+- Combine native BEGIN acknowledgement loss with actual authorizer-denied
+  ROLLBACK. Observe the real active transaction, then exactly one fallback close,
+  an unusable original connection and predecessor state on safe physical reopen.
+- Lose ROLLBACK c_return acknowledgement after native rollback really succeeds.
+  Observe actual idle state at that callback; still require one close attempt,
+  fixed failure and complete predecessor reopen, not a second rollback attempt.
+- Lose COMMIT c_return acknowledgement after a genuine native target commit.
+  Observe real idle/target facts, no ROLLBACK and one close attempt. Safe reopen
+  observes the complete target; its separately enrolled current call is unchanged
+  without another step or backup, with all business/old-ledger facts preserved.
+- Exercise actual closed-connection transaction-property failure during owned
+  cleanup, and fallback-close c_return acknowledgement loss after native close.
+  Distinguish the test's explicit physical fault from the entry's one close
+  attempt; neither uncertain path may retry, leak sensitive context or succeed.
+  Reopen under genuine freeze proves exact predecessor rows and released native
+  writer contention, while the original application kernel lock remains held.
+- Strengthen/retain external-UoW, foreign Thread/fork and wrong enrollment pairs:
+  no SQL mutation/ROLLBACK/native close by the refused invocation; original
+  holder/enrollment and real transaction remain usable by their genuine creator.
+
+Each fixture retains the existing8-second bounded helpers/common deadlines,
+zero-timeout SQLite lock probes and finally cleanup of only owned connections,
+profile/authorizer/trace hooks and fresh child processes. No network is allowed.
+Measure native operation counts, actual kernel contention and complete physical
+reopen/catalogue/32-table rows, immutable old ledger/created_at/FKs; no flag alone
+is a gate. Repeat the relevant fixed fault controls, then expanded focused/full
+tests, both existing SIGKILL boundaries, locked Ruff/format, CLI/help/JSON, safety,
+fresh wheel/privacy/no-import-effects and actual dual-Python CI checkout/tree.
+
+Independent exact amendment approval and root release precede a plan-only
+user/noreply pre-code receipt commit and any corrective source edit. Freeze the
+new finite source normally, update existing dependent Draft PR25 without force,
+and obtain independent nonauthor source acceptance plus root-qualified gates.
+Stop for another file/API, weakened enrollment/guard, retry/cleanup-policy change
+or inability to prove real disposition. SourceA/provider/whole M1-02/M1-03/RV11/G1,
+restore/live/deployment/image/release gates and frozen shared docs remain pending.
+
+### Exact native-BEGIN corrective pre-code release receipt
+
+Independent nonauthor amendment review APPROVED only the new149-line correction
+bound to complete733-line plan SHA-256
+`b7c1f9723a441f3376bab422b348fd8c605b9e1014cf9e7aa10962c7338ae030`.
+The complete151-line report was personally read, SHA-256
+`4d6b21a92b2299344f2278bf62c2437ebae4b97b31f1f4b150152446543b97d0`.
+That reviewer authored original217, not the new149, and explicitly reviewed only
+the new amendment; final source acceptance remains the independent third's duty.
+Its two actual native counterexample runs validate the causal premise, not old
+or corrected source acceptance. Root read that report, independently rechecked
+the exact plan/design/source allocation and explicitly released only this finite
+correction. This plan-only user/noreply atomic commit precedes every corrective
+entry/test edit. Preserve733/584/484/338/323/257/217 and exact232 design bytes,
+all earlier pre-code receipts and historical1d529 SOURCE HOLD/CI successes.
+Only the existing entry, unit test and factual own plan may change; models/schema/
+manifests/v0001/process helpers remain exact1d529. New focused/full/native fault/
+wheel/privacy/CLI/safety/dual-CI and independent exact-source/root gates remain.
