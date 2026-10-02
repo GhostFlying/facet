@@ -1,15 +1,24 @@
-"""Insert intent and invocation-entry facts, never provider calls or retry policy."""
+"""Insert intent/result facts, never provider calls or recovery scheduling."""
+
+from dataclasses import fields, replace
+from uuid import uuid4
 
 from facet.contracts import (
     ClaimPhase,
+    Count,
     ErrorCode,
     InsertState,
     JobKind,
     JobState,
     LocalId,
+    OutcomeCertainty,
+    Priority,
+    Revision,
     Role,
     Timestamp,
+    Visibility,
 )
+from facet.contracts.records import JobSubjectRecoverInsert
 
 from ..codecs import (
     AuditKind,
@@ -18,10 +27,12 @@ from ..codecs import (
     next_revision,
     timestamp_to_sql,
 )
-from ..models import WriteReceipt
+from ..keys import job_key
+from ..models import SyncJobRow, WriteReceipt
 from .audit import _audit
 from .base import _conflict, _get, _guard, _insert, _mutating, _query, _require_row
 from .jobs import _ready, _thread_guard
+from .serialization import COLUMNS, _encode_row
 
 
 def _claim(uow, projection_id, job_id):
@@ -190,3 +201,396 @@ def mark_dispatch(uow, projection_id, attempt_id, claim_id, dispatched_at, guard
         after_state=InsertState.DISPATCH_STARTED,
     )
     return WriteReceipt("updated", attempt_id, revision)
+
+
+_PREPARED_FACTS = (
+    "projection_id",
+    "attempt_id",
+    "job_id",
+    "claim_id",
+    "source_message_id",
+    "source_thread_id",
+    "generation",
+    "binding_role",
+    "binding_revision",
+    "prepared_at",
+    "requested_target_thread_id",
+    "raw_digest",
+    "rfc_message_id",
+    "date_policy",
+    "dispatch_started_at",
+)
+_PRESERVED_FACTS = (
+    "result_at",
+    "target_message_id",
+    "target_thread_id",
+    "semantic_digest",
+    "semantic_version",
+    "verified_at",
+)
+_RESULT_EDGES = {
+    InsertState.PREPARED: {
+        InsertState.CANCELLED_BEFORE_DISPATCH,
+        InsertState.DEFINITE_NOT_INSERTED,
+    },
+    InsertState.DISPATCH_STARTED: {
+        InsertState.KNOWN_INSERTED,
+        InsertState.PENDING_RECOVERY,
+        InsertState.DEFINITE_NOT_INSERTED,
+        InsertState.NEEDS_ATTENTION,
+    },
+    InsertState.KNOWN_INSERTED: {InsertState.NEEDS_ATTENTION},
+    InsertState.PENDING_RECOVERY: {InsertState.NEEDS_ATTENTION},
+}
+_ATTENTION_ERRORS = {
+    ErrorCode.INSERT_RESULT_UNKNOWN,
+    ErrorCode.ATTRIBUTION_UNKNOWN,
+    ErrorCode.DUPLICATE_CANDIDATES,
+    ErrorCode.FIDELITY_MISMATCH,
+    ErrorCode.CONSISTENCY_FAILURE,
+}
+_DEFINITE_ERRORS = {
+    ErrorCode.SOURCE_AUTH_REQUIRED,
+    ErrorCode.TARGET_AUTH_REQUIRED,
+    ErrorCode.SCOPE_REQUIRED,
+    ErrorCode.BINDING_MISMATCH,
+    ErrorCode.BINDING_PENDING,
+    ErrorCode.GENERATION_STALE,
+    ErrorCode.OWNER_UNAVAILABLE,
+    ErrorCode.OWNER_BUSY,
+    ErrorCode.WAIT_TIMEOUT,
+    ErrorCode.NETWORK_UNAVAILABLE,
+    ErrorCode.INVALID_INPUT,
+    ErrorCode.SOURCE_MISSING,
+    ErrorCode.SOURCE_RATE_LIMITED,
+    ErrorCode.TARGET_RATE_LIMITED,
+    ErrorCode.TARGET_STORAGE_FULL,
+}
+
+
+def _result_time(row, observed_at, *extra):
+    if type(observed_at) is not Timestamp:
+        _conflict()
+    times = (row.prepared_at, row.dispatch_started_at, row.result_at, row.verified_at)
+    if any(t is not None and observed_at.value < t.value for t in (*times, *extra)):
+        _conflict()
+    if row.result_at is not None and (
+        row.result_at.value < row.prepared_at.value
+        or row.dispatch_started_at is not None
+        and row.result_at.value < row.dispatch_started_at.value
+    ):
+        _conflict()
+
+
+def _result_facts(old, row):
+    if (
+        old.certainty is OutcomeCertainty.INSERTED
+        and row.certainty is not OutcomeCertainty.INSERTED
+        or old.state is InsertState.PENDING_RECOVERY
+        and row.certainty is not OutcomeCertainty.UNKNOWN
+    ):
+        _conflict()
+    if any(getattr(old, f) != getattr(row, f) for f in _PREPARED_FACTS):
+        _conflict()
+    if any(
+        getattr(old, f) is not None and getattr(old, f) != getattr(row, f)
+        for f in _PRESERVED_FACTS
+    ):
+        _conflict()
+    if (row.semantic_digest is None) != (row.semantic_version is None):
+        _conflict()
+    if (old.recovery_checks, old.next_recovery_at) != (
+        row.recovery_checks,
+        row.next_recovery_at,
+    ):
+        _conflict()
+    if (
+        old.visibility is not Visibility.UNKNOWN
+        and old.visibility != row.visibility
+        or row.certainty is not OutcomeCertainty.INSERTED
+        and row.visibility is not Visibility.UNKNOWN
+    ):
+        _conflict()
+    if old.state == row.state:
+        # Only these finite nullable readback facts may enrich known insertion.
+        allowed = {"revision", "semantic_digest", "semantic_version", "visibility"}
+        if old.state is not InsertState.KNOWN_INSERTED or any(
+            getattr(old, f.name) != getattr(row, f.name)
+            for f in fields(old)
+            if f.name not in allowed
+        ):
+            _conflict()
+        if replace(row, revision=old.revision) == old:
+            _conflict()
+        return
+    if row.state not in _RESULT_EDGES.get(old.state, set()):
+        _conflict()
+    errors = {
+        InsertState.KNOWN_INSERTED: {None},
+        InsertState.PENDING_RECOVERY: {ErrorCode.INSERT_RESULT_UNKNOWN},
+        InsertState.NEEDS_ATTENTION: _ATTENTION_ERRORS,
+        InsertState.CANCELLED_BEFORE_DISPATCH: {
+            ErrorCode.GENERATION_STALE,
+            ErrorCode.OWNER_UNAVAILABLE,
+        },
+        InsertState.DEFINITE_NOT_INSERTED: _DEFINITE_ERRORS,
+    }
+    if row.error_code not in errors[row.state]:
+        _conflict()
+
+
+def _result_binding(uow, projection_id, attempt):
+    historical = _get(
+        uow,
+        projection_id,
+        "binding_revisions",
+        (
+            ("role", Role.TARGET),
+            ("binding_revision", attempt.binding_revision),
+        ),
+    )
+    current = _get(uow, projection_id, "bindings", (("role", Role.TARGET),))
+    if (
+        historical is None
+        or current is None
+        or attempt.binding_role is not Role.TARGET
+        or historical.verified_address != current.declared_address
+        or historical.declared_address != current.declared_address
+    ):
+        _conflict()
+
+
+def _result_job(uow, projection_id, attempt, phase):
+    job, claim = _claim(uow, projection_id, attempt.job_id)
+    _identity(job, claim, attempt)
+    if claim.phase is not phase:
+        _conflict()
+    return job, claim
+
+
+def _recovery_identity(uow, projection_id, attempt, observed_at):
+    subject = JobSubjectRecoverInsert("recover_insert", attempt.attempt_id)
+    recovery = _get(
+        uow,
+        projection_id,
+        "sync_jobs",
+        (("stable_key", job_key(projection_id, subject)),),
+    )
+    if recovery is not None and (
+        recovery.kind is not JobKind.RECOVER_INSERT
+        or recovery.subject != subject
+        or recovery.key_version != Count(1)
+        or recovery.priority is not Priority.RECOVERY
+        or recovery.next_attempt_at is not None
+        or recovery.created_at.value > recovery.updated_at.value
+        or recovery.updated_at.value > observed_at.value
+    ):
+        _conflict()
+    return subject, recovery
+
+
+def _recovery_claim(uow, projection_id, attempt, observed_at):
+    _, recovery = _recovery_identity(uow, projection_id, attempt, observed_at)
+    if recovery is None or recovery.state is not JobState.CLAIMED:
+        _conflict()
+    acquired = _get(uow, projection_id, "job_claims", (("job_id", recovery.job_id),))
+    if (
+        acquired is None
+        or acquired.claim.phase is not ClaimPhase.PREPARING
+        or acquired.claim.owner_run_id != uow._session._info.owner_run_id
+        or acquired.claim.thread_generation != attempt.generation
+        or acquired.claim.job_revision != recovery.revision
+    ):
+        _conflict()
+    _result_time(attempt, observed_at, recovery.updated_at, acquired.claim.acquired_at)
+    return recovery
+
+
+def _result_disposition(uow, projection_id, job, state, error, observed_at):
+    revision = next_revision(job.revision)
+    changed = uow._execute(
+        "UPDATE sync_jobs SET state=?,revision=?,updated_at=?,next_attempt_at=NULL,"
+        "last_error_code=? WHERE projection_id=? AND job_id=? AND revision=?",
+        (
+            state.value,
+            revision.value,
+            timestamp_to_sql(observed_at),
+            error.value,
+            projection_id.value,
+            job.job_id.value,
+            job.revision.value,
+        ),
+    )
+    if changed.rowcount != 1:
+        _conflict()
+    uow._execute(
+        "DELETE FROM job_claims WHERE projection_id=? AND job_id=?",
+        (projection_id.value, job.job_id.value),
+    )
+    _audit(
+        uow,
+        projection_id,
+        AuditKind.JOB_STATE_CHANGED,
+        AuditObjectKind.JOB,
+        observed_at,
+        local_id=job.job_id,
+        before_revision=job.revision,
+        after_revision=revision,
+        before_state=job.state,
+        after_state=state,
+        error=error,
+    )
+
+
+def _result_recovery(uow, projection_id, original, row, observed_at, *, claimed=None):
+    subject, recovery = _recovery_identity(uow, projection_id, row, observed_at)
+    attention = row.state is InsertState.NEEDS_ATTENTION
+    if claimed is not None:
+        if recovery != claimed:
+            _conflict()
+        _result_disposition(
+            uow,
+            projection_id,
+            recovery,
+            JobState.NEEDS_ATTENTION,
+            row.error_code,
+            observed_at,
+        )
+    elif recovery is None:
+        recovery = SyncJobRow(
+            projection_id,
+            LocalId(uuid4().hex),
+            JobKind.RECOVER_INSERT,
+            Count(1),
+            job_key(projection_id, subject),
+            Priority.RECOVERY,
+            JobState.NEEDS_ATTENTION if attention else JobState.QUEUED,
+            Revision(0),
+            observed_at,
+            observed_at,
+            None,
+            Count(0),
+            row.error_code if attention else None,
+            original.origin_epoch_id,
+            subject,
+        )
+        _insert(uow, projection_id, "sync_jobs", recovery)
+    else:
+        if _get(uow, projection_id, "job_claims", (("job_id", recovery.job_id),)):
+            _conflict()
+        if recovery.state is JobState.QUEUED and recovery.last_error_code is None:
+            if attention:
+                _result_disposition(
+                    uow,
+                    projection_id,
+                    recovery,
+                    JobState.NEEDS_ATTENTION,
+                    row.error_code,
+                    observed_at,
+                )
+        elif not (
+            attention
+            and recovery.state is JobState.NEEDS_ATTENTION
+            and recovery.last_error_code == row.error_code
+        ):
+            _conflict()
+    # Fixed set SQL, no unbounded Python row buffer and no first-origin rewrite.
+    uow._execute(
+        "INSERT INTO epoch_jobs(projection_id,epoch_id,job_id) "
+        "SELECT old.projection_id,old.epoch_id,? FROM epoch_jobs old "
+        "WHERE old.projection_id=? AND old.job_id=? AND NOT EXISTS "
+        "(SELECT 1 FROM epoch_jobs current "
+        "WHERE current.projection_id=old.projection_id "
+        "AND current.epoch_id=old.epoch_id AND current.job_id=?)",
+        (
+            recovery.job_id.value,
+            projection_id.value,
+            original.job_id.value,
+            recovery.job_id.value,
+        ),
+    )
+
+
+@_mutating
+def record_attempt_result(uow, projection_id, row, observed_at, guard):
+    _require_row(projection_id, "insert_attempts", row)
+    old = _get(uow, projection_id, "insert_attempts", (("attempt_id", row.attempt_id),))
+    if old is None:
+        _conflict()
+    _guard(old.revision, guard)
+    _result_time(row, observed_at)
+    if row == old:
+        return WriteReceipt("replayed", old.attempt_id, old.revision)
+    if row.revision != next_revision(old.revision):
+        _conflict()
+    _result_facts(old, row)
+    _result_binding(uow, projection_id, old)
+    recovering = None
+    if old.state is InsertState.PENDING_RECOVERY:
+        recovering = _recovery_claim(uow, projection_id, old, observed_at)
+        original = _get(uow, projection_id, "sync_jobs", (("job_id", old.job_id),))
+        if (
+            original.state is not JobState.BLOCKED
+            or original.last_error_code is not ErrorCode.INSERT_RESULT_UNKNOWN
+            or _get(uow, projection_id, "job_claims", (("job_id", old.job_id),))
+        ):
+            _conflict()
+        _result_time(row, observed_at, original.updated_at)
+    else:
+        phase = {
+            InsertState.PREPARED: ClaimPhase.PREPARING,
+            InsertState.DISPATCH_STARTED: ClaimPhase.DISPATCHING,
+            InsertState.KNOWN_INSERTED: ClaimPhase.VERIFYING,
+        }[old.state]
+        original, claim = _result_job(uow, projection_id, old, phase)
+        _result_time(row, observed_at, original.updated_at, claim.acquired_at)
+    columns = COLUMNS["insert_attempts"]
+    values = _encode_row("insert_attempts", row)
+    changed = uow._execute(
+        "UPDATE insert_attempts SET "
+        + ",".join(c + "=?" for c in columns)
+        + " WHERE projection_id=? AND attempt_id=? AND revision=?",
+        (*values, projection_id.value, old.attempt_id.value, old.revision.value),
+    )
+    if changed.rowcount != 1:
+        _conflict()
+    if (
+        old.state is InsertState.DISPATCH_STARTED
+        and row.state is InsertState.KNOWN_INSERTED
+    ):
+        changed = uow._execute(
+            "UPDATE job_claims SET phase='verifying' "
+            "WHERE projection_id=? AND job_id=? "
+            "AND claim_id=? AND phase='dispatching'",
+            (projection_id.value, original.job_id.value, old.claim_id.value),
+        )
+        if changed.rowcount != 1:
+            _conflict()
+    if row.state in {InsertState.PENDING_RECOVERY, InsertState.NEEDS_ATTENTION}:
+        _result_disposition(
+            uow,
+            projection_id,
+            original,
+            JobState.BLOCKED
+            if row.state is InsertState.PENDING_RECOVERY
+            else JobState.NEEDS_ATTENTION,
+            row.error_code,
+            observed_at,
+        )
+        _result_recovery(
+            uow, projection_id, original, row, observed_at, claimed=recovering
+        )
+    _audit(
+        uow,
+        projection_id,
+        AuditKind.ATTEMPT_STATE_CHANGED,
+        AuditObjectKind.ATTEMPT,
+        observed_at,
+        local_id=row.attempt_id,
+        before_revision=old.revision,
+        after_revision=row.revision,
+        before_state=old.state,
+        after_state=row.state,
+        error=row.error_code,
+    )
+    return WriteReceipt("updated", row.attempt_id, row.revision)
