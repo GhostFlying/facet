@@ -598,3 +598,51 @@ is self-approved. Source B, native file/fork issuer, config/artifact publication
 complete credential/bundle/restore providers, existing-state upgrade, public init,
 daemon/full CLI, whole M1-02/M1-03/RV11/G1-G6 and live/deployment/release gates
 remain pending. Frozen inputs/main/shared current-state documents are untouched.
+
+## Prospective ordinary K1 correction: exact keyword-name boundary
+
+Date: 2026-10-03 PRC. The preceding 600-line plan remains exact at SHA-256
+e97cf02383fade849154ea86264462c5965c62adee81ed4e842fc9a3e8b5b4ca;
+all original 533/497/477/421/390 prefixes and the unchanged 372-line ADR
+cb18c2e0f350ffd1d0e512ebe3c0a7bfb09ea54c1ac3b7785ed1e06a7f841faf
+remain retained. Exact source 74d9eb0b36a41ff62342320de7921dda54e61fdf,
+tree 44d114ad2de2eb30ab4d050e75f06f358e5c5c51, is SOURCE HOLD, not accepted.
+
+The independent nonauthor 290-line SOURCE HOLD report has SHA-256
+dce768b5dbd0bbcdbdc33077bc812180b735ae4b6742ba398b4b59816838e526.
+Its refined 91-line causal control has SHA-256
+f27c0fed6aba63fc1b457337b83cb6390beb82815de35954edbd1d17b536a79f.
+A genuine str-subclass keyword key survives Python's keyword binding and invokes
+its equality hook in _RecordType.__call__ keyword membership. The hook raises an
+unsealed private exception retaining caller context. Source and fresh installed
+controls each measured one pass/one failure despite the historical 2269 full
+and both successful CI 37075312893 lanes. Those passes do not waive K1.
+An earlier diagnostic raised before Facet entry; it is not this causal finding.
+
+Root personally read the complete report/control and released this ordinary
+correction to the existing exact-input/fixed-error privacy contract, not a new
+strategy, product, API, manifest or authority. Commit ONLY this prospective note
+with the configured user/noreply identity before changing implementation/tests.
+Then, within command_records.py, reject every non-exact-str keyword name using
+the existing fixed INVALID_INPUT failure BEFORE membership/equality or record
+construction. Do not invoke a foreign hook and then catch its exception.
+Ordinary exact built-in names, exact fields/seed/six-field inspection, unknown/
+missing/duplicate/surplus refusals and no-cause/no-context failures remain.
+
+Only command_records.py, tests/test_command_records.py and this plan may change.
+Add actual foreign-key controls that reach Facet, including a benign native cls
+comparison, hook-detecting behavior and caller-already-except sensitive sentinels.
+Pair them with built-in-key positives and retained constructor refusals. Measure
+the detecting failure on unchanged source before fixing it, then corrected source
+and a fresh noneditable installed wheel; distinguish pre-entry Python hooks from
+the protected Facet boundary. Retain all existing 2269 tests/native fault/CAS/WAL/
+SIGKILL/creator/literal graph/privacy/CLI controls and run the newly collected
+full/focused/installed suites, locked lint/format/safety and fresh dual-Python CI.
+
+Freeze one new atomic source plus factual handoff with exact tree/report hashes,
+then normally push the existing Draft PR27 branch without retargeting/readiness.
+Independent nonauthor SOURCE acceptance and root qualification remain mandatory.
+Historical 74d9 HOLD and green tests/CI remain unchanged, not retrospective
+acceptance. The main-integration plan remains paused; no main/shared-state edit,
+Source B, provider/consumer/dependency activation, native issuer, whole M1-02/
+M1-03/RV11/G1-G6 or external deployment/Gmail/release authority is added.
