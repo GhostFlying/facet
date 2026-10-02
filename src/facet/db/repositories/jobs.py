@@ -174,7 +174,9 @@ def claim(uow, projection_id, job_id, claim: Claim, guard, now):
         _conflict()
     generation = _thread_guard(uow, projection_id, job)
     revision = next_revision(job.revision)
-    expected_phase = ClaimPhase.RECOVERY_MATCH if recovering else ClaimPhase.PREPARING
+    # All closed claims start preparing. Recovery prepares checks on an old
+    # attempt, not a new insert; dispatch admission independently rejects it.
+    expected_phase = ClaimPhase.PREPARING
     if (
         claim.owner_run_id != uow._session._info.owner_run_id
         or claim.thread_generation != generation
