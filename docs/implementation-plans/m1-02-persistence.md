@@ -579,3 +579,11 @@ can delegate integration. Actual M1-03 ownership/view/receipt and M1-04 credenti
 providers remain deferred; typed library sessions do not prove production locks,
 authorize mailbox effects or complete G1. Any material interface/approach drift
 returns to independent design review before implementation of that change.
+
+The first schema/session slice keeps ordinary `_attach_writer` lineage matching
+strict. A fresh daemon's new owner-run publication is not allocated by storage
+v1's finite API; the M1-03 design owner confirmed it as a subsequent reviewed
+storage/session extension. Current tests use the same supplied test-owned lineage
+and do not borrow a prior daemon identity or prove restart-owner publication.
+This explicit consumer seam does not add an unreviewed setter/skip flag, block the
+remaining storage-library implementation, or constitute production runtime proof.
