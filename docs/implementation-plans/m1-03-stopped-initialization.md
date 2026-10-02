@@ -1,0 +1,421 @@
+# M1-03 stopped first-initialization and owner-provenance plan
+
+Date: 2026-10-03. Revision: proposed r3. Status: PLAN ONLY, NOT APPROVED.
+
+## Dispatch, base and authority
+
+This is a finite preparatory slice of M1-03, not a replacement for its complete
+writer/runtime design, M1-02 acceptance, or G1. The root explicitly dispatched
+this plan and its alignment ADR to `phase1_os_acceptance_sol` (Sol xhigh).
+That author must not independently approve either this design or its source.
+Only these two new documents are allocated in this dispatch. There is no coding,
+staging, commit, push, PR, provider registration, Gmail/OAuth, or external action.
+Shared status/progress/contracts, frozen input documents, and other worktrees
+remain untouched.
+
+The owned branch is `p/luchengxuan/m1-03-initialization-plan`; its exact base is
+`a9c4e36de6ad70294002a83e678a2a7cf1b012d6`. This combined SQL/OS/harness candidate
+has independent finite acceptance and dual-Python CI 37038807962, but is unmerged
+at this dispatch. Its parents are accepted SQL `c0bb4b0` and main harness `befe278`.
+That qualification does not approve any new schema, runtime producer or CLI.
+Later accepted inputs require explicit normal carry and a newly frozen source
+candidate; this plan does not guess their future commit SHAs.
+
+The companion [alignment amendment](adrs/stopped-initialization-alignment.md)
+contains necessary interface/version/staging changes. Both complete exact hashes
+must receive independent non-author review before root can release any source.
+Approval is not an automatic release, provider allowlist entry, or milestone gate.
+
+## Required input artifacts and actual interfaces
+
+The author read the complete ordered repository instructions and the following
+complete references personally. Original bytes remain unchanged. Writer and read
+artifacts currently live in their separately owned planning trees; naming them
+here does not assert they are installed or tracked on this base.
+
+| Frozen artifact | Lines | SHA-256 |
+| --- | ---: | --- |
+| `m1-03-writer-runtime.md` | 438 | `3934f2a4d6bc1cf0e0ebf4748cd1ed8be426cc7a04f785ca5d1641ed5beaa64c` |
+| `writer-runtime-extension-v1.md` | 876 | `3b9dc3e637ba727589768f0055c746193809f7e0fcd07bc94839dd565a0110c8` |
+| `read-view-runtime-integration.md` | 229 | `9d28e18cee3dbaed00c939838686a6b715cefb569c268a4f3e73a0d1cc6c660e` |
+| `adrs/persistence-schema-v1.md` | 1228 | `3d9021511cb148dfa8b9543ac880d27d83c4f01940659da5fe373e802d74f433` |
+| `adrs/core-state-contracts.md` | 614 | `795f80ab672ed4e0130eafc330bc0403981360f2e70bf935579973065c64f2f6` |
+| `adrs/writer-command-protocol.md` | 475 | `5f0e5af9cc238f7967a88590fb53acc91c4697ffa27d19773cc66cf5ccc41368` |
+| `docs/cli-spec.md` | 309 | `6215d7264403c4ce5fee722d57e74215f910f0298b3673bf67988a9513f022f3` |
+
+Current concrete symbols, rather than hypothetical replacement APIs:
+
+- `PrivatePaths.db` and `select_paths` select `facet.db`, not `metadata.db`.
+  `facet.runtime` is an existing package, not a proposed `runtime.py` module.
+- `Config`, `load_config`, and `initial_template(source_email, target_email, ...)`
+  require two declared, distinct addresses. They do not verify Gmail accounts.
+  `config_warnings` retains verification/state/rule warnings. No accountless
+  template, alias inference, or source-mode/scope change is proposed.
+- `open_existing_root`, `create_lock_root`, `check_root`, `close_root`, and the
+  five lock operations retain actual opaque enrolled OS resources. A scaffold
+  has no initialized-state authority. Its existing creation whitelist stays
+  unchanged; use existing-root opening once bootstrap artifacts exist.
+- `_initialize_database` currently installs exact v1 on a supplied pristine
+  connection; `_attach_writer` requires the stored owner triple to match.
+  `BootstrapInitContext` and `OwnerSessionInfo` are constructible metadata,
+  not actual ownership or permission to open/create a DB.
+- `_inspect` currently recognizes only the exact trusted v1 catalogue/ledger.
+  `WriterSession._check_creator` retains PID and the strong Thread object;
+  `UnitOfWork` checks creator/currentness before all lifecycle changes. The
+  accepted R1/R2/R3 action and suppressed-error rollback fences remain required.
+- `_PROVIDER_TYPES`, read runtime qualifications and maintenance providers are
+  empty shipping authority, not slots for this plan to fill. The no-state read
+  foundation is implementing, not accepted; it issues no read seal/lease/permit.
+- `facet.cli.bootstrap.main` currently refuses init mutations. This finite
+  producer does not enable those commands or implement operations CLI routes.
+
+## Two separately gated source units
+
+Source A is storage-local v2 creation/inspection and fresh-run publication.
+It may be implemented only after both documents are independently approved,
+the current migration-entry implementation is independently accepted, its exact
+source/input CI is qualified, and root serially reallocates overlapping DB files.
+The approved migration plan is not an accepted source prerequisite by itself.
+Neither author edits the other's moving schema/connection/registry files.
+
+Source B is the genuine private stopped filesystem bootstrap issuer consuming
+accepted A plus accepted OS. It requires independent exact A source acceptance,
+accepted migration carry, a frozen B base/plan, and a separate root dispatch.
+Before any read foundation reuse, its actual source must likewise be independently
+accepted with exact CI and normal carry; this plan does not accept that source.
+B is a private library with installed subprocess acceptance, not shipping read
+provider registration, daemon start, status/doctor availability, or complete CLI.
+Public CLI activation needs a separate adapter plan and actual CLI gate.
+
+Both source units receive independent plan/implementation/CI gates, atomic user
+identity commits and later integration only through the root-owned workflow.
+No implementation authority is conferred by the proposed file lists below.
+
+### Proposed exclusive file allocation: A
+
+| Path | Finite responsibility |
+| --- | --- |
+| `src/facet/db/command_records.py` (new) | Closed storage-local enums/records, RequestId, bootstrap seeds and bounded inspection result; core/stdlib only |
+| `src/facet/db/command_store.py` (new) | Fixed bootstrap receipt decoding/reconciliation and initializer insert helpers; no general command executor |
+| `src/facet/db/migrations/v0002.py` (new) | Fixed trusted command schema from the frozen extension; immutable compiled statements/checksum |
+| `src/facet/db/migrations/__init__.py` | Exact version-specific fresh manifests for v1 and v2; no activation of existing-state migration steps |
+| `src/facet/db/schema.py` | Exact version-dispatched inspection plus exact-v1 consumer barrier; no permissive catalogue/version acceptance |
+| `src/facet/db/connection.py` | Separate v2 initializer/fresh owner/bounded inspection; exact-v1 barrier at `_attach_view`; retain ReadSession class, v1 and R3 guards |
+| `src/facet/db/migration_backup.py` | Only exact-v1 source/destination barrier before native backup/destination mutation; keep truthful existing SchemaVersion1 result and all ownership checks |
+| `tests/test_command_records.py` (new) | Exact type/tag/nullness/overflow/privacy controls |
+| `tests/test_command_schema_v2.py` (new) | Exact manifests, trigger/DDL/FK tamper and old-v1 controls |
+| `tests/test_command_bootstrap_storage.py` (new) | Atomic initializer and persisted-key reconciliation on real WAL files |
+| `tests/test_command_owner_session.py` (new) | Real fresh-run CAS, lineage preservation, ambiguous commit and creator lifecycle |
+
+No source A changes to core records, v0001, repositories/actions, transactions,
+ReadSession/read_views, OS production bytes, migration execution/provider code,
+models, dependencies, CI, CLI or shared docs. If accepted migration carry changes
+these exact interfaces or A needs another file, amend/review allocation first.
+
+### Proposed exclusive file allocation: B
+
+| Path | Finite responsibility |
+| --- | --- |
+| `src/facet/commands/__init__.py` (new) | Empty passive package, no registration/import effects |
+| `src/facet/commands/bootstrap_codec.py` (new) | Strict fixed journal/receipt codecs and canonical config/request digests |
+| `src/facet/runtime/bootstrap_files.py` (new) | Fixed fd-relative private artifacts and controlled writer connection; actual resource enrollment/check/cleanup |
+| `src/facet/runtime/stopped_initialization.py` (new) | Sole private stopped issuer, state machine, exact-key submit/lookup, closure ordering |
+| `tests/test_bootstrap_codec.py` (new) | Closed codec/digest vectors and detecting privacy negatives |
+| `tests/test_bootstrap_files.py` (new) | Actual filesystem/inode/open/durability/fault controls |
+| `tests/test_stopped_initialization.py` (new) | Genuine owner/key/replay/config/DB/process scenarios |
+| `tests/integration/test_installed_stopped_initialization.py` (new) | Noneditable-wheel child protocol, deadline/output/privacy/cleanup oracles |
+| `tests/integration/stopped_initialization_child.py` (new) | Test-only bounded child fault driver, excluded from wheel |
+
+B retains OS files and their public APIs byte-for-byte. The private file adapter
+may inspect the accepted internal enrolled root/lease state under its existing
+inventory mutex, after actual creator checks; it cannot enroll a forged handle,
+export/duplicate FDs, add callbacks to OS APIs, or weaken physical-root ordering.
+New nonempty artifact nodes have their own explicit policy, not the zero-length
+stable-lock policy. Any need to change the OS foundation requires a prior finite
+amendment and non-author review, not an improvised descriptor-export API.
+
+## Source A: exact versioned storage seam
+
+Keep `v0001.py` byte-for-byte SHA-256
+`c4531c7fa27634aadcec1c00cb8b42fa6ba921e4e35febc2a643049934c25477`.
+Keep the existing v1 initializer/signature/positive and rejecting tests. Compile
+two exact immutable catalogue/ledger/registry-digest manifests, selected only by
+actual application_id/user_version. Exact v1 remains v1; exact v2 includes v1
+plus fixed v0002. Future, partial, mixed, extra/missing/altered SQL objects refuse.
+Generic trusted inspection can recognize v2, but consumer support is explicit.
+Add private `_inspect_v1` with an exact-v1 version barrier plus unchanged full v1
+inspection; `_attach_view` and snapshot_database use that barrier, not generic
+v2 recognition. ReadSession's class/lifetime and read_views remain unchanged.
+Snapshot's source rejects v2 BEFORE native backup or any destination configuration/
+mutation; destination remains exactv1 and its existing SchemaVersion1 receipt
+stays truthful. v2 read/snapshot support requires another jointly allocated and
+qualified consumer plan, not optimistic reuse of a now broader inspector.
+Keep REGISTRY/CHECKSUMS/REGISTRY_DIGEST and migration's current v1 manifest unchanged;
+use separately named fixed fresh-v2 registry/checksums/digest/manifests. Otherwise
+the existing v1 initializer would accidentally write a mixed v1/v2 ledger.
+
+v2 contains the five frozen tables `command_runtime`, `operations`,
+`operation_controls`, `operation_bootstrap`, `operation_auth`, their fixed indexes
+and binding-guard trigger. Exact fields/nullness/uniqueness/constraints come from
+the 876-line extension, not user SQL/JSON/callbacks. Passive auth/control kinds
+do not register their missing executors. The future genuine CredentialChange FK
+and participant remain a jointly reviewed credential extension; no fake UUID,
+dummy credential table or authentication capability is introduced now.
+
+`_initialize_database_v2` has exactly the frozen extension signature. It requires
+a supplied actual connection with autocommit=True, no open transaction, pristine
+appid/version/catalogue, exact bootstrap/core rows and exact
+`FreshCommandBootstrap`. All input/type/initial lineage checks precede schema
+writes. Configure WAL/FULL/FK/trusted_schema/busy policy, then use ONE explicit
+BEGIN IMMEDIATE transaction: install v1+v2, initial paused/pending projection and
+two pending bindings, empty sealed ruleset0/null checkpoint, command_runtime
+guard1/control0/current run/idle, current completed facet-init operation and
+optional prior completed config-init import, both ledger checksums and version2.
+There is no intermediate v1 commit or post-commit operation insertion. Commit,
+fully validate, then attach the same connection. Any uncertain commit/attach
+failure invalidates it and yields no success; the runtime owns confirmed closure.
+
+Current operation ID and instance ID are durably planned by the original accepted
+filesystem receipt BEFORE DB creation. An optional prior config operation ID is
+allocated once before initialization, outside a transaction; its first durable
+publication is the same commit. Original config archive retains its NULL SQL ID.
+Lost acknowledgement inspects the original keys to recover committed identities;
+it never allocates a replacement operation because the response was missing.
+A genuinely pristine rollback permits only the same original journal's retry;
+partial, unrelated, inconsistent or ambiguous state is refusal, never a reset.
+
+The bounded `_inspect_bootstrap_v2` addition is specified in the alignment ADR.
+It validates exact schema/settings/one projection and materializes at most two
+original-key operation/payload pairs and current lineage in a short read snapshot.
+It is not a new ReadSession, read provider, raw row getter or authority issuer.
+It exists to reconcile committed initialization before attaching a fresh writer.
+
+`_begin_owner_session_v2` has exactly the frozen signature. Full schema/settings,
+instance/namespace and projection/runtime previous-run equality precede BEGIN.
+The real holder supplies a fresh different run; one CAS transaction updates
+ONLY projection.last_owner_run_id and command_runtime.owner_run_id. Then ordinary
+same-connection attachment validates that lineage. Claims, operation receipts,
+shutdown provenance, pause, stop generations, binding/restore/unknown fences and
+namespace remain unchanged. Failure/ambiguous acknowledgement closes/invalidate;
+no retry, old-run borrowing, or dataclass-based production caller is allowed.
+This source does not implement daemon recovery/dispatch or clear old shutdowns.
+
+## Source B: genuine stopped issuer and stable-key protocol
+
+Only its fixed factory can allocate an opaque `StoppedBootstrapOwner`; direct
+construction/subclass/copy/pickle fails. It is strongly enrolled while live with
+actual PID, retained Thread object, root and ownerEX/viewEX leases, fixed artifact
+FD identities, connection identity, current key and exact lifecycle phase.
+Metadata returned to callers is not that authority. All methods check creator
+before SQL, poison, cleanup or any inventory mutation, including after invalidation.
+Integer thread IDs, booleans, arbitrary providers, externally supplied connections,
+FD tuples, subclasses and root/scaffold existence cannot enroll it.
+
+Private entry names are `submit_stopped_bootstrap` and `lookup_stopped_bootstrap`.
+They receive only the closed request/explicit selectors defined in the ADR; caller
+callbacks, factories, supplied sessions/leases and arbitrary paths beyond the
+explicit validated selectors are forbidden. They allocate/use/retire one owner
+locally and return typed bootstrap data, not a lease/session/native FD. No public
+factory registry, read seal, issuer allowlist or handler registration is added.
+
+Require original stable rq1 key and explicit confirmation before filesystem
+changes; non-TTY mutation must already supply both. Never generate a new key on
+timeout/unknown response. Canonical digest v1 includes the closed typed Config,
+command/projection/expected0 guards/yes=true/duplicate-risk=false. It excludes
+nonce/times/output flags. Store digests/typed phases, not configuration values or
+credentials in journals/receipts/SQL payloads. Config content has only its approved
+private config file and in-memory request home. Nonempty rule lists refuse before
+artifacts until actual M1-06 normalizer input is independently integrated.
+
+Existing complete roots use `open_existing_root`; new explicit creation uses only
+`create_lock_root`. Unexpected preexisting config/DB/bootstrap content cannot be
+adopted through scaffold creation. Acquire owner EX nonblocking, then view EX,
+then the exact key EX under that same root/view. No SH-to-EX upgrade, recursive
+SH, hidden wait or second writer. Key failure releases dependent resources in
+order before returning; no IPC or owner wait while client holds key/view SH.
+The whole bootstrap is finite stopped ownership, never a background daemon.
+
+Before new acceptance, validate current active and matching completed archives.
+Write/fsync client journal, then durable accepted BootstrapReceipt with fixed
+instance/current operation identities for facet-init. A different unresolved
+key conflicts. Same key/digest resumes or returns its original receipt; different
+payload conflicts. A prior completed config-init may precede a separate facet-init
+only with the same namespace/projection/config semantic+artifact digests.
+
+New config uses exact serialized bytes, exclusive0600 staging, file fsync,
+no-overwrite atomic final publication and directory fsync. Never truncate/chmod
+or replace existing config. Explicit selected owner-only external config is a
+facet-init input, not discovery/adoption; hold/check its FD identity through the
+read and compare exact artifact+semantic digests before creating DB. Config-init
+refuses existing config without its own matching original receipt. DB-init never
+normalizes or rewrites the selected existing config bytes.
+
+Before SQLite, validate no-follow private root/name/type/UID0600/single-link and
+exclusive new `facet.db` ownership; no arbitrary SQLite URI/options, empty-state
+fallback or memory DB. The fixed writer opener must bind the actual newly opened
+connection/files to the retained root/expected DB inode BEFORE configuration or
+initialization SQL, then revalidate at critical boundaries. Real path/inode/FD
+replacement tests must detect the attempted violation before SQL effects escape
+the owned tree. Mere before/after path strings or `PRAGMA database_list` are not
+physical resource proof. If the selected SQLite/VFS cannot establish that seam
+without a new native VFS, descriptor-proxy filename or audit/provenance strategy,
+STOP for a prior finite opener amendment; do not invent a fallback. Qualification
+is actual local tested runtime/filesystem only, not all Linux mounts or SQLite
+builds. The proposed opener's proof is writer-local, not read-runtime sealing.
+
+Use A's v2 initializer only on this actual pristine owned file under the matching
+accepted journal. Existing v1 returns maintenance_required; unrelated existing v2,
+partial DB, wrong instance/key/digest or unexpected artifacts refuse unchanged.
+After committed original-key inspection, reconciliation may attach a genuine
+fresh owner through A's CAS, never reuse stored previous run as lock authority.
+It performs no dispatch, claim cleanup, recovery authorization or provider work.
+
+Phases are accepted -> config_created -> db_created -> completed for facet-init;
+config-init omits db_created. Record each only after actual preceding durability.
+After SQL commit, verify exact schema2/instance and committed current/prior keys.
+Confirm connection/session close while owner/view remain held BEFORE publishing
+completed archive/active completion or returning success. WAL-dependent state is
+not a main-file-only receipt: inspect the committed real DB, synchronize the owned
+artifact set/directory as applicable, retain any required sidecars, never delete
+them or claim a physical power-loss guarantee from SIGKILL/fsync tests.
+
+Archive completed receipt exclusively and durably before active-pointer reuse.
+Recover only the frozen permitted same-key active/archive phase/time pairs; exact
+immutable fields and code=None must agree. Never overwrite malformed archives.
+A kill after config fsync/SQL commit but before phase update requires original-key
+reconciliation of exact known artifacts, not re-execution or a new namespace.
+Foreign-root, partial/truncated/changed receipt or uncertain close/fsync results
+produce a fixed refusal/attention and no completed success.
+
+Close order is creator-check -> finish/rollback owned SQL -> confirmed connection
+close -> owned artifact descriptors -> key -> view -> owner -> root. Connection
+close that cannot be confirmed MUST NOT release view/owner or free live enrollment;
+invalidate, report fixed failure, retain strong resources until confirmed closure
+or actual process death. Do not retry an uncertain raw descriptor integer. Explicit
+terminal-only retirement may use weak tombstones without value-to-key retention;
+no GC/finalizer/atexit unlock. Old/stale handles cannot retire a current owner.
+Fork child closes only its own verified copied descriptor inventory, without
+LOCK_UN or inherited SQLite API calls, marks local enrollment unusable and keeps
+inherited native connection quarantined against destructor-driven reuse. B does
+not qualify a continuing forked writer/worker; tests exit their own child promptly.
+If complete actual SQLite descriptor closure cannot be established, this is a
+source stop gate, not permission to weaken the approved no-inheritance contract.
+
+## Exact lookup and deliberate unavailable surfaces
+
+Lookup never creates a missing root/requests directory, lock or receipt. It takes
+genuine stopped ownerEX/viewEX and existing key lock where journal inspection
+requires it; busy is unknown, not proof of no effect. Before DB creation it may
+return the actual typed active/archived BootstrapReceiptData. After initialization
+SQL and retained receipt facts must agree. A missing SQL row alone is not absence.
+Authoritative absence requires current namespace, complete healthy exact journals
+and known stopped artifacts; unsupported/uncertain state returns unavailable.
+Any response-loss replay retains key/payload and returns original identities.
+
+No general operations listing CLI, daemon control/auth/UDS/actor/pidfd/lifetime,
+worker capability, raw session/SQL access, credentials, backup/migration/restore
+provider, managed read registration, status/doctor healthy or Gmail action consumer
+is delivered. Full operations lookup/listing and CLI wiring remain future exact
+plans. Installed private submit/lookup tests are evidence of this issuer only.
+
+## Finite acceptance: actual resources and detecting controls
+
+All rows are proposed, NOT executed evidence. Each negative is paired with a
+legitimate positive and must detect its named cause, not merely a generic error.
+
+| Case | Actual evidence and mandatory counterexample |
+| --- | --- |
+| SI01 | Exact original hashes/old test ASTs and base manifests; all retained a9c 1625 tests, accepted migration/no-state carries measured separately; v1 normal attach/inspect succeeds, altered/extra/future/mixed v1/v2 rejects without permissive inspector |
+| SI02 | Real local WAL v2 initialization: one commit includes v1/v2 ledger, paused/pending roles, empty ruleset/checkpoint and original-key receipts; faults at every SQL/COMMIT/attach boundary, suppressed error/ROLLBACK and reopen distinguish pristine/committed/partial with no replacement or false completion; genuine v1 WAL snapshots retain correct version/rows, while v2 rejects before native backup/destination settings/files change; exact-v1 read attach remains positive and v2 admission refuses with correct owned cleanup |
+| SI03 | Actual CAS under two real processes and kernel owner locks, including crash-after-publication; fresh different run updates both rows once, stale/equal/mixed previous run refuses; preserve byte/value facts for claims, intents, shutdown provenance, stop/pause/restore/namespace and all receipts |
+| SI04 | Strict full-field digests/codecs/seed validation and field-by-field privacy; duplicate/unknown JSON keys, malformed rq1 IDs, bool-as-count, wrong guards/tag/nullness/overflow/surplus/content inputs refuse before effects; same digest vector including defaults succeeds |
+| SI05 | Real ownerEX->viewEX->keyEX with competing processes/physical-root aliases and creator lifecycle; forged/dataclass/copied/foreignThread/recycled-ident/fork handles refuse before poison/SQL/cleanup; real holder remains BUSY until owned close/process exit; stale cleanup cannot retire current owner |
+| SI06 | Genuine no-follow root/ancestor/config/DB/WAL/receipt identities; symlink/hardlink/FIFO/wrong UID/mode/root/path/lock/FD replacement and EEXIST races with paired expected artifact; invalid cases leave other inode/tree untouched; no chmod/truncate/unlink lock or destructive reset |
+| SI07 | Original-key response loss before/after accepted, config fsync, SQL commit, db_created and completed/archive publication; reopen exact identities, recover prior-config SQL ID, archive promotion obeys allowed pairs, changed key/digest/namespace/receipt refuses; no operation or business-effect duplication |
+| SI08 | Named bounded own-child SIGKILL/fork phases and actual close/fsync/rename/open/allocation failures, including uncertain connection close; parent proves kernel/FD holder retention and eventual process-death release; no finalizer/foreign cleanup, untracked child, indefinite pipe/thread wait, or claimed power-loss proof |
+| SI09 | Empty-rule pending-binding first init/config-only with both distinct declared addresses; explicit config bytes preserved; invalid/missing/same addresses and nonempty unqualified rules refuse before DB/artifact creation; no OAuth/profile inference, credential/read provider activation, H0/backfill/network/target mutations |
+| SI10 | Fresh noneditable wheel installed in isolated child with exact source byte manifest/static assets and no test helpers; fixed private submit/lookup/import zero-effect controls, bounded deadline/output, all old CLI/help/safety/ruff checks and exact dual-Python CI checkout/tree provenance; no whole M1/G1 or usable CLI claim |
+
+Use fresh owned test roots under a verified safe local ancestor; `/tmp` sticky or
+wrong-owner `/data00` is not a positive anchor. Record actual Python/SQLite/source
+ID/compile options/mount and actual process phases. The known development runner
+is CPython3.12.13/SQLite3.53.1 with locked uv0.12.2; future CI runtimes are measured,
+not assumed qualified from this note. Original three real SQL R3 counterexamples
+and OS physical-root/thread/kernel harness pairs remain regression requirements.
+
+Installed child launcher uses fixed entry/arguments and sanitized environment,
+no PYTHONPATH/CWD helper imports, installed provenance verification, capped output
+and common deadlines. Default maximum is 15 seconds per fault child and 60 seconds
+per whole controlled scenario including cleanup; parent owns exact children,
+terminates/kills only them and finally reaps all started children. Bounds may be
+revised only by written detecting evidence, not rerun-until-green/skip/fake IDs.
+
+Sentinel scans cover actual config-designated content versus prohibited DB/WAL/
+rollback/temp/journal/archive/log/exception/stdout/stderr and wheel artifacts.
+Synthetic config-address values are permitted only in config/binding storage;
+raw/mail/body/subject/header/credential/provider/path sentinels must never enter
+receipt/error/public output. Include deliberate leaking scanners' positive
+controls, including exception context/cause and caller-already-except cases.
+Use sealed fixed error codes/constant repr, never native exception text/trace.
+
+## Stop gates and handoff
+
+Stop before source on failed independent plan review, missing actual prerequisite
+acceptance/CI/base, file overlap, unresolved SQLite opener/fork closure, or any
+necessary new API/format/schema strategy. Amend first, review independently, then
+root may release a finite source unit. Existing-v1 upgrade requires the genuine
+complete coordinated backup/credential provider and maintenance journal; empty
+registries/dataclasses cannot satisfy it. Do not add v2 to an existing-state
+migration execution registry solely because fresh initialization supports it.
+
+Stop and ask root for user direction on material product/privacy/authority changes,
+including content storage, accountless configuration, nonempty unqualified rules,
+scope expansion or destructive recovery. No empty-DB reset, force binding, spike
+adoption, namespace refresh to escape uncertainty, or implicit upgrade exists.
+
+Handoff each future source candidate with exact plan/ADR/base/HEAD/parents/file
+scope, measured retained/new tests and faults, full/lint/format/CLI/wheel/privacy/
+safety outputs, fresh CI checkout/tree identity, user+noreply author AND committer,
+independent non-author verdict and unresolved gates. No private runtime files are
+published. The source author cannot self-approve, merge or activate another unit.
+Real initialized provenance would unblock planning of qualified stopped reads;
+it would not by itself satisfy RI/RV, LIVE, credentials/full bundle, migration/
+restore/daemon/complete CLI/Compose/Gmail or any milestone gate.
+
+R3 author correction supersedes the unapproved r1 c83280a5.../90dce735... and r2
+3abe6f46.../ebcf56b7... freezes. Every actual inspector/version consumer has an
+explicit policy in the ADR: v1 registries stay unchanged, only jointly allocated
+writer seams accept v2, and unqualified read/snapshot/migration consumers refuse.
+No code/original artifact changed; the snapshot barrier and attachment allocation
+need non-author review/root release like every other source A change.
+
+## Factual Source A implementation release
+
+Date: 2026-10-03 PRC. The original 390-line plan above remains unchanged at
+SHA-256 `7f3086e3622907288297912c3e50e3ebca98d0c8ae8b065e0692c53f69e57c1a`.
+The unchanged 372-line alignment ADR remains at
+`cb18c2e0f350ffd1d0e512ebe3c0a7bfb09ea54c1ac3b7785ed1e06a7f841faf`.
+Their independent nonauthor PLAN approval is the 151-line report SHA-256
+`84cb2a086d4ce381884e4e901efd77ef74035981884ab7be702f1d644cac4cd5`.
+
+Root explicitly released ONLY Source A to `m103_os_source` (Sol xhigh), after
+personally reading those exact artifacts and the qualified combined input:
+`d6888df7f16abb63e400675a8accfd8ba4a96bd5`,
+tree `8f653c421241cf075b49ace91b49a2eee4a6c234`.
+The new sole-owned branch is `p/luchengxuan/m1-03-bootstrap-storage`, based
+exactly on that immutable input. Its independent 172-line combined SOURCE report
+is `04ced096cd2713af89f64930063bb4ae341cd689d95239bd32538e055cbb7c46`;
+both CI 37065104441 lanes succeeded on actual checkout
+`cdeb2682167b13c5d3245e60ad1f767f0e9ee7bb`, whose tree equals that input.
+The measured retained baseline is 1810, not the earlier 1625 or 1739 counts.
+
+This factual receipt changes no approved API, strategy, table, or allocation:
+only the seven DB files, four NEW test files, this plan and its exact ADR copy.
+No concurrent restore/DB owner is allocated. The v1 migration target/registries,
+read_views and literal no-state bootstrap graph stay byte-identical; fresh
+installed nine-helper graph controls are retained regression requirements.
+Source B/native file/fork authority, production providers, existing-state v1-to-v2
+migration, public init/CLI/daemon, credentials/bundles/restore, whole milestones,
+G1 and all live/deployment/release authority remain closed or pending.
+Independent exact SOURCE acceptance, fresh dual-Python CI and root qualification
+are still required; this pre-code release is not candidate acceptance or merge.
