@@ -80,6 +80,10 @@ tests/
 
 单进程负责调度和 SQLite 写入，阻塞 Gmail 调用通过有限 worker 执行。每个 worker 使用自己的 HTTP transport；官方 Python 客户端所用的 `httplib2.Http` 不可在线程间共享。[Google Python client thread safety](https://googleapis.github.io/google-api-python-client/docs/thread_safety.html)
 
+运行中 CLI 变更如何与 daemon 独占 writer 协作，必须先通过 P1-01/M1-03 的 writer
+command ADR：明确投递、重放、确认及停机持锁，不直接形成未协调第二 DB writer。
+具体协议尚待设计 review，不能在不同模块中分别假定不一致的写入方式。
+
 同一 source thread 的 prepare、insert 和映射更新串行化；跨 thread 并发，按账号限速。数据库事务不跨网络等待。Realtime 与 stop actions 优先，backfill 有公平额度，单个异常 thread 不阻塞其他 thread。
 
 ## 数据库和持久状态
@@ -116,6 +120,11 @@ Action、规则变更、thread active 状态和对应 jobs 尽可能在同一 SQ
 新 thread 的自动决策顺序为 blacklist、allow sender 或 domain、authentication，再决定 admission 或 review。没有匹配为忽略；格式歧义或匹配但真实性未知为 review。初始 backfill 的规则可在六个月窗口内应用；动态规则保存生效时间，自动 discovery 和 reconcile 不越过该时间向历史扩张。
 
 `require_trusted_auth` 是第一期的保守默认：使用确认来自 source Gmail 接收路径的认证结果，验证 DMARC 或 aligned DKIM 与 From domain 的关系。不能将任意 `Authentication-Results`、`ARC-Authentication-Results` 或任意 `dkim=pass` 当成信任依据。仅凭 authserv-id 的字面值也不足以证明可信来源。识别接收路径和伪造、冲突、转发样本属于 M1 至 M3 的实现门槛。[RFC 8601 trust boundary](https://www.rfc-editor.org/rfc/rfc8601.html#section-1.2)
+
+M1-06 authentication-trust ADR 必须说明来源证据和 From alignment policy/version，
+并通过 spoof/duplicate/conflict/forward/ARC 反例 review。真实自动 admission 的
+accept 分支要有对应的范围内证据；仅完成 parser 或合成 pass 测试不能关闭 G3 的
+信任 gate。证据未闭合时保持 unknown/review。
 
 Unknown 或 fail 不自动披露，可以手动批准当前 thread。Action 学习可以表达当前 thread 的明确批准，但学习出的 future rule 仍使用认证策略。已 tracked thread 继承 thread 授权，其未来消息不再逐封要求 sender 匹配；这一披露范围必须在 preview 和文档中说明。
 
@@ -155,9 +164,17 @@ queued -> prepared -> inserting -> inserted
 
 建议的初始搜索检查点为结果未知后 30 秒、2 分钟和 5 分钟，属于可调整工程起点，不是搜索 SLA。按 RFC Message-ID 查询时包含 Spam 和 Trash；候选还要与 fingerprint、既有映射及账号 binding 核对。
 
-- 唯一内容匹配且未被不兼容 source 映射占用：绑定 target IDs；候选在 Spam 或 Trash 时额外报告可见性异常，不重复插入或宣称正常可见。
+此外必须核验“候选属于本次生产 insert”的归属证据。唯一内容匹配可能是此前存在的
+unmanaged 或 spike 副本，fingerprint/account/mapping 检查本身不足以证明来源；旧
+Date/internalDate 也不是 target 创建时间。M2-04 insert-attribution ADR 应设计并
+验证候选排除或 fence 等证据机制，包含竞争、分页/过期和其他写者反例；方案未验证
+或归属未知时保持待处理，不自动认领。
+
+- 唯一内容匹配、未被不兼容 source 映射占用且通过已评审的 insert 归属核验：绑定
+  target IDs；候选在 Spam 或 Trash 时额外报告可见性异常，不重复插入或宣称正常可见。
 - 多候选、相同 Message-ID 但内容不匹配、映射冲突：`needs_attention`。
-- 多次搜索为空且策略允许：记录仍可能重复的风险后受限重试；超过恢复预算保留待处理状态。
+- 多次搜索为空不能证明未插入：默认保留待处理；只有经 ADR 明确的受限重试策略及
+  对应范围/风险决定允许时才重试，保留可能重复的风险和恢复预算，不盲目重复 insert。
 - 无有效 Message-ID：有限时间和 metadata 候选筛选，加内容核验；不能唯一识别则待处理，不以 From 和 Subject 相同直接认领。
 
 结果未知期间暂停同 thread 的后续 insert，其他 threads 正常运行。查到多个 message 不自动删除。全 target audit 发现 RFC ID 相同也不能立即认定它们是重复，需比较内容与 source mappings。
@@ -229,6 +246,12 @@ Compose 将本地数据目录挂载到 `/data`，计划布局如下；初始化�
 
 发布镜像和 Compose 使用明确版本或 digest。镜像不包含账号配置、token、raw payload 或 spike evidence。Web HTTP 端口默认仅发布到宿主机 loopback，或只在与前置 Nginx 共用的 Docker 网络中暴露；HTTPS 与用户认证由 Nginx 负责。升级前保存旧版本与状态备份，schema 不兼容时恢复成套备份再运行旧版本。
 
+Phase 1 要求首次私密配置/OAuth 完成后 `docker compose up -d` 一命令启动，容器
+重建无需重新交互授权且保留 binding/schema/checkpoint/jobs。Startup 不自动开始
+初始 backfill。镜像由 Actions 构建/发布；PR 不 push，发布使用 approved registry/
+trigger、full source SHA/digest、amd64/arm64、SBOM/provenance 和匿名拉取验收，
+具体权限及工作包见 [执行计划](phase-1-execution-plan.md)。
+
 ## Web Dashboard
 
 同一进程提供只读 Dashboard 和聚合 API，不启动额外 sync worker 进程。页面展示状态、backfill 与增量进度、唯一成功数量、异常分类和诊断快照，完整字段和验收见 [Dashboard 规格](dashboard-spec.md)。
@@ -270,6 +293,9 @@ facet backup <destination>
 ```
 
 CLI 规则变更通过事务和 audit 与 daemon 协作，不直接绕过 queue 调用 insert。需要扩大披露的操作明确显示范围；JSON 输出用于脚本，默认不含邮件正文。`doctor` 返回配置、路径权限、账号、scope、schema、进程锁、存储与最近同步状态的可操作结果。
+
+CLI 的实际 writer 协作遵守已评审 command ADR，mutation 的 crash/replay 不能重复
+规则效果；read-only status/doctor 不申请写入所有权。
 
 ## 交付和实施顺序
 

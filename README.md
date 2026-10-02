@@ -23,6 +23,14 @@ were verified. Production implementation is planned, not yet available.
   remaining milestones, and the next resumable implementation unit.
 - [Project plan](docs/project-plan.md): Phase 1 scope, milestones, acceptance,
   and later roadmap.
+- [Complete Phase 1 execution plan](docs/phase-1-execution-plan.md): 36 stable
+  work packages, dependencies, parallel dispatch waves, acceptance gates, risks,
+  and external decisions.
+- [Agent workflow](docs/agent-workflow.md): coordinator-only root role,
+  delegated engineering, independent plan/code/acceptance review, model routing,
+  worktree ownership, GitHub Issues/PRs, and evidence-bound handoffs.
+- [Phase 1 Epic](https://github.com/GhostFlying/facet/issues/1): durable progress
+  and the ready-work-package queue.
 - [Product contract](docs/product-contract.md): thread disclosure, permission
   modes, BlackList, and consistency guarantees.
 - [Gmail implementation specification](docs/gmail-projection-spec.md): planned
@@ -38,6 +46,15 @@ HTTP; a fronting Nginx owns HTTPS and user authentication. The production databa
 stores sync metadata and state, not complete messages or attachments. Raw payloads
 are handled in memory without a disk spool.
 
+Phase 1 will provide a non-root image and one-command Docker Compose startup
+after the initial private configuration and Gmail OAuth setup. GitHub Actions
+will publish main full-commit-SHA images to the user-approved public package
+`ghcr.io/ghostflying/facet`; PRs build without publishing. Explicit image
+versions/digests, backup/restore, upgrade/rollback, and anonymous pull verification
+are delivery gates. Compose files and images are planned, not available yet.
+Formal version tags/releases, live mailbox scope and deployment host remain
+separate decisions.
+
 ## Local setup
 
 ```bash
@@ -50,7 +67,8 @@ bash scripts/check-repo-safety.sh
 ```
 
 Before coding, write the scoped implementation plan to
-`docs/implementation-plans/`. Offline CI uses the committed dependency lock and
+`docs/implementation-plans/` and obtain independent plan review; implementation
+then needs independent code and acceptance review. Offline CI uses the committed dependency lock and
 checks lint, formatting, tests, CLI startup, and the repository safety baseline.
 It never receives Gmail credentials. The safety check reads tracked/staged files;
 ignored runtime data is not scanned or uploaded.

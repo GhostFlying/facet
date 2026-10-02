@@ -14,7 +14,9 @@ Before implementing, read these documents in order:
 3. `docs/project-plan.md`: M1-M6 sequence, scope, and acceptance gates.
 4. `docs/gmail-projection-spec.md`: configuration, persistence, and state machines.
 5. `docs/dashboard-spec.md`: mandatory read-only UI and output privacy contract.
-6. The applicable plan in `docs/implementation-plans/` and any nested `AGENTS.md`.
+6. `docs/phase-1-execution-plan.md` and `docs/agent-workflow.md`: work-package
+   dependencies, review process, delegated responsibilities, and authority ledger.
+7. The applicable plan in `docs/implementation-plans/` and any nested `AGENTS.md`.
 
 Read `docs/phase-0-gmail-spike-results.md` when relying on Gmail behavior. The spike
 is evidence of feasibility, not a production implementation. Attachments, email
@@ -34,13 +36,19 @@ accidentally behaving differently is not authority to change the contract.
   giving a plan when the user requested a working change.
 - Follow M1-M6 dependency order. Scope reduction, skipped gates, new product
   features, or changed privacy semantics require an explicit decision, not an
-  agent's convenience. A failing gate stays incomplete.
+  agent's convenience. A failing gate stays incomplete. Milestone acceptance
+  stays sequential; dependency-ready design, synthetic tests, and independent
+  modules may proceed early as explicitly recorded in the execution plan. Real
+  bulk backfill waits for durable H0 consumption and gap recovery capability.
 - Write an implementation plan to `docs/implementation-plans/` BEFORE coding.
   Include file scope, acceptance tests, risks, external actions, and stop gates.
   For a changed approach, update the plan before the new implementation.
 - Inspect the current branch, worktree changes, remotes, and applicable
   instructions before editing. Preserve unrelated user changes. Do not create
-  another worktree unless the user requests one.
+  another worktree unless the user requests one. For Phase 1 the user explicitly
+  authorized multiple worktrees, dependency-based parallel agent work, GitHub
+  Issue/PR tracking, and atomic commits. Use one owned worktree/branch per unit,
+  with explicit base SHA and shared-file ownership.
 - Use focused changes. Diagnose failed checks and correct in-scope defects;
   never hide failures by deleting tests, disabling checks, or weakening promises.
 - Keep `docs/development-status.md` current at each handoff: completed work,
@@ -49,8 +57,17 @@ accidentally behaving differently is not authority to change the contract.
 - Keep the user informed during ongoing work. Report blockers with evidence and
   the precise missing decision or authority; do not repeatedly retry an unsafe
   action. A plan/review/status request alone is not permission to implement.
-- Do not create new chats, recurring automations, or delegate to other agents
-  unless requested or required by applicable higher-priority instructions.
+- For Phase 1 the root agent only decomposes work, dispatches agents, schedules
+  reviews, evaluates acceptance evidence, and reports progress or blockers.
+  Engineering, tests, documentation, commits, and conflict integration belong
+  to delegated worker/QA/integration agents. The user authorized
+  `gpt-6-astra` high and `gpt-6.1-sol` xhigh as needed. Use independent plan review
+  before complex implementation and independent implementation/acceptance review
+  afterward; reviewers must not approve their own design or implementation.
+  Bind review evidence to the actual plan revision and candidate commit SHA.
+- Do not create new chats or recurring automations without separate authority.
+  Delegation within this authorized Phase 1 workflow does not authorize contacts
+  with other people or new external data access.
 
 ## External authority and Git
 
@@ -59,10 +76,24 @@ accidentally behaving differently is not authority to change the contract.
   authorized repository workflow; follow any explicit limits in that request.
 - The user explicitly authorized PUBLIC `GhostFlying/facet` and publication of
   its initial `main`. Future changes should use
-  focused branches and PRs when that workflow is authorized. Do not infer
+  focused branches and PRs; that workflow is now explicitly authorized for Phase
+  1, including the current planning PR and Epic. Do not infer
   permission to merge, release, deploy, or change other repository settings from
   permission to implement. Public repository visibility is already decided;
-  license selection and release/image publication are separate decisions.
+  license selection and version release are separate decisions. On 2026-10-02
+  the user explicitly authorized autonomous merges of this project's plan and
+  engineering PRs after independent plan/implementation review and CI gates.
+  The coordinator verifies evidence and delegates merge/conflict work to an
+  integration agent. Real Gmail operations, host deployment, version tags, and
+  GitHub Releases are not covered by merge authority.
+- Compose and Actions image publication are required deliverables. The user
+  explicitly authorized public `ghcr.io/ghostflying/facet` and main-merge-triggered
+  full-commit-SHA image publication; PRs build without publishing. Formal version
+  tags need a separate decision. This authority does not cover other packages
+  or registries. Verify actual package visibility and anonymous pull access.
+- Independent agent review produces engineering evidence, not a fabricated
+  approval by another GitHub account. Meet actual branch-protection requirements;
+  never impersonate reviewers or bypass a required approval.
 - Use the repository's existing correct Git identity; otherwise use the user's
   global configuration. Never overwrite `user.name`/`user.email` without request.
   Never commit as an agent/bot/tool or add an agent/bot/tool co-author.
@@ -232,6 +263,13 @@ accidentally behaving differently is not authority to change the contract.
   and host-loopback publishing or Nginx's shared Docker network. No default public
   exposure. Deployment and release require separately authorized targets, backup,
   health/provenance verification, and rollback instructions.
+- Phase 1 must provide a documented one-command Compose startup after the
+  one-time private configuration and Gmail OAuth setup. Startup/preview do not
+  implicitly start backfill. GitHub Actions must build and publish the approved
+  image with full-commit provenance and digest; PR builds do not publish. Include
+  amd64/arm64 verification, SBOM/provenance, anonymous public-image pull checks,
+  and credential-free CI. Implementation plans verify current upstream actions
+  and pin their commits and base-image digests.
 
 ## Verification and milestone gates
 
@@ -255,5 +293,7 @@ accidentally behaving differently is not authority to change the contract.
   evidence, backup/restore and restart/re-auth recovery, and the planned 72-hour
   dogfood window. Do not invent measurements, guarantees, or completed gates.
 - Leave unverified behavior and external limits plainly documented. License,
-  release/image publication, dogfood host, and unconfirmed bank domains are unresolved
-  until explicitly decided; do not fill them in by assumption.
+  version release, dogfood host, live Gmail scope, and unconfirmed bank domains
+  are unresolved until explicitly decided; do not fill them in by assumption.
+  The approved merge and GHCR/main-SHA publication scope is recorded above and
+  in the execution-plan decision ledger.

@@ -10,6 +10,13 @@ Facet 为 AI agents 提供经过用户选择的数据视图。第一期以主 Gm
 
 这份计划定义产品范围、工程阶段、验收和发布条件。产品承诺见 [产品契约](product-contract.md)，实现细节见 [Gmail 投影规格](gmail-projection-spec.md)，运行面板见 [Dashboard 规格](dashboard-spec.md)，已完成的实测见 [Phase 0 结果](phase-0-gmail-spike-results.md)。原始附件作为设计参考；本计划与上述仓库文档反映讨论后的决定。
 
+完整工作包、依赖图、并行波次、验收和决定台账见
+[Phase 1 执行计划](phase-1-execution-plan.md)，派工、模型、worktree、Issue/PR 和
+独立 review 见 [agent 工作流](agent-workflow.md)。协调 agent 只负责推进和汇报，
+工程由子 agent 完成；复杂包先 plan/review，再 implementation/review/acceptance。
+进度通过 [Epic #1](https://github.com/GhostFlying/facet/issues/1) 跟踪。当前轮只形成
+计划，生产实施尚未开始。
+
 ## 项目边界和已有决定
 
 | 项目 | Phase 1 决定 |
@@ -30,6 +37,7 @@ Facet 为 AI agents 提供经过用户选择的数据视图。第一期以主 Gm
 | Web Dashboard | 第一期开启只读状态、进度、数量、异常和诊断，不展示邮件细节 |
 | Web 访问边界 | Facet 提供 HTTP，前置 Nginx 负责 HTTPS 和用户认证 |
 | 内容存储 | DB 只保存必要 metadata 和状态；默认 raw 仅驻内存，不建立磁盘 spool |
+| 镜像交付 | Actions 发布 public `ghcr.io/ghostflying/facet`；main full-SHA 自动发布，PR 只构建，正式版本 tag 另确认 |
 
 Facet 的验收终点是邮件被正确写入 target，并能通过 Gmail API 和 Gmail UI 回读。AI connector 兼容性可以作为外部使用报告，但不阻塞开发或发布，也不计入 Facet 同步延迟。
 
@@ -83,7 +91,10 @@ SQLite 保存业务状态和 provenance。Poller 先将事件持久化为 jobs�
 
 ## 开发阶段和验收门槛
 
-以下阶段按顺序交付。每阶段都包含实现、针对性测试和文档更新；阶段完成取决于验收证据，不依赖预计日期。
+以下阶段按顺序验收。每阶段都包含实现、针对性测试和文档更新；阶段完成取决于验收
+证据，不依赖预计日期。执行计划明确允许输入稳定的独立模块、设计和合成测试提前
+并行；后阶段的提前实施不代表前阶段或后阶段 gate 已通过。真实 bulk backfill 等待
+H0 消费和 gap 恢复能力，并受单独 Gmail 操作范围授权。
 
 ### M1 产品契约和正式工程基础
 
@@ -139,13 +150,25 @@ M4 完成后，形成可通过 CLI 配置、带只读 Dashboard、可长期同�
 
 ### M6 自托管交付和 v0.1 验收
 
-交付：非 root 镜像、Compose、配置示例、HTTP Dashboard、Nginx proxy 示例、healthcheck、backup 和 restore CLI、中英文使用文档、离线 CI、显式开启的真实 Gmail 集成测试、发布检查表。应用不内置 HTTPS 和 Web 用户认证。
+交付：非 root 镜像、Compose、配置示例、HTTP Dashboard、Nginx proxy 示例、
+healthcheck、backup 和 restore CLI、中英文使用文档、离线 CI、显式开启的真实
+Gmail 集成测试、发布检查表，以及通过 GitHub Actions 构建/发布的 amd64/arm64
+镜像。应用不内置 HTTPS 和 Web 用户认证。
+
+首次完成私密配置、Desktop loopback OAuth 和范围 preview 后，使用明确版本/digest
+执行 `docker compose up -d` 一命令启动；初次启动不隐式启动 bulk backfill。PR 只
+build/test，不 push image；获授权的发布流程使用 full commit SHA/digest、SBOM 和
+provenance，验收匿名拉取与各架构运行。用户已授权 public
+`ghcr.io/ghostflying/facet` 及 main 合并后 full-SHA 自动发布；正式版本 tag 和 GitHub
+Release 仍需决定。公开源码不自动代表 package 已公开，必须实际检查匿名拉取。
 
 范围：`Dockerfile`、`compose.yaml`、`config.example.yaml`、`.github/workflows/`、README、部署和运维文档、`tests/integration/`。
 
 验收：全新环境可按文档完成授权和启动；本地磁盘 volume 中的 DB、凭据和 pending jobs 在重建容器后保留，raw 由 source 重新读取；备份恢复演练通过；授权撤销后不丢 jobs；大附件、磁盘压力和 target 故障不拖死无关 thread；日志和交付文件中没有正文、token 或私密测试数据；Dashboard 经 Nginx 可访问，UI、响应和诊断导出均通过隐私检查。
 
-在指定的自托管主机进行至少 72 小时使用验证，跨一次 restart、token refresh 和故障恢复，记录 Facet 同步延迟与异常。这个时长是本计划的发布检查建议，不代表已验证长期运行。
+在指定的自托管主机进行至少 72 小时使用验证，跨一次 restart、token refresh 和故障
+恢复，记录 Facet 同步延迟与异常。此时长是 v0.1 必需验收 gate，与仓库指令一致；
+不是已验证的长期运行结果。修改这个 gate 需要明确产品决定。
 
 ## 测试计划
 
@@ -177,6 +200,9 @@ v0.1 发布须完成 M1 至 M6，公开已知限制，并留存真实 Gmail 验�
 
 性能目标为正常 API、有效授权且没有积压时，新 source 消息到 target 插入并完成回读的 P95 小于 60 秒。记录 source 时间、事件被发现时间、入队时间、target 成功时间，分别报告 polling 延迟、排队时间和处理时间；历史 backfill 单独统计。第三方索引延迟不在指标内。
 
+实测前冻结 source 新消息时间定义、样本量及排除规则，不用历史 RFC Date 计算同步
+延迟；无样本/样本不足明确报告，不把目标值写成已测结果。
+
 Dashboard 至少显示 source/target 角色的授权状态、权限模式、initialization 进度、最后成功 History 时间、队列深度、最老 job 年龄、tracked threads、成功邮件数、review 和异常分类数量、最近 reconcile 结果、资源状态与 schema version。账号地址、对象 IDs、邮件字段和本地路径仅按必要性保留在内部状态，不进入 Web 输出。
 
 正式日志和公开诊断不包含正文、raw、附件、subject、sender 或 token，DEBUG 也不能绕过该边界。DB 只持久化同步所需的 metadata、rules、状态和受控错误码。Raw 在处理期间驻留内存，不存 DB 或磁盘，完整内容仍在 source/target Gmail。
@@ -194,12 +220,17 @@ Dashboard 至少显示 source/target 角色的授权状态、权限模式、init
 
 ## 开工前和发布前需要收敛的事项
 
-可以立即开始 M1，不需要先确定所有后续事项。
+工程启动后可以从 M1 开始，不需要先确定所有后续事项。当前任务仍为完整计划与独立
+review；具体权限状态见执行计划 D1-D8，未答复的决定不得记录为已授权。
 
 - M1 至 M3：验证银行实际 sender domains 和认证样本；未确认项保持关闭或 review。
 - M2：校准 pending recovery 的多次搜索等待策略；不以一次 spike 的 11.8 秒观测作为固定保证。
 - M6：选择实际 dogfood 主机与 volume 路径，核对 NAS 使用本地磁盘而非网络文件系统。
 - 用户已确认 [GhostFlying/facet](https://github.com/GhostFlying/facet) 使用 public 可见性和用户账号的 GitHub noreply 提交邮箱；推送与 CI 进度见 [开发状态](development-status.md)。
-- 正式发布前：确定许可证和镜像发布位置；源码仓库公开不代表产品发布或部署已经获授权。
+- 用户已授权通过独立 plan/implementation review + CI 后自主合并本项目 PR，及
+  Actions 发布 public `ghcr.io/ghostflying/facet` 的 main full-SHA 镜像；PR 不 publish。
+  许可证、正式版本 tag/GitHub Release、live Gmail 范围和部署主机分别决定。
 
-下一步交付 M1：正式配置、账号 binding、SQLite schema 和 CLI 基础。每次后续实施前将该阶段的具体文件改动与验收更新到本计划或对应实施记录。
+下一步先完成执行计划独立 review，再按 P1 接口/测试基础→M1 的就绪图派工。每次后续
+实施前写该包的具体文件、验收与风险 plan，通过独立 review 后实现，并再次 review
+验收；协调 agent 不替代工程作者或独立 reviewer。

@@ -12,12 +12,13 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | --- | --- | --- |
 | Phase 0 Gmail spike | Complete within its scope | See [redacted results](phase-0-gmail-spike-results.md); production behavior not implied |
 | Repository bootstrap | Complete | Public `main` published with account noreply identity; Python 3.11/3.12 offline CI passed |
+| Phase 1 execution planning | Draft; independent review pending | 36 stable work packages, dependency/gate separation, delegated workflow and approved merge/GHCR scope; no product implementation |
 | M1 foundation | Not implemented | Config, bindings, schema/migrations, locks, rule storage, public status models |
 | M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
 | M3 admission/backfill | Not implemented | Rules/authenticity, preview, fixed six-month discovery, durable backfill |
 | M4 sync + Dashboard alpha | Not implemented | History/gap recovery, reconcile, aggregate read-only Web UI |
 | M5 action labels | Not implemented | Learning, legacy handling, idempotent commands, BlackList cancellation |
-| M6 self-hosted v0.1 | Not implemented | Compose/image, Nginx example, backup/restore, bilingual docs, live/dogfood gates |
+| M6 self-hosted v0.1 | Not implemented | One-command Compose, Actions GHCR image, Nginx, backup/restore, bilingual docs, live/deployment/72-hour gates |
 
 The executable package is currently `facet_spike`, not `facet`. Existing tests
 cover MIME payload analysis/comparison, private atomic file permissions, RFC-ID
@@ -27,6 +28,24 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 ## Active implementation record
 
 - [Repository bootstrap](implementation-plans/repository-bootstrap.md).
+- [Phase 1 planning record](implementation-plans/phase-1-planning.md),
+  [complete execution plan](phase-1-execution-plan.md), and
+  [agent workflow](agent-workflow.md). [Epic #1](https://github.com/GhostFlying/facet/issues/1)
+  tracks this planning unit and later ready work-package Issues. The planning
+  worktree is isolated. Local document links/fences/headings, whitespace, private
+  host-path checks, 36-package dependency references/acyclicity and staged-index
+  repository safety passed; independent review and PR CI remain pending. No
+  production package, daemon, Gmail request, deployment, or image is
+  introduced by this unit.
+- On 2026-10-02 the user authorized delegated Phase 1 work, multiple worktrees,
+  Issue/PR tracking, atomic commits, Astra high / 6.1 Sol xhigh as needed, and
+  root coordination/reporting only. Complex plans need independent review before
+  implementation, then independent implementation and acceptance review.
+- The user also authorized autonomous merges of this project's PRs after those
+  review and CI gates, and public `ghcr.io/ghostflying/facet` main full-SHA image
+  publication through Actions. PRs only build; formal version tags/GitHub
+  Releases, live Gmail operations and host deployment are not included. No
+  image has been built or published yet.
 - Repository: [GhostFlying/facet](https://github.com/GhostFlying/facet), verified
   PUBLIC with default branch `main`; `origin` points to it. On 2026-10-02 the user
   explicitly requested public visibility and their account's GitHub noreply email.
@@ -49,8 +68,12 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 
 ## Next authorized development unit
 
-When asked to implement the next phase, start M1 from the [project plan](project-plan.md).
-Write a concrete M1 implementation record before coding. Its minimum scope is:
+Finish independent review and consistency/safety checks for the current planning
+PR, then integrate it under the approved merge gates. This turn is a planning
+request, not a production implementation request. When implementation starts,
+dispatch P1-01/P1-02 interface/ADR/test work, then the M1 packages from the
+[execution plan](phase-1-execution-plan.md). Write and review a concrete package
+implementation record before coding. M1's minimum scope is:
 
 1. Establish the production Python package/CLI without breaking the spike.
 2. Validate configuration and explicit source/target bindings; refuse identity
@@ -64,9 +87,10 @@ Write a concrete M1 implementation record before coding. Its minimum scope is:
 6. Establish conservative authentication-evidence parsing/tests. Do not enable
    automatic admission using the spike's pass counters.
 
-No automatic production backfill or deployment is authorized by a repository
-bootstrap request. Complete each requested unit's acceptance gate and record
-results before moving into broader live verification.
+Production live copying, bulk backfill and deployment require their recorded
+scope/target decisions. Dependency-ready offline engineering can proceed while
+an external gate remains pending; keep final milestone gates in order and record
+actual verification scope instead of marking a partial gate complete.
 
 ## Known limits and decisions still needed
 
@@ -77,6 +101,11 @@ results before moving into broader live verification.
 - Target may contain unmanaged or old experiment mail. Initialization reports it
   without deleting, adopting mappings, or assuming All Mail is empty.
 - AI connector retrieval is an AI-product responsibility, not a Facet gate.
-- Real bank domains/credible authentication samples, dogfood host and local
-  volume, license, and release/image destination remain undecided. Public source
-  repository visibility is decided and does not authorize a production release.
+- Real bank domains/credible authentication evidence, live account/test scope,
+  dogfood host/local volume/Nginx entry, license and formal version release remain
+  undecided. GHCR/package public visibility and main full-SHA publication scope
+  are decided; actual package visibility and anonymous pulling still need M6
+  verification. Source publication does not substitute for those checks.
+- Authentication trust, unknown-insert attribution (excluding old unmanaged/spike
+  copies), and daemon/CLI single-writer coordination are required early ADRs.
+  Unique fingerprint matches alone do not establish this insert's provenance.
