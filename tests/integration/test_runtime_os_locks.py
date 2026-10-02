@@ -1,6 +1,7 @@
 """OL01–10: real Linux files, flocks, processes and detecting fault controls."""
 
 import errno
+import gc
 import os
 import select
 import signal
@@ -9,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import weakref
 from contextlib import contextmanager, suppress
 from pathlib import Path
 
@@ -363,6 +365,79 @@ def test_ol04_same_process_overlap_across_roots_and_threads(sandbox):
             thread.join(timeout=8)
             assert not thread.is_alive() and results == [ErrorCode.OWNER_BUSY]
             locks.check_lock(view)
+
+
+def test_ol04_physical_root_order_and_owner_dependency_across_distinct_handles(sandbox):
+    path = make_root(sandbox)
+    with (
+        private_root.open_existing_root(str(path)) as first,
+        private_root.open_existing_root(str(path)) as second,
+    ):
+        with locks.acquire_view(first, locks.LockMode.SHARED) as view:
+            before = live_fds()
+            assert_failure(locks.acquire_owner, ErrorCode.OWNER_BUSY, second)
+            assert before == live_fds()
+            locks.check_lock(view)
+            assert probe("try_owner", path) == "held"
+            assert probe("try_view", path) == "held"
+        with locks.acquire_owner(second) as owner:
+            locks.check_lock(owner)
+            with locks.acquire_view(first, locks.LockMode.SHARED) as view:
+                before = live_fds()
+                assert_failure(locks.release_lock, ErrorCode.OWNER_BUSY, owner)
+                assert before == live_fds()
+                locks.check_lock(owner)
+                locks.check_lock(view)
+                assert probe("try_owner", path) == "owner_busy"
+            locks.check_lock(owner)
+    assert probe("exclusive", path) == "held"
+
+
+@pytest.mark.parametrize("owner_first", [False, True])
+def test_ol04_physical_root_order_and_dependency_across_actual_creator_threads(
+    sandbox, owner_first
+):
+    path = make_root(sandbox)
+    ready, finish = threading.Event(), threading.Event()
+    errors = []
+
+    def view_creator():
+        try:
+            with private_root.open_existing_root(str(path)) as first:
+                private_root.check_root(first)
+                with locks.acquire_view(first, locks.LockMode.SHARED) as view:
+                    ready.set()
+                    assert finish.wait(timeout=8), "test_view_control_timeout"
+                    locks.check_lock(view)
+        except BaseException as error:
+            errors.append(error)
+
+    with private_root.open_existing_root(str(path)) as second:
+        owner = locks.acquire_owner(second) if owner_first else None
+        creator = threading.Thread(target=view_creator)
+        creator.start()
+        try:
+            assert ready.wait(timeout=8), "test_view_missing_handshake"
+            before = live_fds()
+            if owner_first:
+                assert_failure(locks.release_lock, ErrorCode.OWNER_BUSY, owner)
+                locks.check_lock(owner)
+                assert probe("try_owner", path) == "owner_busy"
+            else:
+                assert_failure(locks.acquire_owner, ErrorCode.OWNER_BUSY, second)
+                assert probe("try_owner", path) == "held"
+            assert before == live_fds()
+            assert probe("try_view", path) == "held"
+            private_root.check_root(second)
+        finally:
+            finish.set()
+            creator.join(timeout=8)
+            if owner is not None:
+                locks.release_lock(owner)
+        assert not creator.is_alive() and not errors
+        with locks.acquire_owner(second):
+            assert probe("try_owner", path) == "owner_busy"
+    assert probe("exclusive", path) == "held"
 
 
 def test_ol05_same_key_contention_caller_finally_release_and_ipc_order(sandbox):
@@ -911,3 +986,148 @@ def test_ol10_body_exception_not_suppressed_and_invalid_own_cleanup(sandbox):
     locks.release_lock(owner)
     private_root.close_root(root)
     assert probe("try_owner", path) == "held"
+
+
+def test_ol10_closed_metadata_is_bounded_by_live_terminal_handles(sandbox):
+    path = make_root(sandbox)
+    before = tree(sandbox)
+    active = (len(private_root._ROOTS), len(private_root._LEASES))
+    terminal = (len(private_root._CLOSED_ROOTS), len(private_root._RELEASED_LEASES))
+    descriptors = live_fds()
+    references = []
+    for _ in range(256):
+        with private_root.open_existing_root(str(path)) as root:
+            private_root.check_root(root)
+            with locks.acquire_owner(root) as owner:
+                references.extend((weakref.ref(root), weakref.ref(owner)))
+                locks.check_lock(owner)
+        assert root not in private_root._ROOTS
+        assert owner not in private_root._LEASES
+    assert (len(private_root._ROOTS), len(private_root._LEASES)) == active
+    assert len(private_root._CLOSED_ROOTS) <= terminal[0] + 1
+    assert len(private_root._RELEASED_LEASES) <= terminal[1] + 1
+    del root, owner
+    gc.collect()
+    assert all(reference() is None for reference in references)
+    assert len(private_root._CLOSED_ROOTS) <= terminal[0]
+    assert len(private_root._RELEASED_LEASES) <= terminal[1]
+    assert live_fds() == descriptors and tree(sandbox) == before
+
+
+def test_ol10_dropped_live_references_retain_actual_kernel_owner(sandbox):
+    path = make_root(sandbox)
+    root = private_root.open_existing_root(str(path))
+    owner = locks.acquire_owner(root)
+    root_reference, owner_reference = weakref.ref(root), weakref.ref(owner)
+    del root, owner
+    gc.collect()
+    assert root_reference() is not None and owner_reference() is not None
+    assert probe("try_owner", path) == "owner_busy"
+    root, owner = root_reference(), owner_reference()
+    locks.check_lock(owner)
+    locks.release_lock(owner)
+    private_root.close_root(root)
+    del root, owner
+    gc.collect()
+    assert root_reference() is None and owner_reference() is None
+    assert probe("try_owner", path) == "held"
+
+
+def test_ol10_retained_terminal_proofs_repeat_without_resource_effects(
+    sandbox, monkeypatch
+):
+    path = make_root(sandbox)
+    root = private_root.open_existing_root(str(path))
+    owner = locks.acquire_owner(root)
+    locks.release_lock(owner)
+    private_root.close_root(root)
+    for value in (
+        private_root._CLOSED_ROOTS[root],
+        private_root._RELEASED_LEASES[owner],
+    ):
+        assert type(value) is private_root._TerminalProof
+        assert tuple(value.__slots__) == ("pid", "thread", "phase")
+        assert value.pid == os.getpid() and value.thread is threading.current_thread()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("terminal_resource_effect")
+
+    with monkeypatch.context() as guard:
+        for name in ("open", "close", "stat", "fstat", "fsync", "mkdir", "unlink"):
+            guard.setattr(os, name, forbidden)
+        guard.setattr(locks.fcntl, "flock", forbidden)
+        for _ in range(32):
+            locks.release_lock(owner)
+            private_root.close_root(root)
+        assert_failure(locks.check_lock, ErrorCode.OWNER_UNAVAILABLE, owner)
+        assert_failure(private_root.check_root, ErrorCode.OWNER_UNAVAILABLE, root)
+        assert_failure(
+            locks.release_lock,
+            ErrorCode.OWNER_UNAVAILABLE,
+            object.__new__(locks.LockLease),
+        )
+        assert_failure(
+            private_root.close_root,
+            ErrorCode.OWNER_UNAVAILABLE,
+            object.__new__(private_root.HeldPrivateRoot),
+        )
+        failures = []
+
+        def foreign():
+            for operation, resource in (
+                (locks.release_lock, owner),
+                (private_root.close_root, root),
+            ):
+                failures.append(
+                    assert_failure(
+                        operation, ErrorCode.OWNER_UNAVAILABLE, resource
+                    ).code
+                )
+
+        creator = threading.Thread(target=foreign)
+        creator.start()
+        creator.join(timeout=8)
+        assert not creator.is_alive() and len(failures) == 2
+    assert probe("try_owner", path) == "held"
+
+
+@pytest.mark.parametrize("resource", ["root", "lease"])
+def test_ol09_terminal_proof_allocation_failure_preserves_live_authority(
+    sandbox, monkeypatch, resource
+):
+    path = make_root(sandbox)
+    root = private_root.open_existing_root(str(path))
+    owner = locks.acquire_owner(root) if resource == "lease" else None
+    before = live_fds()
+
+    def failure(*args, **kwargs):
+        raise MemoryError(SENTINEL)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(private_root, "_TerminalProof", failure)
+        if owner is not None:
+            assert_failure(locks.release_lock, ErrorCode.PERSISTENCE_FAILURE, owner)
+            locks.check_lock(owner)
+            assert probe("try_owner", path) == "owner_busy"
+        else:
+            assert_failure(private_root.close_root, ErrorCode.PERSISTENCE_FAILURE, root)
+        private_root.check_root(root)
+        assert before == live_fds()
+    if owner is not None:
+        locks.release_lock(owner)
+    private_root.close_root(root)
+    assert probe("try_owner", path) == "held"
+
+
+def test_ol08_retained_terminal_fork_copies_cannot_act(sandbox):
+    path = make_root(sandbox)
+    assert probe("fork_terminal", path) == "terminal_fork_refused"
+    assert probe("try_owner", path) == "held"
+
+
+def test_ol07_terminal_original_thread_identity_survives_actual_id_recycling(sandbox):
+    path = make_root(sandbox)
+    with child("thread_terminal", path) as participant:
+        assert participant.line() == "recycled_refused"
+        assert probe("try_owner", path) == "held"
+    assert participant.process.returncode == 0

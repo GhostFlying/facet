@@ -71,12 +71,15 @@ def run():
             say("created")
         return
 
-    if scenario == "thread_exit":
+    if scenario in ("thread_exit", "thread_terminal"):
         stored = []
 
         def creator():
             root = private_root.open_existing_root(path)
             lease = locks.acquire_owner(root)
+            if scenario == "thread_terminal":
+                locks.release_lock(lease)
+                private_root.close_root(root)
             stored.append(
                 (root, lease, threading.get_ident(), threading.current_thread())
             )
@@ -113,8 +116,35 @@ def run():
         assert recycled, "real_thread_ident_reuse_not_observed"
         say("recycled_refused")
         wait()
-        # Creator has exited; no other thread may clean up its live resources.
-        # Test process exit releases the original kernel lock.
+        # Neither live nor terminal resources transfer to a recycled Thread ID.
+        # In the live case only this test process exit releases its kernel lock.
+        return
+
+    if scenario == "fork_terminal":
+        root = private_root.open_existing_root(path)
+        lease = locks.acquire_owner(root)
+        locks.release_lock(lease)
+        private_root.close_root(root)
+        pid = os.fork()
+        if pid == 0:
+            assert not private_root._DESCRIPTORS
+            for operation, resource in (
+                (locks.release_lock, lease),
+                (private_root.close_root, root),
+                (locks.check_lock, lease),
+                (private_root.check_root, root),
+            ):
+                try:
+                    operation(resource)
+                except private_root.LockFailure as error:
+                    assert error.code.value == "owner_unavailable"
+                else:
+                    raise AssertionError("terminal_fork_copy_accepted")
+            os._exit(0)
+        reap_owned_fork(pid)
+        locks.release_lock(lease)
+        private_root.close_root(root)
+        say("terminal_fork_refused")
         return
 
     with private_root.open_existing_root(path) as root:

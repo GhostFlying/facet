@@ -7,6 +7,7 @@ import sys
 import threading
 from dataclasses import dataclass, field
 from functools import wraps
+from weakref import WeakKeyDictionary
 
 from facet.contracts import ErrorCode
 
@@ -74,6 +75,8 @@ def _boundary(function):
             code = error.code
         except OSError:
             pass
+        except MemoryError:
+            code = ErrorCode.PERSISTENCE_FAILURE
         _fail(code)
 
     return controlled
@@ -82,7 +85,7 @@ def _boundary(function):
 class HeldPrivateRoot:
     """Identity-enrolled resource; construction or copying grants nothing."""
 
-    __slots__ = ()
+    __slots__ = ("__weakref__",)
 
     def __new__(cls, *args, **kwargs):
         _fail(ErrorCode.INVALID_INPUT)
@@ -147,10 +150,19 @@ class _RootState:
     entered: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class _TerminalProof:
+    pid: int
+    thread: threading.Thread
+    phase: str
+
+
 # These strong registries are private resource ownership, not caller assertions.
 # Only the fixed factories enroll objects. No finalizer or atexit unlocks them.
 _ROOTS: dict[HeldPrivateRoot, _RootState] = {}
 _LEASES: dict = {}
+_CLOSED_ROOTS: WeakKeyDictionary[HeldPrivateRoot, _TerminalProof] = WeakKeyDictionary()
+_RELEASED_LEASES: WeakKeyDictionary = WeakKeyDictionary()
 _INODES: dict[tuple[int, int], object] = {}
 _DESCRIPTORS: dict[int, _Descriptor] = {}
 _MUTEX = threading.RLock()
@@ -387,6 +399,8 @@ def _root(root):
         raise _Fault(ErrorCode.INVALID_INPUT)
     state = _ROOTS.get(root)
     if state is None:
+        state = _CLOSED_ROOTS.get(root)
+    if state is None:
         raise _Fault(ErrorCode.OWNER_UNAVAILABLE)
     _creator(state)
     return state
@@ -561,5 +575,12 @@ def close_root(root: HeldPrivateRoot) -> None:
             return
         if state.leases:
             raise _Fault(ErrorCode.OWNER_BUSY)
+        # Reserve the minimal terminal proof before any close: an allocation
+        # failure keeps active authority/resources untouched. Weak retirement
+        # itself is metadata only and never closes or unlocks a live resource.
+        _CLOSED_ROOTS[root] = _TerminalProof(state.pid, state.thread, "closed")
         state.phase = "closed"
-        _dispose([node.descriptor for node in state.nodes])
+        try:
+            _dispose([node.descriptor for node in state.nodes])
+        finally:
+            del _ROOTS[root]

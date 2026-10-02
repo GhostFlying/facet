@@ -29,7 +29,7 @@ class LockMode(StrEnum):
 class LockLease:
     """Only an enrolled, retained kernel lock is an ownership proof."""
 
-    __slots__ = ()
+    __slots__ = ("__weakref__",)
 
     def __new__(cls, *args, **kwargs):
         _roots._fail(ErrorCode.INVALID_INPUT)
@@ -79,6 +79,8 @@ def _lease(lease):
         raise _roots._Fault(ErrorCode.INVALID_INPUT)
     state = _roots._LEASES.get(lease)
     if state is None:
+        state = _roots._RELEASED_LEASES.get(lease)
+    if state is None:
         raise _roots._Fault(ErrorCode.OWNER_UNAVAILABLE)
     _roots._creator(state)
     return state
@@ -107,14 +109,33 @@ def _check(state):
 
 def _parent(root, lease, kind):
     state = _lease(lease)
+    if state.phase != "held":
+        raise _roots._Fault(ErrorCode.OWNER_UNAVAILABLE)
     if state.root is not root or state.kind != kind:
         raise _roots._Fault(ErrorCode.INVALID_INPUT)
     _check(state)
     return state
 
 
+def _physical_leases(state):
+    # Distinct opaque roots/Threads may retain the same physical directory.
+    # Ordering and parent lifetime belong to that root, not one Python handle.
+    # Caller holds the inventory mutex; only private enrolled metadata is read,
+    # never foreign creator descriptors or handles checked/poisoned/closed.
+    identity = state.directories["root"].identity
+    physical = (identity.device, identity.inode)
+    result = []
+    for participant in _roots._ROOTS.values():
+        saved = participant.directories["root"].identity
+        if (saved.device, saved.inode) == physical:
+            result.extend(
+                (lease, _roots._LEASES[lease]) for lease in participant.leases
+            )
+    return result
+
+
 def _kinds(state):
-    return {_roots._LEASES[lease].kind for lease in state.leases}
+    return {participant.kind for _, participant in _physical_leases(state)}
 
 
 def _acquire(root, kind, mode, parent, name, key=None, create=False):
@@ -185,7 +206,7 @@ def acquire_owner(root: _roots.HeldPrivateRoot) -> LockLease:
     with _roots._MUTEX:
         state = _roots._root(root)
         _roots._check_root(state)
-        if state.leases:
+        if _physical_leases(state):
             raise _roots._Fault(ErrorCode.OWNER_BUSY)
         return _acquire(root, "owner", LockMode.EXCLUSIVE, None, "owner.lock")
 
@@ -265,13 +286,24 @@ def release_lock(lease: LockLease) -> None:
         if state.phase == "released":
             return
         root = _roots._root(state.root)
-        others = [_roots._LEASES[item] for item in root.leases if item is not lease]
-        if any(item.parent is lease for item in others) or (
-            state.kind == "owner" and others
+        others = [
+            participant
+            for item, participant in _physical_leases(root)
+            if item is not lease
+        ]
+        if (
+            any(item.parent is lease for item in others)
+            or (state.kind == "owner" and others)
+            or (state.kind == "view" and any(item.kind == "key" for item in others))
         ):
             raise _roots._Fault(ErrorCode.OWNER_BUSY)
         descriptor = state.node.descriptor
         identity = descriptor.identity
+        # Allocation precedes resource changes; a failed retirement reservation
+        # leaves the original actual kernel owner strongly enrolled and held.
+        _roots._RELEASED_LEASES[lease] = _roots._TerminalProof(
+            state.pid, state.thread, "released"
+        )
         # Remove authority on every close outcome; an uncertain integer is never
         # retained for cleanup and can never unlock a later unrelated descriptor.
         state.phase = "released"
@@ -283,3 +315,5 @@ def release_lock(lease: LockLease) -> None:
         except (_roots._Fault, OSError):
             root.phase = "invalid"
             raise
+        finally:
+            del _roots._LEASES[lease]

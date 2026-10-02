@@ -415,3 +415,51 @@ The appendix's prior proposed status is historical. It does not approve source
 or supersede the HOLD at `183dc6d6d43f9bdeb0a9221ff867e022982ebb31`. R1 physical-root
 ordering and this released C1 lifecycle refinement require new exact-source
 tests/wheel/CI and independent nonauthor acceptance before root integration.
+
+## R1/C1 corrected-source verification checkpoint
+
+The physical-root ordering correction now aggregates enrolled live leases by
+the retained root device/inode across distinct opaque handles and actual creator
+Threads. Reverse view-to-owner acquisition refuses before opening a new lease;
+owner release refuses while a view remains on the same physical root. Paired
+controls retain/check original holders, compare real descriptor inventories, and
+use independent processes to observe actual kernel contention and successful
+post-release acquisition. No public API, lock protocol or filesystem policy was
+changed.
+
+The independently released C1 strategy now keeps live/invalid resources strongly
+enrolled, but retires explicit terminal resources into weak-key proofs containing
+only original PID, strong Thread and terminal phase. Allocation of that proof
+precedes any resource changes: injected allocation failure leaves the genuine
+kernel owner and descriptors intact. Retained terminal calls validate their
+creator and perform zero descriptor/flock/filesystem operations; dropping terminal
+handles removes metadata only. Dropping live handles still leaves actual kernel
+contention until explicit creator cleanup. No finalizer or GC unlock was added.
+
+Actual local acceptance checks for this corrected source passed:
+
+- 123 focused OS cases (13.78 seconds), including three new physical-root R1
+  cases and seven C1 lifecycle cases; 731 full offline tests (27.49 seconds),
+  preserving the original 608-test baseline.
+- A repeated 17-case physical-root/lifecycle/fork/uncertain-close subgroup
+  (8.71 seconds). Terminal stress performs 256 real open/owner/release/close
+  cycles and proves bounded registries after dropping terminal references.
+- Locked offline development sync, Ruff and format checks on all 99 Python
+  files, both actual CLI help commands, production `--json --version`, diff
+  whitespace and staged/tracked repository-safety checks.
+- A rebuilt fresh noneditable wheel with exact archive/source/installed runtime
+  bytes, the unchanged empty initializer and finite exports, no test/helper/docs
+  participants, and empty active/terminal inventories on import. Import controls
+  detect state opens, fork-hook registration, network/subprocess participants,
+  logging changes and SQLite/provider/CLI/spike imports; none occurred.
+
+The original 294-line approved prefix retains SHA-256
+`840f8ed7c1381b3fdf6f438a57a6eb392cc0654fb68f6c8370fd7291c99e079a`;
+the reviewed C1 proposal's complete 401-line prefix retains SHA-256
+`4b7895159612699a05f7278652e9c45c884a914478ff61490a63f3358dcc898f`.
+This is factual verification evidence, not independent source approval. The
+historical `183dc6d6d43f9bdeb0a9221ff867e022982ebb31` candidate remains HOLD even
+though its earlier CI succeeded. New exact-source independent acceptance and
+Python 3.12/3.13 CI remain required before root-qualified integration. The local
+kernel/mount, native descriptor discipline, consumer and milestone limits above
+remain unchanged; canonical M1-03, whole M1-02/RV11 and G1–G6 remain pending.
