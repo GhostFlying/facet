@@ -502,3 +502,41 @@ installed-wheel verification and actual CI before independent integration.
 M1-04/its Issue/G1 remain open. Additional source scope, a new normalizer/public
 capability or an unresolved private/public boundary requires a written amendment
 and independent review first. SQL source QA remains higher priority for this owner.
+
+### Early pure implementation handoff (2026-10-02)
+
+Root dispatched source after a non-author independent review approved the exact
+504-line plan SHA256
+`044b4a0f7bdbab01ea0b33eac98e456b51a5b66a583e3b5fbfc62ab99f5f5ea3`
+and 640-line ADR SHA256
+`67e446fcd5319cb3fde596e15554b205ce5cd967717334f9f602c60b66081ac0`.
+Those prefixes are preserved. The existing owned tree normally fast-forwarded
+from 1b7 to actual accepted main `f209fbe616dc65c70bbcdc4a104cf82b0d5dad27`,
+then switched to `feat/m1-04-credential-values`; no history rewrite or extra tree.
+Root assigned the previously absent gmail initializer to this owner. Actual
+initial main baseline: 488 tests passed on CPython 3.12.13 / SQLite 3.53.1.
+
+Implemented only the four allocated source files and four allocated test files:
+16 exact finite exports; private immutable structural values; bounded strict JSON
+envelope codec; two-field Desktop client parser. No function reads a file, uses
+network, validates a real grant/profile, changes binding, publishes credentials,
+or creates a runtime capability. Production paths/Google clients are not imported.
+
+Local evidence before independent source review:
+
+| Case | Actual evidence and boundary |
+| --- | --- |
+| OP-01/02 | Fixed export/record field sets, required exact constructors, all four scope-policy pairs and authorization/refresh parent syntax; no deferred capability exports |
+| OP-03/04 | Private byte roundtrip and explicit token-memory positive control; canonical UTC, duplicate/missing/extra keys, invalid numbers/UTF-8/BOM/version, exact byte cap and depth lexer positive/negative boundary |
+| OP-05/06 | Legacy/modern official-shaped synthetic client inputs and numeric loopback positive controls; hostile endpoint/URI/model/subclass/descriptor/timezone objects and corrupted exact values reject with fixed errors/no original context |
+| OP-07/08 | 13 real subprocess cases with child network guard: plain/sealed success/refusal, actual buffered logger shutdown, detecting output negative control, no function file I/O, empty output directory, unchanged import logging policy and all four actual public DTO families rejecting private objects |
+| Full regression | 608 passed (488 baseline +120 new); Ruff check and format 91 files passed; both CLI helps and repository safety passed |
+| Distribution | Built wheel; installed non-editably into a fresh task-only venv with the existing locked PyYAML version offline; Python -I imported from site-packages, verified all 16 exports and a private in-memory roundtrip without DB/CLI/spike/Google imports |
+
+Wheel/bootstrap used no new dependency or lock change. The cross-filesystem cache
+hardlink warning fell back to copying successfully; it was not a failed gate.
+These are local engineering results, not independent source approval or CI/
+integration evidence. Candidate SHA and exact external receipts belong to the
+Issue/PR handoff, avoiding self-referential report commits. All original full OA
+consumer, actual secure file/manager/writer/CLI, D3, M6 and G1 gates remain pending.
+Neither this partial unit nor its tests close M1-04.
