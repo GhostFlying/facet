@@ -110,6 +110,7 @@ def live_fds():
 
 class Child:
     def __init__(self, scenario, path, *args):
+        self.handshake_timeout = 14 if scenario.startswith("thread_") else 8
         self.process = subprocess.Popen(
             [sys.executable, "-B", str(CHILD), scenario, str(path), *args],
             stdin=subprocess.PIPE,
@@ -121,7 +122,9 @@ class Child:
         self.stderr = b""
 
     def line(self):
-        ready, _, _ = select.select([self.process.stdout], [], [], 8)
+        ready, _, _ = select.select(
+            [self.process.stdout], [], [], self.handshake_timeout
+        )
         assert ready, "test_child_handshake_timeout"
         value = self.process.stdout.readline()
         assert value, "test_child_missing_handshake"
@@ -1131,3 +1134,50 @@ def test_ol07_terminal_original_thread_identity_survives_actual_id_recycling(san
         assert participant.line() == "recycled_refused"
         assert probe("try_owner", path) == "held"
     assert participant.process.returncode == 0
+
+
+THREAD_CONTROLS = (
+    ("thread_exit", "recycled_refused", "owner_busy", 1),
+    ("thread_terminal", "recycled_refused", "held", 1),
+    ("thread_native_live", "native_live_refused", "owner_busy", 2),
+    ("thread_allocation_live", "allocation_live_refused", "owner_busy", 2),
+    ("thread_start_fault", "start_fault_cleaned", "owner_busy", 2),
+    ("thread_timeout_fault", "timeout_fault_cleaned", "owner_busy", 2),
+    ("thread_check_fault", "check_fault_cleaned", "owner_busy", 1),
+    ("thread_timeout_sibling", "timeout_sibling_cleaned", "owner_busy", 2),
+    ("thread_oracle_negative", "oracle_changes_detected", "owner_busy", 1),
+)
+
+
+def thread_control(path, scenario, handshake, kernel, task_count):
+    sibling = path.parent / "test-owned-sibling"
+    assert not sibling.exists()
+    before = tree(path), live_fds()
+    with child(scenario, path) as participant:
+        assert participant.line() == handshake
+        # Native retirement and finally-joined candidates are visible from the
+        # parent too. Only the deliberately held creator may accompany main.
+        assert (
+            len(list(Path(f"/proc/{participant.process.pid}/task").iterdir()))
+            == task_count
+        )
+        assert probe("try_owner", path) == kernel
+        assert tree(path) == before[0]
+    assert participant.process.returncode == 0
+    assert not sibling.exists(), "test_owned_sibling_cleanup_missing"
+    assert probe("try_owner", path) == "held"
+    assert (tree(path), live_fds()) == before
+
+
+@pytest.mark.parametrize("scenario,handshake,kernel,task_count", THREAD_CONTROLS[2:])
+def test_th02_th03_actual_thread_negative_and_fault_cleanup_controls(
+    sandbox, scenario, handshake, kernel, task_count
+):
+    thread_control(make_root(sandbox), scenario, handshake, kernel, task_count)
+
+
+@pytest.mark.parametrize("batch", range(20))
+def test_th04_twenty_complete_real_thread_child_control_batches(sandbox, batch):
+    path = make_root(sandbox, f"state-{batch}")
+    for scenario, handshake, kernel, task_count in THREAD_CONTROLS:
+        thread_control(path, scenario, handshake, kernel, task_count)

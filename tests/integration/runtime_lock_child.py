@@ -5,6 +5,7 @@ import fcntl
 import os
 import select
 import signal
+import stat
 import sys
 import threading
 import time
@@ -45,6 +46,363 @@ def reap_owned_fork(pid):
     raise AssertionError("fork_test_cleanup_timeout")
 
 
+def native_retired(native_id, deadline):
+    tasks = Path("/proc/self/task")
+    assert tasks.is_dir() and (tasks / str(threading.get_native_id())).is_dir(), (
+        "test_native_task_visibility_missing"
+    )
+    while (tasks / str(native_id)).exists():
+        assert time.monotonic() < deadline, "test_native_thread_not_retired"
+        time.sleep(0.001)
+
+
+def inventories(roots):
+    # Copy primitive phases, not mutable state objects whose later changes could
+    # otherwise make a before/after comparison falsely equal.
+    with roots._MUTEX:
+        return (
+            tuple(
+                (
+                    id(key),
+                    id(state),
+                    state.pid,
+                    id(state.thread),
+                    state.phase,
+                    state.entered,
+                    frozenset(map(id, state.leases)),
+                )
+                for key, state in roots._ROOTS.items()
+            ),
+            tuple(
+                (
+                    id(key),
+                    id(state),
+                    state.pid,
+                    id(state.thread),
+                    id(state.root),
+                    id(state.parent),
+                    state.kind,
+                    state.mode,
+                    state.phase,
+                    state.entered,
+                )
+                for key, state in roots._LEASES.items()
+            ),
+            tuple(
+                (id(key), state.pid, id(state.thread), state.phase)
+                for key, state in roots._CLOSED_ROOTS.items()
+            ),
+            tuple(
+                (id(key), state.pid, id(state.thread), state.phase)
+                for key, state in roots._RELEASED_LEASES.items()
+            ),
+            tuple((key, id(state)) for key, state in roots._INODES.items()),
+            tuple(
+                (number, id(descriptor), descriptor.identity, descriptor_facts(number))
+                for number, descriptor in roots._DESCRIPTORS.items()
+            ),
+        )
+
+
+def descriptor_facts(number):
+    current = os.fstat(number)
+    identity = (current.st_dev, current.st_ino, current.st_uid, current.st_mode)
+    # Traversal ancestors are shared with legitimate sibling activity. Their
+    # nlink/size/timestamps are not descriptor or ownership identity. Regular
+    # lock files still retain the actual one-link/zero-byte policy comparison.
+    if stat.S_ISREG(current.st_mode):
+        return (*identity, current.st_nlink, current.st_size)
+    return identity
+
+
+def held_candidates(ident, original, check, *, limit=64, timeout=4, fault=None):
+    """Require actual identity reuse; hold every other allocation until cleanup."""
+    deadline = time.monotonic() + timeout
+    release = threading.Event()
+    matched = threading.Event()
+    observations = []
+    failures = []
+    candidates = []
+
+    def candidate(ready, arrived):
+        try:
+            current = threading.current_thread()
+            actual = threading.get_ident()
+            observations.append((actual, current, threading.get_native_id()))
+            arrived.set()
+            if fault == "timeout":
+                assert release.wait(max(0, deadline + 2 - time.monotonic())), (
+                    "test_candidate_hold_timeout"
+                )
+            if actual == ident:
+                assert current is not original, "test_original_thread_substituted"
+                check()
+                if fault == "check":
+                    raise AssertionError("test_candidate_check_fault")
+                matched.set()
+        except BaseException as error:
+            failures.append(error)
+        finally:
+            arrived.set()
+            ready.set()
+        if not release.wait(max(0, deadline + 2 - time.monotonic())):
+            failures.append(AssertionError("test_candidate_hold_timeout"))
+
+    try:
+        for index in range(limit):
+            assert time.monotonic() < deadline, "test_candidate_allocation_timeout"
+            ready = threading.Event()
+            arrived = threading.Event()
+            current = threading.Thread(target=candidate, args=(ready, arrived))
+            # Register before start, so every actually started Thread is joined,
+            # including an exceptional start path. Never join an unstarted one.
+            candidates.append(current)
+            if fault == "start" and index == 1:
+                assert len(observations) == 1 and candidates[0].is_alive()
+                raise AssertionError("test_candidate_start_fault")
+            current.start()
+            if fault == "timeout":
+                # First prove a real worker is running and held. Its readiness
+                # cannot complete before finally releases the controlled gate.
+                assert arrived.wait(max(0, deadline - time.monotonic()))
+                assert observations and current.is_alive() and not failures
+            readiness = (
+                min(deadline, time.monotonic() + 0.03)
+                if fault == "timeout"
+                else deadline
+            )
+            assert ready.wait(max(0, readiness - time.monotonic())), (
+                "test_candidate_readiness_timeout"
+            )
+            if failures:
+                raise failures[0]
+            assert len({entry[0] for entry in observations}) == len(observations)
+            if matched.is_set():
+                return len(observations)
+        raise AssertionError("real_thread_ident_reuse_not_observed")
+    finally:
+        release.set()
+        cleanup = time.monotonic() + 2
+        for current in candidates:
+            if current.ident is not None:
+                current.join(max(0, cleanup - time.monotonic()))
+        assert all(not current.is_alive() for current in candidates), (
+            "test_candidate_cleanup_timeout"
+        )
+        for _, _, native_id in observations:
+            native_retired(native_id, cleanup)
+        # The explicit timeout control intentionally holds its readiness until
+        # finally releases it. Other late worker errors must never pass quietly.
+        if failures:
+            raise failures[0]
+
+
+def thread_scenario(scenario, path, roots, locks):
+    stored = []
+    failures = []
+    ready = threading.Event()
+    finish = threading.Event()
+    live_control = scenario in (
+        "thread_native_live",
+        "thread_allocation_live",
+        "thread_start_fault",
+        "thread_timeout_fault",
+        "thread_timeout_sibling",
+    )
+    sibling = None
+
+    def creator():
+        try:
+            root = roots.open_existing_root(path)
+            lease = locks.acquire_owner(root)
+            roots.check_root(root)
+            locks.check_lock(lease)
+            stored.append(
+                (
+                    root,
+                    lease,
+                    threading.get_ident(),
+                    threading.current_thread(),
+                    threading.get_native_id(),
+                )
+            )
+            if scenario == "thread_terminal":
+                locks.release_lock(lease)
+                roots.close_root(root)
+            ready.set()
+            if live_control:
+                try:
+                    assert finish.wait(14), "test_creator_finish_timeout"
+                    roots.check_root(root)
+                    locks.check_lock(lease)
+                finally:
+                    locks.release_lock(lease)
+                    roots.close_root(root)
+        except BaseException as error:
+            failures.append(error)
+        finally:
+            ready.set()
+
+    original = threading.Thread(target=creator)
+    try:
+        original.start()
+        assert ready.wait(2), "test_creator_readiness_timeout"
+        if failures:
+            raise failures[0]
+        root, lease, ident, thread, native_id = stored[0]
+        assert thread is original
+        if live_control:
+            assert original.is_alive()
+            assert Path(f"/proc/self/task/{native_id}").is_dir()
+        else:
+            original.join(2)
+            assert not original.is_alive(), "test_creator_join_timeout"
+            native_retired(native_id, time.monotonic() + 2)
+        before = inventories(roots)
+        if scenario == "thread_timeout_sibling":
+            owned = Path(path).parent / "test-owned-sibling"
+            owned.mkdir(mode=0o700)
+            sibling = owned
+
+        def refused():
+            for operation, resource in (
+                (roots.check_root, root),
+                (roots.close_root, root),
+                (locks.check_lock, lease),
+                (locks.release_lock, lease),
+            ):
+                try:
+                    operation(resource)
+                except roots.LockFailure as error:
+                    assert error.code.value == "owner_unavailable"
+                    assert error.__context__ is None and error.__cause__ is None
+                else:
+                    raise AssertionError("foreign_thread_accepted")
+            assert inventories(roots) == before, "test_original_inventory_changed"
+
+        controls = {
+            "thread_native_live": (
+                "test_native_thread_not_retired",
+                "native_live_refused",
+            ),
+            "thread_allocation_live": (
+                "real_thread_ident_reuse_not_observed",
+                "allocation_live_refused",
+            ),
+            "thread_start_fault": ("test_candidate_start_fault", "start_fault_cleaned"),
+            "thread_timeout_fault": (
+                "test_candidate_readiness_timeout",
+                "timeout_fault_cleaned",
+            ),
+            "thread_check_fault": ("test_candidate_check_fault", "check_fault_cleaned"),
+            "thread_timeout_sibling": (
+                "test_candidate_readiness_timeout",
+                "timeout_sibling_cleaned",
+            ),
+        }
+        if scenario in controls:
+            expected, handshake = controls[scenario]
+            try:
+                if scenario == "thread_native_live":
+                    native_retired(native_id, time.monotonic() + 0.03)
+                else:
+                    fault = scenario.removeprefix("thread_").removesuffix("_fault")
+                    if scenario == "thread_timeout_sibling":
+                        fault = "timeout"
+                    count = held_candidates(
+                        ident,
+                        thread,
+                        refused,
+                        limit=4 if live_control else 64,
+                        fault=fault
+                        if scenario.endswith(("_fault", "_sibling"))
+                        else None,
+                    )
+                    raise AssertionError("test_negative_control_accepted")
+            except AssertionError as error:
+                assert str(error) == expected, "test_wrong_detecting_failure"
+        else:
+            count = held_candidates(ident, thread, refused)
+            assert 1 <= count <= 64
+            handshake = "recycled_refused"
+        assert inventories(roots) == before, "test_original_inventory_changed"
+        # No candidate remains alive at the handshake. The watched creator is
+        # deliberately still alive only in the fixed negative controls.
+        assert set(threading.enumerate()) == (
+            {threading.main_thread(), original}
+            if live_control
+            else {threading.main_thread()}
+        )
+        say(handshake)
+        wait()
+    finally:
+        finish.set()
+        try:
+            if original.ident is not None:
+                original.join(2)
+            assert not original.is_alive(), "test_creator_cleanup_timeout"
+            if stored:
+                native_retired(stored[0][4], time.monotonic() + 2)
+            if failures:
+                raise failures[0]
+        finally:
+            if sibling is not None:
+                # Only this helper's freshly created empty sibling is removed.
+                sibling.rmdir()
+    # Live retired-owner and check-fault resources stay strongly enrolled until
+    # this fresh process exits: no transfer or GC unlock is a cleanup shortcut.
+
+
+def thread_oracle_negative(path, roots, locks):
+    owned_file = Path(path) / "locks/owner.lock"
+    changed_mode = False
+    with roots.open_existing_root(path) as root, locks.acquire_owner(root) as lease:
+        before = inventories(roots)
+        before_phases = roots._ROOTS[root].phase, roots._LEASES[lease].phase
+        assert before_phases == ("open", "held")
+        try:
+            os.chmod(owned_file, 0o640)
+            changed_mode = True
+            drift = inventories(roots)
+            assert drift[:5] == before[:5] and drift[5] != before[5]
+            observed = 0
+            for first, last in zip(before[5], drift[5], strict=True):
+                assert first[:3] == last[:3]
+                if first[3] != last[3]:
+                    # Actual retained FD mode differs; no object/number/inode/
+                    # UID/regular-file link/size or phase was substituted.
+                    assert first[3][:3] == last[3][:3]
+                    assert first[3][4:] == last[3][4:] == (1, 0)
+                    assert stat.S_IMODE(first[3][3]) == 0o600
+                    assert stat.S_IMODE(last[3][3]) == 0o640
+                    observed += 1
+            assert observed > 0
+            try:
+                locks.check_lock(lease)
+            except roots.LockFailure as error:
+                assert error.code.value == "scope_required"
+                assert error.__context__ is None and error.__cause__ is None
+            else:
+                raise AssertionError("test_unsafe_file_policy_accepted")
+            os.chmod(owned_file, 0o600)
+            changed_mode = False
+            restored = inventories(roots)
+            # Prove the actual primitive phases independently AFTER mode is
+            # restored, so mode inequality cannot make the phase oracle pass.
+            after_phases = roots._ROOTS[root].phase, roots._LEASES[lease].phase
+            assert after_phases == ("invalid", "invalid") != before_phases
+            assert restored[5] == before[5]
+            assert restored[0] != before[0] and restored[1] != before[1]
+            assert restored[2:5] == before[2:5]
+            say("oracle_changes_detected")
+            wait()
+        finally:
+            if changed_mode:
+                os.chmod(owned_file, 0o600)
+    # Both creator-owned context exits perform explicit terminal cleanup, even
+    # for the actual invalid phases. No fake state or foreign FD close is used.
+
+
 def run():
     scenario, path = sys.argv[1:3]
     if scenario == "duplicate_control":
@@ -71,53 +429,11 @@ def run():
             say("created")
         return
 
-    if scenario in ("thread_exit", "thread_terminal"):
-        stored = []
-
-        def creator():
-            root = private_root.open_existing_root(path)
-            lease = locks.acquire_owner(root)
-            if scenario == "thread_terminal":
-                locks.release_lock(lease)
-                private_root.close_root(root)
-            stored.append(
-                (root, lease, threading.get_ident(), threading.current_thread())
-            )
-
-        first = threading.Thread(target=creator)
-        first.start()
-        first.join()
-        root, lease, ident, thread = stored[0]
-        recycled = []
-
-        def foreign():
-            if threading.get_ident() == ident:
-                assert threading.current_thread() is not thread
-                for operation, resource in (
-                    (private_root.check_root, root),
-                    (private_root.close_root, root),
-                    (locks.check_lock, lease),
-                    (locks.release_lock, lease),
-                ):
-                    try:
-                        operation(resource)
-                    except private_root.LockFailure as error:
-                        assert error.code.value == "owner_unavailable"
-                    else:
-                        raise AssertionError("foreign_thread_accepted")
-                recycled.append(True)
-
-        for _ in range(64):
-            candidate = threading.Thread(target=foreign)
-            candidate.start()
-            candidate.join()
-            if recycled:
-                break
-        assert recycled, "real_thread_ident_reuse_not_observed"
-        say("recycled_refused")
-        wait()
-        # Neither live nor terminal resources transfer to a recycled Thread ID.
-        # In the live case only this test process exit releases its kernel lock.
+    if scenario == "thread_oracle_negative":
+        thread_oracle_negative(path, private_root, locks)
+        return
+    if scenario.startswith("thread_"):
+        thread_scenario(scenario, path, private_root, locks)
         return
 
     if scenario == "fork_terminal":
