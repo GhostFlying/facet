@@ -88,6 +88,108 @@ def test_message_and_thread_formats_and_copy_isolation(gmail_controller):
         assert not hasattr(service.messages(), forbidden)
 
 
+@pytest.mark.parametrize(
+    "resource,identifier", [("messages", "m-a"), ("threads", "t-a")]
+)
+@pytest.mark.parametrize(
+    "selected,expected",
+    [
+        (None, ["From", "Subject", "sUbJeCt"]),
+        ([], ["From", "Subject", "sUbJeCt"]),
+        (["SUBJECT"], ["Subject", "sUbJeCt"]),
+        (["fRoM"], ["From"]),
+        (["Missing-Header"], []),
+    ],
+)
+def test_metadata_is_headers_only_with_filter_and_copy_isolation(
+    gmail_controller,
+    resource,
+    identifier,
+    selected,
+    expected,
+):
+    payload = {
+        "mimeType": "multipart/mixed",
+        "filename": "synthetic.bin",
+        "headers": [
+            {"name": "From", "value": "sender@example.invalid"},
+            {"name": "Subject", "value": "Synthetic one"},
+            {"name": "sUbJeCt", "value": "Synthetic two"},
+        ],
+        "body": {"size": 13, "data": "Ym9keS1zZW50aW5lbA"},
+        "parts": [
+            {
+                "mimeType": "application/octet-stream",
+                "body": {"size": 7},
+                "parts": [{"body": {"size": 5, "data": "bmVzdGVk"}}],
+            }
+        ],
+    }
+    gmail_controller.seed("source", "m-a", "t-a", message(), payload=payload)
+    service = gmail_controller.service("source")
+    endpoint = getattr(service, resource)()
+    args = {"userId": "me", "id": identifier, "format": "metadata"}
+    if selected is not None:
+        args["metadataHeaders"] = selected
+
+    def get_message(arguments):
+        response = endpoint.get(**arguments).execute()
+        return response if resource == "messages" else response["messages"][0]
+
+    result = get_message(args)
+    assert "raw" not in result and "snippet" not in result
+    assert set(result["payload"]) == {"headers"}
+    assert [header["name"] for header in result["payload"]["headers"]] == expected
+    result["payload"]["headers"].append({"name": "Injected", "value": "local only"})
+    assert [
+        header["name"] for header in get_message(args)["payload"]["headers"]
+    ] == expected
+    # metadataHeaders only applies to metadata; full retains nested content.
+    full_args = {**args, "format": "full", "metadataHeaders": ["Missing-Header"]}
+    full = get_message(full_args)
+    assert full["payload"] == payload and "raw" not in full
+    full["payload"]["parts"][0]["parts"][0]["body"]["data"] = "changed"
+    assert get_message(full_args)["payload"] == payload
+    assert "payload" not in get_message({**args, "format": "minimal"})
+
+
+@pytest.mark.parametrize(
+    "resource,identifier", [("messages", "m-a"), ("threads", "t-a")]
+)
+def test_scripted_get_cannot_bypass_metadata_projection(
+    gmail_controller, resource, identifier
+):
+    args = {
+        "userId": "me",
+        "id": identifier,
+        "format": "metadata",
+        "metadataHeaders": ["subject"],
+    }
+    mail = {
+        "id": "m-a",
+        "raw": "eA",
+        "snippet": "synthetic body",
+        "payload": {
+            "headers": [
+                {"name": "Subject", "value": "Synthetic"},
+                {"name": "From", "value": "sender@example.invalid"},
+            ],
+            "body": {"data": "eA"},
+            "parts": [{"body": {"data": "eA"}}],
+        },
+    }
+    response = mail if resource == "messages" else {"id": "t-a", "messages": [mail]}
+    gmail_controller.script("source", resource + ".get", args, response)
+    result = (
+        getattr(gmail_controller.service("source"), resource)().get(**args).execute()
+    )
+    result = result if resource == "messages" else result["messages"][0]
+    assert result == {
+        "id": "m-a",
+        "payload": {"headers": [{"name": "Subject", "value": "Synthetic"}]},
+    }
+
+
 def test_nonidempotent_insert_and_indefinitely_delayed_search(
     gmail_controller, fake_clock
 ):

@@ -39,14 +39,38 @@ probe is not M1-02 production WAL/filesystem/deployment acceptance.
 | --- | --- |
 | `uv run --frozen --offline --no-python-downloads ruff check .` | PASS |
 | `uv run --frozen --offline --no-python-downloads ruff format --check .` | PASS |
-| `uv run --frozen --offline --no-python-downloads pytest tests/unit/test_fakes_gmail.py tests/unit/test_fakes_faults.py tests/unit/test_fakes_privacy.py -q` | PASS, 114 tests |
-| `uv run --frozen --offline --no-python-downloads pytest -q` | PASS, 138 tests, including unchanged Phase 0/repository tests |
+| `uv run --frozen --offline --no-python-downloads pytest tests/unit/test_fakes_gmail.py tests/unit/test_fakes_faults.py tests/unit/test_fakes_privacy.py -q` | PASS, 126 tests after the metadata-format review correction |
+| `uv run --frozen --offline --no-python-downloads pytest -q` | PASS, 150 tests, including unchanged Phase 0/repository tests |
 | `uv run --frozen --offline --no-python-downloads facet-spike --help` | PASS, no service/auth startup |
 | Original approved plan SHA-256 comparison | PASS, byte-identical |
 | `git diff --check` and explicit new-file inspection | PASS; staged repository safety is additionally required before commit/push |
 
-The test counts include parameterized hook/marker cases. They are not 114 separate
+The test counts include parameterized hook/marker cases. They are not 126 separate
 production invariants, performance measurements, live Gmail evidence or CT passes.
+
+### Independent review correction: get metadata format
+
+The first candidate `a26fce7c30f39e4533bc10b16a8f0f8ec6d969c5` received
+changes-requested: metadata could retain a seeded full MIME payload and thread
+metadata ignored header selection. This was a genuine fake-semantic defect, not
+a failing production test. The correction makes both get interfaces emit only
+selected top-level headers for metadata, excluding body/parts/raw/snippet, and
+applies the same boundary to explicitly scripted get responses. Full payloads
+and raw message bytes retain their separate behavior.
+
+The additional 12 parameterized controls in
+`test_metadata_is_headers_only_with_filter_and_copy_isolation` and
+`test_scripted_get_cannot_bypass_metadata_projection` cover both APIs, nested
+content exclusion, absent/empty/mixed-case/nonmatching header selections,
+preserved duplicate header order/casing, deep-copy isolation, full-format retention
+and minimal-format payload absence. These remain synthetic wire-shape controls,
+not actual Gmail verification. The revised candidate requires new review/CI;
+the first candidate's 138-test/CI success does not approve this fix.
+
+Primary definitions rechecked on 2026-10-02:
+[Gmail message formats](https://developers.google.com/workspace/gmail/api/reference/rest/v1/Format),
+[message get header selection](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/get),
+[thread get formats/header selection](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/get).
 
 ## Helper cases versus future feature consumers
 

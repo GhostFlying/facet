@@ -258,6 +258,17 @@ class Controller:
             with self._lock:
                 response = self._read(role, method, args)
         _validate_response(method, response)
+        if method == "messages.get":
+            response = _get_format(
+                response, args["format"], args.get("metadataHeaders")
+            )
+        elif method == "threads.get":
+            response["messages"] = [
+                _get_format(mail, args["format"], args.get("metadataHeaders"))
+                for mail in response.get("messages", [])
+            ]
+            if args["format"] != "full":
+                response.pop("snippet", None)
         self.faults.hit("provider.before_response")
         return response
 
@@ -277,8 +288,12 @@ class Controller:
         }
         if format == "raw":
             result["raw"] = base64.urlsafe_b64encode(mail.raw).decode().rstrip("=")
-        elif format in {"full", "metadata"}:
+        elif format == "full":
             result["payload"] = copy.deepcopy(mail.payload)
+        elif format == "metadata":
+            result["payload"] = {
+                "headers": copy.deepcopy(mail.payload.get("headers", []))
+            }
         return result
 
     def _read(self, role: str, method: str, args: dict) -> dict:
@@ -288,15 +303,7 @@ class Controller:
         if method == "labels.list":
             return {"labels": copy.deepcopy(box.labels)}
         if method == "messages.get":
-            result = self._wire(self._get(role, args["id"]), args["format"])
-            headers = args.get("metadataHeaders")
-            if args["format"] == "metadata" and headers is not None:
-                result["payload"]["headers"] = [
-                    h
-                    for h in result["payload"].get("headers", [])
-                    if h["name"].lower() in {name.lower() for name in headers}
-                ]
-            return result
+            return self._wire(self._get(role, args["id"]), args["format"])
         if method == "threads.get":
             mails = [m for m in box.messages.values() if m.thread == args["id"]]
             if not mails:
@@ -369,6 +376,27 @@ class Controller:
         if outcome.lose_response:
             raise ResponseLost()
         return response
+
+
+def _get_format(value: dict, format: str, requested_headers: list[str] | None) -> dict:
+    """Apply get-format projection to seeded and explicitly scripted responses."""
+    result = copy.deepcopy(value)
+    if format != "raw":
+        result.pop("raw", None)
+    if format in {"minimal", "raw"}:
+        result.pop("payload", None)
+    if format in {"minimal", "metadata"}:
+        result.pop("snippet", None)
+    if format == "metadata":
+        headers = result.get("payload", {}).get("headers", [])
+        # An empty repeated argument sends no header filters, as when omitted.
+        if requested_headers:
+            selected = {name.lower() for name in requested_headers}
+            headers = [
+                header for header in headers if header["name"].lower() in selected
+            ]
+        result["payload"] = {"headers": headers}
+    return result
 
 
 def _object(value: object, allowed: set[str], required: set[str] = frozenset()) -> None:
