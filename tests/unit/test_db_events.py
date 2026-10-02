@@ -1,11 +1,12 @@
 """Actual file-backed event membership, resolution jobs and classification."""
 
+from contextlib import suppress
 from dataclasses import replace
 from datetime import timedelta
 
 import pytest
 from test_db_history import page, poll, start
-from test_db_repositories import T, admit, job, publish, view
+from test_db_repositories import T, admit, job, publish, thread_rows, view
 from test_db_repositories import state as state
 from test_db_schema import NOW, P, lid
 
@@ -13,6 +14,7 @@ from facet.contracts import (
     Count,
     ErrorCode,
     Generation,
+    JobState,
     LabelChange,
     ProviderId,
     Revision,
@@ -26,11 +28,20 @@ from facet.contracts.records import (
     SourceEventKeyLabelChanged,
     SourceEventKeyMessageAdded,
     SourceEventKeyMessageDeleted,
+    ThreadGenerationGuardTracked,
 )
-from facet.db.codecs import EventProcessing, StorageFailure
+from facet.db.codecs import (
+    AuditKind,
+    AuditObjectKind,
+    EventProcessing,
+    StorageFailure,
+    ThreadStopReason,
+)
 from facet.db.keys import event_key
 from facet.db.models import RevisionGuard, SourceEventRow
-from facet.db.repositories import events, history, reads
+from facet.db.repositories import events, history, policy, reads
+from facet.db.repositories import jobs as queue
+from facet.db.repositories.audit import _audit
 
 
 def event(n=1, *, thread=None, tag="message_added", change=LabelChange.ADDED):
@@ -452,3 +463,200 @@ def test_explicit_resolved_attention_source_missing_states_are_durable(
     with view(state) as reader:
         saved = reads.get_event(reader, P, original.event_id)
         assert saved.processing is processing and saved.error_code is error
+
+
+def selected_project(original, n=100, *, generation=1, thread=T):
+    return job(
+        n,
+        subject=JobSubjectProjectMessage(
+            "project_message",
+            original.event.key.source_message_id,
+            thread,
+            Generation(generation),
+        ),
+    )
+
+
+def retrack(session):
+    tracked, admission = thread_rows(generation=3, admission_revision=2)
+    with session.transaction() as uow:
+        policy.admit_thread(
+            uow,
+            P,
+            tracked,
+            admission,
+            (),
+            ThreadGenerationGuardTracked("tracked", Generation(2)),
+        )
+
+
+@pytest.mark.parametrize(
+    "case", ["stop", "stop_retrack", "failed", "cancelled", "wrong_thread"]
+)
+def test_preexisting_effect_cannot_bypass_new_consumption_authority(state, case):
+    _, connection, session, _ = state
+    publish(session)
+    tracked, _ = admit(session)
+    value, response = setup(session)
+    original = event(thread=T)
+    ingest(session, value, response, (original,))
+    selected = selected_project(original)
+    with session.transaction() as uow:
+        queue.enqueue(uow, P, selected)
+        if case in {"stop", "stop_retrack"}:
+            policy.stop_thread(
+                uow, P, T, tracked.generation, NOW, ThreadStopReason.MANUAL_STOP
+            )
+        elif case in {"failed", "cancelled"}:
+            # Durable synthetic prior scheduler consequence, not an exposed
+            # arbitrary status setter or actual cancellation CLI implementation.
+            uow._execute(
+                "UPDATE sync_jobs SET state=? WHERE projection_id=? AND job_id=?",
+                (case, P.value, selected.job_id.value),
+            )
+    if case == "stop_retrack":
+        retrack(session)
+    provided = (
+        selected_project(original, thread=ProviderId("wrong-thread"))
+        if case == "wrong_thread"
+        else selected
+    )
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        events.classify_event(
+            uow,
+            P,
+            original.event_id,
+            EventProcessing.CONSUMED,
+            None,
+            (provided,),
+            RevisionGuard(Revision(0)),
+        )
+    with view(state) as reader:
+        saved = reads.get_event(reader, P, original.event_id)
+        assert (
+            saved.processing is EventProcessing.PENDING
+            and saved.revision == Revision(0)
+        )
+        actual = reads.get_job(reader, P, selected.job_id)
+        if case in {"stop", "stop_retrack", "cancelled"}:
+            assert actual.state is JobState.CANCELLED
+        elif case == "failed":
+            assert actual.state is JobState.FAILED
+        else:
+            assert actual.state is JobState.QUEUED
+        if case == "stop_retrack":
+            assert reads.get_thread(reader, P, T).generation == Generation(3)
+    assert connection.execute(
+        "SELECT COUNT(*) FROM sync_jobs WHERE kind='project_message'"
+    ).fetchone() == (1,)
+
+
+def test_existing_current_effect_and_consumed_post_stop_replay_do_not_enqueue(state):
+    _, connection, session, _ = state
+    publish(session)
+    tracked, _ = admit(session)
+    value, response = setup(session)
+    original = event(thread=T)
+    ingest(session, value, response, (original,))
+    selected = selected_project(original)
+    with session.transaction() as uow:
+        queue.enqueue(uow, P, selected)
+        events.classify_event(
+            uow,
+            P,
+            original.event_id,
+            EventProcessing.CONSUMED,
+            None,
+            (selected,),
+            RevisionGuard(Revision(0)),
+        )
+        policy.stop_thread(
+            uow, P, T, tracked.generation, NOW, ThreadStopReason.MANUAL_STOP
+        )
+    before = connection.total_changes
+    with session.transaction() as uow:
+        receipt = events.classify_event(
+            uow,
+            P,
+            original.event_id,
+            EventProcessing.CONSUMED,
+            None,
+            (selected,),
+            RevisionGuard(Revision(1)),
+        )
+        assert receipt.disposition == "replayed" and receipt.revision == Revision(1)
+    assert connection.total_changes == before
+    with view(state) as reader:
+        assert (
+            reads.get_event(reader, P, original.event_id).processing
+            is EventProcessing.CONSUMED
+        )
+        assert reads.get_job(reader, P, selected.job_id).state is JobState.CANCELLED
+        assert not reads.get_thread(reader, P, T).active
+    # Replaying a genuinely recorded event may not allocate a new generation's
+    # work, even after explicit retracking. It is receipt lookup, not scheduling.
+    retrack(session)
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        events.classify_event(
+            uow,
+            P,
+            original.event_id,
+            EventProcessing.CONSUMED,
+            None,
+            (selected_project(original, 101, generation=3),),
+            RevisionGuard(Revision(1)),
+        )
+    assert connection.execute(
+        "SELECT COUNT(*) FROM sync_jobs WHERE kind='project_message'"
+    ).fetchone() == (1,)
+
+
+def test_caught_new_consumption_failure_rolls_back_prior_job_and_audit(state):
+    _, connection, session, _ = state
+    publish(session)
+    tracked, _ = admit(session)
+    other = ProviderId("separately-tracked-thread")
+    admit(session, thread=other)
+    value, response = setup(session)
+    original = event(thread=T)
+    ingest(session, value, response, (original,))
+    selected = selected_project(original)
+    with session.transaction() as uow:
+        queue.enqueue(uow, P, selected)
+        policy.stop_thread(
+            uow, P, T, tracked.generation, NOW, ThreadStopReason.MANUAL_STOP
+        )
+    before_audit = connection.execute("SELECT COUNT(*) FROM audit_events").fetchone()
+    first = job(202, thread=other)
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        queue.enqueue(uow, P, first)
+        _audit(
+            uow,
+            P,
+            AuditKind.JOB_STATE_CHANGED,
+            AuditObjectKind.JOB,
+            NOW,
+            local_id=first.job_id,
+            after_state=JobState.QUEUED,
+        )
+        with suppress(StorageFailure):
+            events.classify_event(
+                uow,
+                P,
+                original.event_id,
+                EventProcessing.CONSUMED,
+                None,
+                (selected,),
+                RevisionGuard(Revision(0)),
+            )
+    # The independently reopened view observes no partial transaction success.
+    with view(state) as reader:
+        assert reads.get_job(reader, P, first.job_id) is None
+        assert (
+            reads.get_event(reader, P, original.event_id).processing
+            is EventProcessing.PENDING
+        )
+    assert (
+        connection.execute("SELECT COUNT(*) FROM audit_events").fetchone()
+        == before_audit
+    )

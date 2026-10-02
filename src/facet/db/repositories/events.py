@@ -1,6 +1,6 @@
 """Idempotent source-event metadata and durable resolution/effect work."""
 
-from facet.contracts import ErrorCode, JobKind, ProviderId
+from facet.contracts import ErrorCode, JobKind, JobState, ProviderId
 
 from ..codecs import EventProcessing, StorageFailure, next_revision
 from ..keys import event_key
@@ -16,7 +16,7 @@ from .base import (
     _require_row,
 )
 from .history import _page, _poll
-from .jobs import enqueue
+from .jobs import _thread_guard, enqueue
 
 
 def _event(uow, projection_id, event_id, guard):
@@ -202,10 +202,36 @@ def classify_event(uow, projection_id, event_id, processing, error, jobs, guard)
         # No-admission decisions are not allocated in the v1 inventory. An
         # empty list or a job for another event is not a durable decision.
         raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+    if processing is row.processing and error == row.error_code:
+        # A genuine completed classification can be inspected/replayed after
+        # stop. It cannot enqueue work or join a new epoch. Every supplied
+        # effect must already exist with exactly the recorded semantic identity.
+        for job in jobs:
+            old = _get(
+                uow, projection_id, "sync_jobs", (("stable_key", job.stable_key),)
+            )
+            if old is None or (old.subject, old.kind, old.priority) != (
+                job.subject,
+                job.kind,
+                job.priority,
+            ):
+                _conflict()
+        return WriteReceipt("replayed", event_id, row.revision)
+    for job in jobs:
+        # enqueue's historical stable-key replay is intentionally not scheduling
+        # authority. A NEW consumption needs current admission/generation and a
+        # still-valid durable effect, even if this key existed before stop/fail.
+        _thread_guard(uow, projection_id, job)
+        old = _get(uow, projection_id, "sync_jobs", (("stable_key", job.stable_key),))
+        if old is not None and old.state in {
+            JobState.CANCELLED,
+            JobState.FAILED,
+            JobState.SOURCE_MISSING,
+            JobState.NEEDS_ATTENTION,
+        }:
+            _conflict()
     for job in jobs:
         enqueue(uow, projection_id, job)
-    if processing is row.processing and error == row.error_code:
-        return WriteReceipt("replayed", event_id, row.revision)
     revision = next_revision(row.revision)
     uow._execute(
         "UPDATE source_events SET processing=?,error_code=?,revision=? "
