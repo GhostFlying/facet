@@ -292,3 +292,67 @@ Primary references checked for these finite mechanics:
 [Python process hooks/descriptors](https://docs.python.org/3/library/os.html#os.register_at_fork).
 These explain OS lifetime constraints; they do not substitute for OL tests or
 the actual production launch/import graph qualification.
+
+## Source dispatch and input alignment
+
+Root released this exact approved 294-line plan (SHA-256
+`840f8ed7c1381b3fdf6f438a57a6eb392cc0654fb68f6c8370fd7291c99e079a`) to
+`m103_os_source` on source base `ff77e63a823dc8bcb130836243746c067778b94f`.
+The distinct worker owns only the finite files allocated above. Independently
+qualified DB21 library input is `16bcd0b99bf1118924b214bf9ded3976813f5e1a`;
+its [exact CI](https://github.com/GhostFlying/facet/actions/runs/37014341329)
+passed Python 3.12/3.13. This is a separate finite library dependency, not a
+source import or whole M1-02/RV11/G1 acceptance.
+
+After the policy handoff, the OS branch normally merged reviewed main
+`a57dd77116ea79b44c177d03bb6b9815a5913795` through user-identity merge
+`764efc8dbeb8dae796173c42ff0eceffaa047f0c`, preserving original plan commit and
+saved source bytes. PR #19 actually merged at that exact main SHA; its independent
+review and [candidate CI](https://github.com/GhostFlying/facet/actions/runs/37017774954)
+passed. Prospective routing now uses only Sol high/xhigh or Luna, with an
+independent Sol reviewer for this source. The original accepted plan prefix and
+finite APIs/strategy are unchanged. Actual OS verification, source review and
+exact candidate CI remain pending; no real runtime provider or daemon is claimed.
+
+## Offline source verification checkpoint
+
+The bounded implementation now has 113 focused OS controls (49 unit and 64
+integration cases); the final focused run passed in 10.86 seconds. The full locked
+offline suite passed 721 tests in 24.27 seconds, retaining all 608 input tests.
+Locked offline dependency sync, Ruff, formatting (99 files), both CLI helps,
+production JSON version, whitespace and staged repository-safety checks passed.
+No dependency, workflow, shared conftest, contract or existing production source
+was changed.
+
+OL01–11 cover actual Linux file/descriptor/kernel/process behavior and detecting
+negative controls: unchanged existing trees/bytes/modes/mtime, concurrent scaffold
+publication, owner/view/key contention, SIGKILL release, strong Thread identity
+including observed integer recycling, inherited fork-copy closure versus a
+deliberate no-hook lifetime hazard, CLOEXEC, named inode/ancestor drift, reused FDs,
+hierarchical release and injected open/fstat/flock/fsync/close failures. Native and
+caller-handler synthetic private errors leave no context/cause or unsafe repr.
+The fixed lock-file allocation is checked even when a root or ancestor itself is
+named `owner.lock` or `view.lock`; no new API or path policy was introduced.
+
+OL12 local wheel controls passed after an offline build and fresh noneditable
+installation: archive/source/installed runtime bytes match, the initializer is
+empty, only the three runtime files are packaged, and no tests/helper/docs are
+included. Imports open no state, install no fork hook, change no logging, create
+no network participant and import no SQLite/provider/CLI/spike modules. The build
+tool's cross-filesystem hardlink warning fell back to ordinary copying; all
+installation and exact-byte/import checks succeeded.
+
+Local execution used CPython 3.12.13 on Linux 5.15.120.bsk.3-amd64, effective UID
+1001, and a synthetic tmpfs fixture beneath verified root-owned 0755 ancestors
+and an effective-UID-owned 0700 anchor. The actual foreign-UID workspace ancestor,
+symlinked home alias and sticky writable temporary ancestor were not exempted.
+These checks do not qualify arbitrary Compose mounts, NFS/SMB, native fork paths
+bypassing Python hooks, descriptor duplication/export or an actual runtime launch
+graph. Consumers must stop protected work on descriptor uncertainty; consumer
+shutdown/recovery is outside this slice.
+
+Independent exact-source acceptance review and new Python 3.12/3.13 candidate CI
+remain pending. OS foundation success does not implement SQLite/read-provider
+registration, initialization receipts, actor/UDS/CLI mutation, credentials,
+backup/restore or a second real daemon refusal. Whole M1-02/RV11, canonical M1-03,
+WR/RI acceptance, G1–G6 and live Gmail/deployment gates remain open.
