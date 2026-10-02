@@ -15,7 +15,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | Phase 1 execution planning | User G0 approved; plan integrated | Exact approved/merged `caba7c7`; independent review/QA and candidate/main CI passed; not milestone completion |
 | P1-00 execution baseline | Integrated | PR #6 exact `2618eaf`; independent plan/implementation review, candidate/main CI passed |
 | P1-01 core/writer ADRs | Reviewed and integrated design freeze | PR #8 exact `09031e7`; core-v1/writer-v1, independent review and candidate/main CI passed; no runtime/G1 claim |
-| P1-02 test foundations | Provider-slice review changes requested; CT pending | Provider metadata-format finding being corrected; actual M1-01 core compatibility plus final review/CI/integration still required |
+| P1-02 test foundations | Provider/helper partial slice integrated; CT pending | PR #10 exact `c18bfbe` reviewed and candidate/main CI passed; Issue #5 stays open and M1-02 is not released until actual core compatibility/final gates pass |
 | M1-01 package/config/CLI foundation | Implemented, locally offline-tested candidate | Minimum core types, strict structural config and actual validate/show; exact candidate independent review and 3.12/3.13 CI pending |
 | M1 foundation as a whole | Incomplete | Bindings, schema/migrations, locks, complete init/doctor/config apply, rule storage and public status models remain |
 | M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
@@ -68,8 +68,9 @@ do not verify a production daemon, trusted admission, backfill or rendered Dashb
   exports, strict bounded YAML/config defaults, safe standalone config reads and
   actual `facet config validate/show`, with empty mutable-field registry. Init/apply
   and managed reads are controlled unavailable; no temporary writer/view protocol.
-  Local locked checks passed CPython 3.12.13 with SQLite 3.53.1: 149 tests (24 retained
-  spike plus 125 new), Ruff lint/format (55 files), both entrypoint help and wheel
+  Local locked checks passed CPython 3.12.13 with SQLite 3.53.1: 149 foundation-snapshot
+  tests (24 retained spike plus 125 new), then 275 full tests after the normal merge
+  of reviewed P1-02 partial inputs, Ruff lint/format (69 files), both entrypoint help and wheel
   build/non-editable install smoke. Dependency bootstrap used authorized network;
   production tests made no Gmail calls and subprocess guards forbid network/spike/DB
   imports. The preexisting local 3.13.5 lacks `_sqlite3`; it is not a full-runtime
@@ -79,6 +80,15 @@ do not verify a production daemon, trusted admission, backfill or rendered Dashb
   P1-02 must pass CT compatibility against reviewed merged types before its closure
   and M1-02 implementation release. M1-02 is only in plan preparation
   ([Issue #9](https://github.com/GhostFlying/facet/issues/9)).
+- P1-02 provider/helper partial [PR #10](https://github.com/GhostFlying/facet/pull/10)
+  actually merged exact `c18bfbee09b985ee7b9bb5c230ee2a70427c7edc` after independent
+  reviewer `phase1_plan_review` approved the metadata-format correction and
+  [candidate CI](https://github.com/GhostFlying/facet/actions/runs/36978399171) passed.
+  [Main CI](https://github.com/GhostFlying/facet/actions/runs/36978909460) passed
+  at the same SHA. This partial slice supplies synthetic API/fault/privacy helpers,
+  not a completed P1-02 compatibility gate. M1-01 preserves its atomic core/config
+  commits and normally merges that reviewed input without history rewriting;
+  the combined tree requires a new whole-candidate review and 3.12/3.13 CI.
 - Historical planning/normalization records below retain their original SHA/
   verification scope. Their then-pending G0/Draft states were superseded by the
   explicit approval and actual integration recorded above, not retroactively

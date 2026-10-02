@@ -454,12 +454,19 @@ execution without changing inventory, ownership, schema or product gates.
   parser documentation were inspected; Facet's own hostile-YAML tests prove its
   stricter behavior. Authorized dependency bootstrap downloads are distinct from
   Gmail-free test execution.
-- Current local candidate checks: 149 tests (24 retained spike plus 125 foundation),
+- Pre-integration foundation snapshot checks: 149 tests (24 retained spike plus 125 foundation),
   Ruff lint/format 55 files, production/spike help, wheel build and separate
   non-editable installed-wheel entry/import/config smoke. The isolated wheel
   environment is constrained to the production dependencies exported from `uv.lock`.
   The initial offline wheel install encountered a registry cache miss; normal
   dependency retrieval followed by locked dependency constraints succeeded.
+- The coordinator then authorized gated normal integration of P1-02's independently
+  accepted partial PR #10 at exact `c18bfbee09b985ee7b9bb5c230ee2a70427c7edc`;
+  [main CI](https://github.com/GhostFlying/facet/actions/runs/36978909460) passed.
+  This branch normally merges that input without rewriting its atomic commits.
+  Combined-tree locked tests pass 275 cases; lint/format pass 69 files. P1-02
+  CT/full closure still awaits reviewed merged M1-01 types, and Issue #5 stays open;
+  no M1-02 implementation release follows from the partial integration.
 - Implemented reads only claim `structural_only`. Default managed reads and all
   init/apply commands remain `owner_unavailable`, with zero writes, no spike
   reading or unfiltered exception output. The StrEnum invalid-value path has a
