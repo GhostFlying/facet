@@ -349,3 +349,157 @@ whitespace and frozen217/229/250-prefix checks passed before source publication.
 These are author measurements only. Exact dualPython CI/nonauthor source verdict
 and separate root integration remain mandatory; production inventories remain
 EMPTY and no state/provider/CLI or whole-package acceptance is claimed.
+
+## Proposed CI graph/native-fixture correction C1
+
+Status: PLAN ONLY, pending independent non-author review and explicit root source
+release. The preceding 351-line author handoff remains byte-identical. Historical
+candidate eb839b44b813e0114e3dcd267a66ca1b5bfb8f62 stays HOLD; no source is changed
+by this appendix. Original approved217/design229/precode250 hashes remain exact.
+
+Actual CI37049522627 at that candidate completed FAILURE on both Python lanes:
+3.12 used CPython3.12.3, with1 failed/1688 passed319.72s; its sole failure was
+the real alternate-native fixture assuming optional _uuid existed. 3.13 used
+CPython3.13.16, with32 failed/1657 passed294.37s; normal bootstrap and related
+controls refused at the fixed pre-import module-subset gate before the probe.
+These are failed qualification gates, not flakiness or a reason to rerun unchanged.
+The historical local corrected1689 pass/wheel remains local author evidence only.
+The earlier two no-reset failures and their retained corrections also remain.
+
+Read-only causal diagnosis on the existing local CPython3.13.5, under genuine
+-I/-S/-B/-Xutf8 flags, reproduces line366 refusal with flags1/1/1/1 and the sole
+unexpected startup name errno. It is built-in with built-in origin, loaded by
+os -> posixpath. Pinned primary CPython3.13.16 source confirms posixpath imports
+errno and os imports posixpath:
+
+- https://raw.githubusercontent.com/python/cpython/v3.13.16/Lib/posixpath.py
+- https://raw.githubusercontent.com/python/cpython/v3.13.16/Lib/os.py
+- https://raw.githubusercontent.com/python/cpython/v3.13.16/Modules/errnomodule.c
+
+That local3.13 interpreter lacks _sqlite3 and therefore proves only the startup
+cause, not complete3.13 probe/StageB or installed acceptance. Actual final3.13 CI
+must measure the full graph; no unexamined observed module is automatically trusted.
+
+### Exact bounded allocation and selected correction
+
+Only the existing owned paths below may change after review/root release:
+
+| Path | Selected finite delta |
+| --- | --- |
+| src/facet/runtime/read_bootstrap.py | Add literal errno to the fixed compiled module set; require it to be a CPython builtin where relevant, and reject any errno import carrying a native filename rather than grant another native path |
+| src/facet/runtime/read_qualification.py | Mirror that exact literal in the fixed StageB module set; keep pure metadata validation and empty registries |
+| tests/integration/test_read_bootstrap_foundation.py | Retain and repair the existing actual alternate-native test to use mandatory _sqlite3 (the probe's binding) instead of optional _uuid; add explicit builtin/native distinction and unexpected-module paired controls |
+| tests/integration/read_bootstrap_child.py | Fixed test-only builtin/alternate-native scenarios, preserving actual creator probe and all existing controls; no caller-selected product module/path |
+| tests/unit/test_read_bootstrap_values.py | Assert equal exact immutable graphs and builtin-only distinction, retaining all original tests/opaque six-slot/API checks |
+| This owned implementation plan | Append exact approval/release and measured final handoff without altering the original351/250/217 prefixes or design229 |
+
+read_launcher.py, the runtime package initializer, DB/core/OS, CLI, providers,
+dependencies, CI and shared documents are unchanged. No runtime download, trust
+registration or new source path is implicitly authorized by this correction.
+
+The selected native fixture obtains the actual mandatory _sqlite3 origin. For a
+real extension it copies that real file to a test-owned alternate location; for
+the existing standalone builtin it uses the actual linked shared libpython, as
+the old fixture already did. Both must be real regular files; absent mandatory
+binding/library is a failed control, never a skip or fake event. A fixed actual
+_imp.create_dynamic call uses an otherwise admitted binding name and the alternate
+real native file, and must refuse via the audited native filename BEFORE dlopen.
+The genuine original memory probe is the paired production positive and its
+actual module/handle facts must remain unchanged by refusal. The separate
+builtin-only errno oracle below prevents generic path rejection from masquerading
+as detection of native replacement.
+
+### C1 causal native/builtin oracle clarification
+
+The initial441-line proposal was NOT approved: its promised errno test at an
+otherwise trusted stdlib extension location had no selected real fixture. This
+standalone3.12.13 has zero .so files under the actual _STDLIB directory, and its
+linked libpython is outside that directory. Merely repeating the outside-path
+negative would not distinguish the builtin-only guard. Do not write shared host
+stdlib, relocate a shipping runtime, fake an audit event or weaken production
+admission to manufacture this evidence.
+
+Select an explicitly TEST-ONLY named namespace-boundary fixture in the already
+allocated integration test and installed child helper. Parent creates a fresh
+owned directory and copies the actual matching mandatory _sqlite3 extension or
+linked shared libpython there, retaining regular-file/UID/nonwritable facts. In
+each fresh isolated helper, FIRST run the genuine original installed bootstrap
+and its actual memory probe/confirmed close using unchanged production-derived
+_STDLIB. Only afterward temporarily point that test helper's executed bootstrap
+namespace _STDLIB at the exact owned fixture directory. Do not change its fixed
+module graph, latch identity, phase, hook/function or production source. This is
+an explicit test-boundary fault fixture, not a compiled runtime qualification or
+production path fallback. It is not exported, installed or selectable by a client.
+
+Paired child A uses real _imp.create_dynamic under the otherwise admitted
+_sqlite3 name and the copied native file. Require actual observed import filename
+delivery and an actual returned native module, proving generic path/type/UID/mode
+policy accepts this file. Do not open another SQLite connection or invoke that
+returned module's database APIs; the original probe stays closed and its retained
+module/handle/runtime facts stay unchanged. Restore the test namespace afterward.
+Paired fresh child B uses the identical native-file identity and otherwise-
+admissible policy but real loader name errno. Require observed actual import
+filename delivery followed by fixed consistency_failure from builtin-only
+rejection, no returned module and irreversible latch invalidation. The generic
+positive must pass on the same actual runtime/file-policy facts; its failure
+makes the pair fail, not skip or call the errno negative successful. No manual
+sys.audit import event substitutes for this loader evidence. Matching libpython
+exports PyInit__sqlite3/PyInit_errno on the local builtin runtime; an extension-
+based runtime still uses its actual mandatory binding and the guard must refuse
+before dlopen/entry-point resolution, not rely on a native ImportError.
+
+These paired tests prove ONLY the builtin/native guard's causal discrimination.
+The original actual production-prefix/outside-prefix detecting control and normal
+installed probe/StageB remain independent mandatory cases under both Python lanes.
+No test-owned trusted-prefix substitution counts as support for a product-state
+opener, another runtime/import graph, read provider or native registration.
+
+The only graph addition is the named primary-source CPython builtin dependency.
+It provides numeric error constants, not SQLite, FFI, provider/state open, plugin,
+callback or alternate native authority. There is no prefix/wildcard/site graph,
+observer-generated inventory, removed startup gate or reset of the consumed latch.
+Existing loaded/missing _wmi distinctions and all SQLite/application preloading,
+module clearing/no-reset, unknown-module, native path and privacy guards remain.
+The exact six fields, private APIs, audit-hook enrollment, one memory probe,
+confirmed close, fixed launcher bounds and shipping EMPTY inventories are unchanged.
+
+### Required acceptance before a new exact candidate
+
+Keep all old1625 and original64 foundation tests. Add paired actual installed
+builtin/startup and native replacement controls with normal probe/StageB-positive
+enrollment; a refusal caused by an unqualified earlier stage is not a passing
+native negative. Verify independent unknown module, preloaded SQLite/application,
+reset/allocation and foreign Thread/recycled Thread/fork continuation controls.
+Actual loaded errno is a fixed builtin, not an arbitrary allowed implementation.
+Both supported Python lanes must run actual installed controls and the retained
+full suite, recording their real CPython/SQLite/source/compile facts and counts.
+No weakening deadline, skipping optional failures, auto-blessing further modules,
+changing CI/lock, runtime/provider registration or product state access is allowed.
+
+Preserve eb839 and failed exact CI receipts. Before source edits save reviewed
+whole-plan hash and explicit root release in a pre-code documentation commit.
+After final focused/full/Ruff/CLI/privacy/safety and fresh noneditable-wheel
+checks, freeze a new normal atomic fix commit, normal-push existing DraftPR24,
+and obtain new exact CI plus independent non-author source acceptance. No amend,
+force/history rewrite, self-approval, readiness/merge or full M1-03/G1 claim.
+Any further required module/mechanism/file/API/trust change stops for a written
+reviewed amendment before code; old local/CI successes do not waive this gate.
+
+## C1 independent approval and finite source-release receipt
+
+The exact486-line prospective C1 plan, SHA-256
+`d51dde356bc5d9e77249c5cbf6b8b27b5afab8afa9e72371c86216a304fc600b`,
+was independently APPROVED PLAN ONLY by nonauthor phase1_os_acceptance_sol.
+Its complete95-line review was read and verified at SHA-256
+`f2ec85f7c05b03e99f3d772dbd2b273956ac44b097e0f3bf06eca0c26974655a`.
+Root read that full report and explicitly released only the selected finite
+correction before source edits. This receipt is saved in a separate plan-only
+user/noreply pre-code commit; it is not source or runtime acceptance.
+
+The original351/250/217 prefixes and exact229 design remain unchanged. Historical
+441/0f7028 proposal and eb839 source remain HOLD, with both failed37049522627 CI
+lanes preserved. Only the two fixed inventories, builtin errno enforcement and
+allocated existing tests/helper plus this factual plan may change. The genuine
+helper-boundary native positive must return an actual module; inability to do
+so is a STOP gate, not permission to relax its oracle. Launcher, DB/OS/core/CLI,
+dependencies/CI, shipping empty registries and all authority gates are unchanged.
