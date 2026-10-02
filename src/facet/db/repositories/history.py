@@ -200,6 +200,21 @@ def _advance_poll_revision(uow, projection_id, poll):
     return revision
 
 
+def _page_work(uow, projection_id, poll, ordinal):
+    epoch = None if poll.origin_epoch_id is None else poll.origin_epoch_id.value
+    return _query(
+        uow,
+        "SELECT COUNT(*),COALESCE(SUM(NOT EXISTS(SELECT 1 FROM sync_jobs j "
+        "WHERE j.projection_id=m.projection_id AND j.kind='resolve_event' "
+        "AND j.event_id=m.event_id AND (? IS NULL OR EXISTS(SELECT 1 FROM "
+        "epoch_jobs e WHERE e.projection_id=j.projection_id AND e.job_id=j.job_id "
+        "AND e.epoch_id=?)))),0) FROM history_page_events m "
+        "WHERE m.projection_id=? AND m.poll_id=? AND m.ordinal=?",
+        (epoch, epoch, projection_id.value, poll.poll_id.value, ordinal.value),
+        maximum=1,
+    )[0]
+
+
 @_mutating
 def finish_history_page(uow, projection_id, poll_id, ordinal, metadata_digest, guard):
     if type(metadata_digest) is not Sha256Hex:
@@ -211,15 +226,7 @@ def finish_history_page(uow, projection_id, poll_id, ordinal, metadata_digest, g
     # This validates persisted distinct membership and required durable work,
     # not the caller's provider-response normalization algorithm/order. Shared
     # event rows can be enriched/reused without rewriting a saved page identity.
-    observed, missing = _query(
-        uow,
-        "SELECT COUNT(*),COALESCE(SUM(NOT EXISTS(SELECT 1 FROM sync_jobs j "
-        "WHERE j.projection_id=m.projection_id AND j.kind='resolve_event' "
-        "AND j.event_id=m.event_id)),0) FROM history_page_events m "
-        "WHERE m.projection_id=? AND m.poll_id=? AND m.ordinal=?",
-        (projection_id.value, poll_id.value, ordinal.value),
-        maximum=1,
-    )[0]
+    observed, missing = _page_work(uow, projection_id, poll, ordinal)
     if observed != page.expected_event_count.value or missing:
         _conflict()
     revision = next_revision(poll.revision)
@@ -297,8 +304,15 @@ def finish_history_poll(uow, projection_id, poll_id, final_history_id, guard):
         "WHERE m.projection_id=p.projection_id AND m.poll_id=p.poll_id "
         "AND m.ordinal=p.ordinal AND NOT EXISTS(SELECT 1 FROM sync_jobs j "
         "WHERE j.projection_id=m.projection_id AND j.kind='resolve_event' "
-        "AND j.event_id=m.event_id))) LIMIT 1",
-        (projection_id.value, poll_id.value),
+        "AND j.event_id=m.event_id AND (? IS NULL OR EXISTS(SELECT 1 FROM "
+        "epoch_jobs e WHERE e.projection_id=j.projection_id AND e.job_id=j.job_id "
+        "AND e.epoch_id=?))))) LIMIT 1",
+        (
+            projection_id.value,
+            poll_id.value,
+            None if poll.origin_epoch_id is None else poll.origin_epoch_id.value,
+            None if poll.origin_epoch_id is None else poll.origin_epoch_id.value,
+        ),
         maximum=1,
     )
     if unfinished:

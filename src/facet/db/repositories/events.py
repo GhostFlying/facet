@@ -12,10 +12,9 @@ from .base import (
     _guard,
     _insert,
     _mutating,
-    _query,
     _require_row,
 )
-from .history import _advance_poll_revision, _page, _poll
+from .history import _advance_poll_revision, _page, _page_work, _poll
 from .jobs import _thread_guard, enqueue
 
 
@@ -148,15 +147,7 @@ def ingest_history_chunk(uow, projection_id, poll_id, ordinal, events, jobs, gua
         enqueue(uow, projection_id, job)
     # Every selected event needs its exact resolution work, not an unrelated
     # job somewhere in the database. A chunk cannot silently truncate a page.
-    observed, missing = _query(
-        uow,
-        "SELECT COUNT(*),COALESCE(SUM(NOT EXISTS(SELECT 1 FROM sync_jobs j "
-        "WHERE j.projection_id=m.projection_id AND j.event_id=m.event_id "
-        "AND j.kind='resolve_event')),0) FROM history_page_events m "
-        "WHERE m.projection_id=? AND m.poll_id=? AND m.ordinal=?",
-        (projection_id.value, poll_id.value, ordinal.value),
-        maximum=1,
-    )[0]
+    observed, missing = _page_work(uow, projection_id, poll, ordinal)
     if observed > page.expected_event_count.value or missing:
         _conflict()
     if not changed:
