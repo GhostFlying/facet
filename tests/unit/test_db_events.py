@@ -74,22 +74,24 @@ def setup(session, *, count=1):
     value = start(session)
     response = page(value, count=count)
     with session.transaction() as uow:
-        history.begin_history_page(uow, P, response, RevisionGuard(Revision(0)))
-    return value, response
+        receipt = history.begin_history_page(
+            uow, P, response, RevisionGuard(value.revision)
+        )
+    return replace(value, revision=receipt.revision), response
 
 
-def ingest(session, value, response, rows, jobs=None):
+def ingest(session, value, response, rows, jobs=None, *, revision=None):
     if jobs is None:
         jobs = tuple(resolution(row) for row in rows)
     with session.transaction() as uow:
-        events.ingest_history_chunk(
+        return events.ingest_history_chunk(
             uow,
             P,
             value.poll_id,
             response.ordinal,
             rows,
             jobs,
-            RevisionGuard(Revision(0)),
+            RevisionGuard(value.revision if revision is None else revision),
         )
 
 
@@ -99,7 +101,8 @@ def test_split_large_history_page_preserves_all_distinct_events_and_resolution_j
     _, connection, session, _ = state
     value, response = setup(session, count=601)
     selected = tuple(event(n) for n in range(1, 602))
-    ingest(session, value, response, selected[:500])
+    first = ingest(session, value, response, selected[:500])
+    assert first.revision == Revision(2) and first.disposition == "updated"
     with pytest.raises(StorageFailure), session.transaction() as uow:
         history.finish_history_page(
             uow,
@@ -107,26 +110,30 @@ def test_split_large_history_page_preserves_all_distinct_events_and_resolution_j
             value.poll_id,
             Count(1),
             response.metadata_digest,
-            RevisionGuard(Revision(0)),
+            RevisionGuard(first.revision),
         )
-    ingest(session, value, response, selected[500:])
+    second = ingest(session, value, response, selected[500:], revision=first.revision)
+    assert second.revision == Revision(3)
     # Replaying an entire chunk preserves the first allocated IDs/work.
-    ingest(session, value, response, selected[:500])
+    changes = connection.total_changes
+    replay = ingest(session, value, response, selected[:500], revision=second.revision)
+    assert replay.disposition == "replayed" and replay.revision == second.revision
+    assert connection.total_changes == changes
     with session.transaction() as uow:
-        history.finish_history_page(
+        finished = history.finish_history_page(
             uow,
             P,
             value.poll_id,
             Count(1),
             response.metadata_digest,
-            RevisionGuard(Revision(0)),
+            RevisionGuard(replay.revision),
         )
         history.finish_history_poll(
             uow,
             P,
             value.poll_id,
             response.response_history_id,
-            RevisionGuard(Revision(1)),
+            RevisionGuard(finished.revision),
         )
     assert connection.execute("SELECT COUNT(*) FROM source_events").fetchone() == (601,)
     assert connection.execute("SELECT COUNT(*) FROM sync_jobs").fetchone() == (601,)
@@ -169,6 +176,9 @@ def test_chunk_refusal_rolls_back_event_membership_and_jobs(state, bad):
     for table in ["source_events", "sync_jobs", "history_page_events"]:
         assert connection.execute("SELECT COUNT(*) FROM " + table).fetchone() == (0,)
     assert connection.execute("SELECT complete FROM history_pages").fetchone() == (0,)
+    assert connection.execute("SELECT revision FROM history_polls").fetchone() == (
+        value.revision.value,
+    )
 
 
 def test_added_deleted_and_label_add_remove_are_distinct_activation_keys(state):
@@ -216,22 +226,22 @@ def test_cross_poll_reobservation_and_late_thread_enrichment_preserve_page_snaps
     _, connection, session, _ = state
     first, response = setup(session)
     original = event()
-    ingest(session, first, response, (original,))
+    ingested = ingest(session, first, response, (original,))
     with session.transaction() as uow:
-        history.finish_history_page(
+        finished = history.finish_history_page(
             uow,
             P,
             first.poll_id,
             Count(1),
             response.metadata_digest,
-            RevisionGuard(Revision(0)),
+            RevisionGuard(ingested.revision),
         )
         history.finish_history_poll(
             uow,
             P,
             first.poll_id,
             response.response_history_id,
-            RevisionGuard(Revision(1)),
+            RevisionGuard(finished.revision),
         )
     second = replace(
         poll(1100, cursor=response.response_history_id, checkpoint_revision=1),
@@ -252,8 +262,14 @@ def test_cross_poll_reobservation_and_late_thread_enrichment_preserve_page_snaps
     )
     with session.transaction() as uow:
         history.begin_history_poll(uow, P, second, RevisionGuard(Revision(1)))
-        history.begin_history_page(uow, P, later_page, RevisionGuard(Revision(0)))
-    ingest(session, second, later_page, (later,), (resolution(later, 19999),))
+        begun = history.begin_history_page(
+            uow, P, later_page, RevisionGuard(second.revision)
+        )
+    second = replace(second, revision=begun.revision)
+    ingested = ingest(
+        session, second, later_page, (later,), (resolution(later, 19999),)
+    )
+    assert ingested.revision == Revision(2)
     with session.transaction() as uow:
         history.finish_history_page(
             uow,
@@ -261,7 +277,7 @@ def test_cross_poll_reobservation_and_late_thread_enrichment_preserve_page_snaps
             second.poll_id,
             Count(1),
             later_page.metadata_digest,
-            RevisionGuard(Revision(0)),
+            RevisionGuard(ingested.revision),
         )
     with view(state) as reader:
         saved = reads.get_event(reader, P, original.event_id)
@@ -316,7 +332,7 @@ def test_conflicting_ingest_retains_attention_and_only_resolution_work(
     _, _, session, _ = state
     value, response = setup(session)
     original = event(thread=T)
-    ingest(session, value, response, (original,))
+    ingested = ingest(session, value, response, (original,))
     conflicting = replace(
         original,
         event_id=lid(99),
@@ -324,7 +340,9 @@ def test_conflicting_ingest_retains_attention_and_only_resolution_work(
             original.event, source_thread_id=ProviderId("conflicting-thread")
         ),
     )
-    ingest(session, value, response, (conflicting,))
+    ingested = ingest(
+        session, value, response, (conflicting,), revision=ingested.revision
+    )
     with view(state) as reader:
         saved = reads.get_event(reader, P, original.event_id)
         assert (
@@ -338,6 +356,7 @@ def test_conflicting_ingest_retains_attention_and_only_resolution_work(
             response,
             (conflicting,),
             (job(200, thread=ProviderId("conflicting-thread")),),
+            revision=ingested.revision,
         )
 
 
@@ -660,3 +679,54 @@ def test_caught_new_consumption_failure_rolls_back_prior_job_and_audit(state):
         connection.execute("SELECT COUNT(*) FROM audit_events").fetchone()
         == before_audit
     )
+
+
+def test_chunk_stale_guard_never_replays_or_accepts_new_membership(state):
+    _, connection, session, _ = state
+    value, response = setup(session, count=2)
+    first = event()
+    receipt = ingest(session, value, response, (first,))
+    assert receipt.revision == Revision(2)
+    for rows in [(first,), (event(2),)]:
+        with pytest.raises(StorageFailure):
+            ingest(session, value, response, rows)
+    assert connection.execute("SELECT revision FROM history_polls").fetchone() == (2,)
+    assert connection.execute("SELECT COUNT(*) FROM source_events").fetchone() == (1,)
+    second = ingest(session, value, response, (event(2),), revision=receipt.revision)
+    assert second.revision == Revision(3)
+
+
+def test_empty_chunk_is_zero_write_replay_and_caught_failure_undoes_accepted_chunk(
+    state,
+):
+    _, connection, session, _ = state
+    value, response = setup(session)
+    changes = connection.total_changes
+    empty = ingest(session, value, response, ())
+    assert empty.disposition == "replayed" and empty.revision == value.revision
+    assert connection.total_changes == changes
+    first = event()
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        receipt = events.ingest_history_chunk(
+            uow,
+            P,
+            value.poll_id,
+            response.ordinal,
+            (first,),
+            (resolution(first),),
+            RevisionGuard(value.revision),
+        )
+        assert receipt.revision == Revision(2)
+        with suppress(StorageFailure):
+            events.ingest_history_chunk(
+                uow,
+                P,
+                value.poll_id,
+                response.ordinal,
+                (event(2),),
+                (),
+                RevisionGuard(receipt.revision),
+            )
+    assert connection.execute("SELECT revision FROM history_polls").fetchone() == (1,)
+    for table in ["source_events", "sync_jobs", "history_page_events"]:
+        assert connection.execute("SELECT COUNT(*) FROM " + table).fetchone() == (0,)

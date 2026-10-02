@@ -1174,3 +1174,55 @@ reviews; neither author's unreviewed document overrides the other contract.
 Revision r3 makes two r2 review-edge guards explicit: unresolved gap blocks both
 ordinary and initial origins, and catch-up identity is derived only by completion
 of the same epoch's actual poll. No new table, authority or implementation scope.
+
+### Proposed finite History observation amendment r4
+
+This append-only delta preserves the frozen r3 text above (SHA256
+`da2cfcd0081eaca8b102436186c9f5d034947fbf71ca2f0b95a14ee25840cfa0`).
+It is proposed, not approved or implemented. The r3 mutation rule already requires
+poll revision advancement, but its finite read inventory cannot observe the
+current page/poll after a first response is lost. Independent design approval of
+this exact amendment is required before adding either read method.
+
+| Added method | Required typed parameters | Output and boundary |
+| --- | --- | --- |
+| get_history_poll | view:ReadSession, projection_id:ProjectionId, poll_id:LocalId | HistoryPollRow or None within that projection |
+| get_history_page | view:ReadSession, projection_id:ProjectionId, poll_id:LocalId, ordinal:Count | HistoryPageRow or None within that projection; ordinal must be at least 1 |
+
+Both methods consume the existing validated read-view provider, perform bounded
+fixed-column parameterized SELECTs using the allocated closed row decoder, and
+never create a database, acquire writer ownership, publish an owner run, mutate
+state or call Gmail. Exact input types are checked before accessing their fields.
+They return private storage metadata only: IDs, page tokens and response digests
+must not be exposed as Web/public DTOs. No generic SQL, payload, setter, new table,
+new state, command receipt or lock bypass is added.
+
+The unchanged r3 guard rule applies before any replay decision. A fresh page,
+new page-event membership, event enrichment/attention, required job/epoch work or
+page/poll transition advances that poll's revision exactly once per accepted API
+mutation, in the same UoW as its effects, by CAS against the supplied guard. Its
+WriteReceipt has object_id=poll_id and the actual new revision. A truly identical
+zero-write replay returns disposition=replayed and the actual unchanged revision.
+Stale guards never gain an early replay bypass. Failure, oversize input, missing
+required work, a later caught failure or transaction rollback preserves the poll
+revision and all prior committed facts; an updated receipt cannot survive rollback
+as proof of a committed effect.
+
+After a lost acknowledgment, a consumer must use these reads in one validated
+short read view, compare the saved immutable page/poll facts, and reconcile
+required event/job facts through the existing finite reads before selecting the
+current revision for a safe replay or remaining chunk. It must not infer success
+from a revision increment alone, blindly add one, treat an absent row as proof of
+no provider effect, borrow begin_history_poll as a getter, or use raw SQL. These
+reads are observation, not a command-idempotency registry. An incompatible,
+completed or abandoned page/poll needs its applicable controlled lifecycle, not
+reopening or rewriting it. Later M2/M3 consumers must independently validate their
+actual lost-response reconciliation against this library seam.
+
+Acceptance extends the existing DB-06/07/10/17/24/27 cases, without removing any
+gate: exact-type, missing, cross-projection and wrong-ordinal reads; read-only
+no-create/no-write and closed privacy output; fresh page and 500+101 event chunks
+with receipt-driven CAS; stale prior receipt refusal; true no-write replay;
+missing work/oversize/caught failure rollback with no revision change; reopened
+real-file lost-ack observation of page and chunk with actual saved rows/work;
+finish/abandon use of the observed current revision without cursor shortcuts.

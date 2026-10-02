@@ -1,5 +1,6 @@
 """Real-file History pagination metadata, without Gmail calls or wire authority."""
 
+from contextlib import suppress
 from dataclasses import replace
 from datetime import timedelta
 
@@ -109,14 +110,16 @@ def start(session):
 
 def finish_page(session, value, row, *, revision=0):
     with session.transaction() as uow:
-        history.begin_history_page(uow, P, row, RevisionGuard(Revision(revision)))
-        history.finish_history_page(
+        begun = history.begin_history_page(
+            uow, P, row, RevisionGuard(Revision(revision))
+        )
+        return history.finish_history_page(
             uow,
             P,
             value.poll_id,
             row.ordinal,
             row.metadata_digest,
-            RevisionGuard(Revision(revision)),
+            RevisionGuard(begun.revision),
         )
 
 
@@ -126,12 +129,16 @@ def test_empty_poll_advances_only_after_complete_page_and_uses_request_start(sta
     row = page(value)
     with view(state) as reader:
         before = reads.get_checkpoint(reader, P)
-    finish_page(session, value, row)
+    finished = finish_page(session, value, row)
     with view(state) as reader:
         assert reads.get_checkpoint(reader, P) == before
     with session.transaction() as uow:
         history.finish_history_poll(
-            uow, P, value.poll_id, row.response_history_id, RevisionGuard(Revision(1))
+            uow,
+            P,
+            value.poll_id,
+            row.response_history_id,
+            RevisionGuard(finished.revision),
         )
     with view(state) as reader:
         checkpoint = reads.get_checkpoint(reader, P)
@@ -150,23 +157,27 @@ def test_multi_page_token_chain_durable_before_cursor_and_no_numeric_max(state):
         page(value, next_token=ProviderPageToken("synthetic-token")),
         response_history_id=ProviderId("z-999"),
     )
-    finish_page(session, value, first)
+    finished = finish_page(session, value, first)
     with pytest.raises(StorageFailure), session.transaction() as uow:
         history.finish_history_poll(
-            uow, P, value.poll_id, first.response_history_id, RevisionGuard(Revision(1))
+            uow,
+            P,
+            value.poll_id,
+            first.response_history_id,
+            RevisionGuard(finished.revision),
         )
     second = replace(
         page(value, ordinal=2, input_token=first.next_page_token),
         response_history_id=ProviderId("a-1"),
     )
-    finish_page(session, value, second, revision=1)
+    finished = finish_page(session, value, second, revision=finished.revision.value)
     with session.transaction() as uow:
         history.finish_history_poll(
             uow,
             P,
             value.poll_id,
             second.response_history_id,
-            RevisionGuard(Revision(2)),
+            RevisionGuard(finished.revision),
         )
     with view(state) as reader:
         assert reads.get_checkpoint(reader, P).cursor == ProviderId("a-1")
@@ -180,7 +191,7 @@ def test_page_cannot_skip_or_change_immutable_response_identity(state, bad):
     value = start(session)
     row = page(value)
     with session.transaction() as uow:
-        history.begin_history_page(uow, P, row, RevisionGuard(Revision(0)))
+        begun = history.begin_history_page(uow, P, row, RevisionGuard(Revision(0)))
     changes = {
         "ordinal": {"ordinal": Count(2)},
         "token": {"next_page_token": ProviderPageToken("changed")},
@@ -191,7 +202,7 @@ def test_page_cannot_skip_or_change_immutable_response_identity(state, bad):
     }
     with pytest.raises(StorageFailure), session.transaction() as uow:
         history.begin_history_page(
-            uow, P, replace(row, **changes[bad]), RevisionGuard(Revision(0))
+            uow, P, replace(row, **changes[bad]), RevisionGuard(begun.revision)
         )
     assert connection.execute("SELECT complete FROM history_pages").fetchone() == (0,)
     assert connection.execute("SELECT cursor FROM history_checkpoints").fetchone() == (
@@ -206,9 +217,12 @@ def test_failed_completion_leaves_checkpoint_and_page_progress_unchanged(state, 
     _, connection, session, _ = state
     value = start(session)
     row = page(value, count=1 if bad == "missing_membership" else 0)
+    revision = value.revision
     if bad != "no_page":
         with session.transaction() as uow:
-            history.begin_history_page(uow, P, row, RevisionGuard(Revision(0)))
+            revision = history.begin_history_page(
+                uow, P, row, RevisionGuard(revision)
+            ).revision
     with pytest.raises(StorageFailure), session.transaction() as uow:
         if bad in {"digest", "missing_membership", "stale"}:
             history.finish_history_page(
@@ -217,24 +231,24 @@ def test_failed_completion_leaves_checkpoint_and_page_progress_unchanged(state, 
                 value.poll_id,
                 Count(1),
                 Sha256Hex("f" * 64) if bad == "digest" else row.metadata_digest,
-                RevisionGuard(Revision(1 if bad == "stale" else 0)),
+                RevisionGuard(Revision(0) if bad == "stale" else revision),
             )
         else:
             if bad != "no_page":
-                history.finish_history_page(
+                revision = history.finish_history_page(
                     uow,
                     P,
                     value.poll_id,
                     Count(1),
                     row.metadata_digest,
-                    RevisionGuard(Revision(0)),
-                )
+                    RevisionGuard(revision),
+                ).revision
             history.finish_history_poll(
                 uow,
                 P,
                 value.poll_id,
                 ProviderId("caller-chosen-not-final"),
-                RevisionGuard(Revision(0 if bad == "no_page" else 1)),
+                RevisionGuard(revision),
             )
     assert connection.execute(
         "SELECT cursor,revision FROM history_checkpoints"
@@ -248,12 +262,14 @@ def test_abandon_keeps_partial_pages_old_checkpoint_and_allows_valid_restart(sta
     _, connection, session, _ = state
     value = start(session)
     first = page(value, next_token=ProviderPageToken("next"))
-    finish_page(session, value, first)
+    finished = finish_page(session, value, first)
     second = page(value, ordinal=2, input_token=first.next_page_token)
     with session.transaction() as uow:
-        history.begin_history_page(uow, P, second, RevisionGuard(Revision(1)))
+        begun = history.begin_history_page(
+            uow, P, second, RevisionGuard(finished.revision)
+        )
         history.abandon_history_poll(
-            uow, P, value.poll_id, second.received_at, RevisionGuard(Revision(1))
+            uow, P, value.poll_id, second.received_at, RevisionGuard(begun.revision)
         )
     assert connection.execute(
         "SELECT cursor,revision,active_poll_id FROM history_checkpoints"
@@ -286,10 +302,14 @@ def test_initial_h0_catchup_can_run_before_discovery_but_cannot_finish_epoch(sta
     with session.transaction() as uow:
         history.begin_history_poll(uow, P, value, RevisionGuard(Revision(0)))
     row = page(value)
-    finish_page(session, value, row)
+    finished = finish_page(session, value, row)
     with session.transaction() as uow:
         history.finish_history_poll(
-            uow, P, value.poll_id, row.response_history_id, RevisionGuard(Revision(1))
+            uow,
+            P,
+            value.poll_id,
+            row.response_history_id,
+            RevisionGuard(finished.revision),
         )
     with view(state) as reader:
         saved = reads.get_epoch(reader, P, initial.epoch_id)
@@ -362,14 +382,14 @@ def test_recovery_requires_actual_window_and_active_thread_scans_then_derives_ca
         )
         history.begin_history_poll(uow, P, recovering, RevisionGuard(Revision(1)))
     row = page(recovering)
-    finish_page(session, recovering, row)
+    finished = finish_page(session, recovering, row)
     with session.transaction() as uow:
         history.finish_history_poll(
             uow,
             P,
             recovering.poll_id,
             row.response_history_id,
-            RevisionGuard(Revision(1)),
+            RevisionGuard(finished.revision),
         )
         assert epochs._latest_unresolved_gap(uow, P) is None
     with view(state) as reader:
@@ -406,3 +426,66 @@ def test_begin_poll_cas_one_active_and_saved_origin_no_partial_state(state, bad)
     assert connection.execute("SELECT COUNT(*) FROM history_polls").fetchone() == (
         expected,
     )
+
+
+def test_page_receipt_advances_revision_and_identical_current_replay_is_zero_write(
+    state,
+):
+    _, connection, session, _ = state
+    value = start(session)
+    row = page(value)
+    with session.transaction() as uow:
+        begun = history.begin_history_page(uow, P, row, RevisionGuard(value.revision))
+    assert begun.object_id == value.poll_id and begun.revision == Revision(1)
+    assert begun.disposition == "created"
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        history.begin_history_page(uow, P, row, RevisionGuard(value.revision))
+    changes = connection.total_changes
+    with session.transaction() as uow:
+        replay = history.begin_history_page(uow, P, row, RevisionGuard(begun.revision))
+    assert replay.disposition == "replayed" and replay.revision == begun.revision
+    assert connection.total_changes == changes
+    with session.transaction() as uow:
+        finished = history.finish_history_page(
+            uow,
+            P,
+            value.poll_id,
+            row.ordinal,
+            row.metadata_digest,
+            RevisionGuard(replay.revision),
+        )
+    assert finished.revision == Revision(2)
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        history.finish_history_poll(
+            uow,
+            P,
+            value.poll_id,
+            row.response_history_id,
+            RevisionGuard(replay.revision),
+        )
+    with session.transaction() as uow:
+        completed = history.finish_history_poll(
+            uow,
+            P,
+            value.poll_id,
+            row.response_history_id,
+            RevisionGuard(finished.revision),
+        )
+    assert completed.revision == Revision(3)
+
+
+def test_caught_stale_guard_rolls_back_new_page_and_poll_revision(state):
+    _, connection, session, _ = state
+    value = start(session)
+    row = page(value)
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        begun = history.begin_history_page(uow, P, row, RevisionGuard(value.revision))
+        assert begun.revision == Revision(1)
+        with suppress(StorageFailure):
+            history.abandon_history_poll(
+                uow, P, value.poll_id, row.received_at, RevisionGuard(value.revision)
+            )
+    assert connection.execute(
+        "SELECT revision,state FROM history_polls"
+    ).fetchone() == (0, "reading")
+    assert connection.execute("SELECT COUNT(*) FROM history_pages").fetchone() == (0,)

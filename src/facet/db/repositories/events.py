@@ -15,7 +15,7 @@ from .base import (
     _query,
     _require_row,
 )
-from .history import _page, _poll
+from .history import _advance_poll_revision, _page, _poll
 from .jobs import _thread_guard, enqueue
 
 
@@ -71,6 +71,7 @@ def ingest_history_chunk(uow, projection_id, poll_id, ordinal, events, jobs, gua
     _batch(jobs, SyncJobRow)
     poll, _ = _poll(uow, projection_id, poll_id, guard)
     page = _page(uow, projection_id, poll, ordinal)
+    changed = False
     keys = set()
     for incoming in events:
         _require_row(projection_id, "source_events", incoming)
@@ -95,19 +96,21 @@ def ingest_history_chunk(uow, projection_id, poll_id, ordinal, events, jobs, gua
         )
         if old is None:
             _insert(uow, projection_id, "source_events", incoming)
+            changed = True
             selected = incoming
         else:
             selected = old
             if incoming.event.source_thread_id is not None:
                 from ..models import RevisionGuard
 
-                enrich_event(
+                receipt = enrich_event(
                     uow,
                     projection_id,
                     old.event_id,
                     incoming.event.source_thread_id,
                     RevisionGuard(old.revision),
                 )
+                changed |= receipt.disposition != "replayed"
             # Allocation IDs/observed_at from a later provider response do not
             # change the original stable activation identity or first timestamp.
         membership = _get(
@@ -127,7 +130,21 @@ def ingest_history_chunk(uow, projection_id, poll_id, ordinal, events, jobs, gua
                 "history_page_events",
                 HistoryPageEventRow(projection_id, poll_id, ordinal, selected.event_id),
             )
+            changed = True
     for job in jobs:
+        old = _get(uow, projection_id, "sync_jobs", (("stable_key", job.stable_key),))
+        # enqueue can retain an existing job while adding this poll's epoch work.
+        # Its replay receipt alone therefore cannot prove a zero-write chunk.
+        changed |= old is None or (
+            poll.origin_epoch_id is not None
+            and _get(
+                uow,
+                projection_id,
+                "epoch_jobs",
+                (("epoch_id", poll.origin_epoch_id), ("job_id", old.job_id)),
+            )
+            is None
+        )
         enqueue(uow, projection_id, job)
     # Every selected event needs its exact resolution work, not an unrelated
     # job somewhere in the database. A chunk cannot silently truncate a page.
@@ -142,7 +159,10 @@ def ingest_history_chunk(uow, projection_id, poll_id, ordinal, events, jobs, gua
     )[0]
     if observed > page.expected_event_count.value or missing:
         _conflict()
-    return WriteReceipt("updated", poll_id, poll.revision)
+    if not changed:
+        return WriteReceipt("replayed", poll_id, poll.revision)
+    revision = _advance_poll_revision(uow, projection_id, poll)
+    return WriteReceipt("updated", poll_id, revision)
 
 
 def _effect_matches(event, job):

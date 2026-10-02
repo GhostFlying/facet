@@ -184,7 +184,20 @@ def begin_history_page(uow, projection_id, page, guard):
             _conflict()
         return WriteReceipt("replayed", page.poll_id, poll.revision)
     _insert(uow, projection_id, "history_pages", page)
-    return WriteReceipt("created", page.poll_id, poll.revision)
+    revision = _advance_poll_revision(uow, projection_id, poll)
+    return WriteReceipt("created", page.poll_id, revision)
+
+
+def _advance_poll_revision(uow, projection_id, poll):
+    revision = next_revision(poll.revision)
+    cursor = uow._execute(
+        "UPDATE history_polls SET revision=? "
+        "WHERE projection_id=? AND poll_id=? AND revision=?",
+        (revision.value, projection_id.value, poll.poll_id.value, poll.revision.value),
+    )
+    if cursor.rowcount != 1:
+        _conflict()
+    return revision
 
 
 @_mutating

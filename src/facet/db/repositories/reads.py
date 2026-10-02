@@ -92,6 +92,33 @@ def get_checkpoint(view, projection_id):
     return _get(view, projection_id, "history_checkpoints", ())
 
 
+def get_history_poll(view: ReadSession, projection_id: ProjectionId, poll_id: LocalId):
+    if type(view) is not ReadSession or type(poll_id) is not LocalId:
+        invalid()
+    _context(view, projection_id)
+    return _get(view, projection_id, "history_polls", (("poll_id", poll_id),))
+
+
+def get_history_page(
+    view: ReadSession, projection_id: ProjectionId, poll_id: LocalId, ordinal: Count
+):
+    if (
+        type(view) is not ReadSession
+        or type(poll_id) is not LocalId
+        or type(ordinal) is not Count
+    ):
+        invalid()
+    _context(view, projection_id)
+    if ordinal.value < 1:
+        invalid()
+    return _get(
+        view,
+        projection_id,
+        "history_pages",
+        (("poll_id", poll_id), ("ordinal", ordinal)),
+    )
+
+
 _LISTS = {
     "sync_jobs": ("created_at", "job_id"),
     "insert_attempts": ("prepared_at", "attempt_id"),
