@@ -363,3 +363,32 @@ balanced fences, heading separation, table column structure, absence of private
 host paths and trailing whitespace. The explicit staged diff and repository index
 safety are checked before commit/publication. These are documentation checks;
 no runtime lock, crash, Gmail or credential behavior was exercised by this unit.
+
+## Independent candidate review and r2 response
+
+Independent review of `b56cfdd2d13f75387c70506c71d79e7117d0ea3d` returned
+`changes_requested` on two contract-completeness findings. The coordinator
+authorized scoped corrections under this same approved plan; no architecture,
+product promise, authority or file-ownership change is involved.
+
+- R1: the initial core ADR claimed a provider-result protocol without defining
+  it, and several composite fields were named only as typed references. Candidate
+  r2 enumerates the exact M1-01 executable primitives/enums/value records and gives
+  required/nullable tagged fields for admission decisions, event identity/context,
+  job subjects, partition progress and claims. Complete storage, command, output
+  and adapter layouts now have explicit owner/review-extension gates; unlisted
+  ghost types or arbitrary payload placeholders are prohibited. The provider
+  result protocol belongs to M2-01, not the current shared inventory or P1-02 fake.
+- R2: resolve_event, operation_read and recover_insert lacked stable-key rows.
+  Candidate r2 keys them by exact event identity, durable operation ID and original
+  insert attempt ID, respectively, and specifies retry/coalescing/conflict behavior.
+  CC-01/02/08 now include lost first response, duplicate event, concurrent recovery
+  checks, resolved-attempt replay and zero-search counterexamples; none grants a
+  second insert attempt through a new check or retry identity.
+
+The writer companion also makes M1-01's pure standalone configuration reads distinct
+from managed-bundle reads that need the M1-03 view provider, and starts the runtime
+mutable-config registry empty until its field-specific review/integration. This
+clarifies existing ownership and does not remove the required CLI handlers or G1
+integration tests. The revised candidate needs its own CI and independent review;
+the earlier plan approval and successful first-candidate CI do not approve r2.

@@ -2,6 +2,8 @@
 
 Date: 2026-10-02. Package: P1-01. Revision: `p1-core-v1`.
 Status: selected design, pending independent candidate review and integration.
+Candidate revision: r2, addressing independent review R1/R2; target contract
+version remains v1 and has not been frozen.
 Implementation base: `2618eafad817aee4e491aa87ebede0f44f27a20b`.
 
 This ADR implements the reviewed [P1-01 plan](../p1-01-core-contracts.md).
@@ -19,7 +21,7 @@ and unsupported versions fail validation; input coercion must not grant authorit
 
 | Contract/version | Executable owner and path | Consumers |
 | --- | --- | --- |
-| Primitive identifiers, enums, records, provider result protocol; `p1-core-v1` | M1-01: `src/facet/contracts/` | P1-02 and all production modules |
+| Exact primitive/enum/value-record inventory below; `p1-core-v1` | M1-01: `src/facet/contracts/` | P1-02 and all production modules |
 | Storage schema v1, field constraints and transactional repositories | M1-02: `src/facet/db/` | Runtime, workers, audit, maintenance |
 | Command wire v1, canonical digest v1, owner/claim protocol | M1-03: `src/facet/cli/command.py`, `runtime.py`, `db/lock.py` | CLI handlers, workers, maintenance |
 | Credential file format/revision and manager | M1-04: `src/facet/gmail/oauth.py`, `binding.py` | Startup, transports, maintenance |
@@ -27,6 +29,7 @@ and unsupported versions fail validation; input coercion must not grant authorit
 | Fingerprint v1 | M2-02: `src/facet/projection/fidelity.py` | Intent, verification, recovery |
 | Authentication policy/evidence version | M1-06/M3-01 reviewed AUTH ADR | Admission only |
 | Attribution policy/evidence version | M2-04 reviewed insert-attribution ADR | Recovery, repair and restore revalidation |
+| Provider adapter/result protocol, not included in this freeze | M2-01: reviewed Gmail adapter contract extension | M2 workers/recovery; P1-02 exposes provider-shaped fake APIs meanwhile |
 
 M1-01's package plan includes the minimal dependency-free contracts module before
 feature handlers: standard-library dataclasses/enums/typing only, no DB, Google
@@ -34,6 +37,47 @@ client, web or runtime imports. M1-05 owns implementing public DTOs, not duplica
 copies of core enums. Feature owners extend their registered tagged records in a
 focused reviewed contract change through the owning package; no local shadow enum.
 Core type code is implementation work under M1-01's own reviewed plan, not P1-01.
+
+### Exact executable inventory and deferred records
+
+This candidate authorizes M1-01 to implement only the following shared value
+types, after the candidate passes review/integration and its own plan is approved.
+Names in later architecture tables do not silently add executable records to this
+inventory. All fields in a value record are required; `T?` is a required nullable
+field whose value is `T` or `None`, not permission to omit it or guess a default.
+Every union below is closed and uses a mandatory `tag` literal. Frozen dataclasses
+plus typed unions/enums implement these in memory; wire/DB serialization is owned
+separately. No `Any`, unconstrained dictionary, arbitrary object reference or
+generic payload is part of this inventory.
+
+| Inventory | Exact names |
+| --- | --- |
+| Primitive value types | `ProjectionId`, `LocalId`, `ProviderId`, `Timestamp`, `Count`, `Generation`, `Revision`, `Sha256Hex`, `PolicyVersion`, `ProviderPageToken` |
+| Shared enums defined in this ADR | `Role`, `SourceMode`, `BindingState`, `RestoreState`, `RuleOrigin`, `RuleKind`, `AdmissionOrigin`, `EpochKind`, `EpochState`, `JobKind`, `JobState`, `Priority`, `InsertState`, `OutcomeCertainty`, `Visibility`, `DatePolicy`, `OperationState`, `PreviewPurpose`, `ErrorClass`, `ErrorCode`, `Freshness`, `PublicPhase`, `PublicHealth` |
+| Small additional enums defined below | `LabelChange`, `ReadTaskKind`, `PartitionState`, `ClaimPhase` |
+| Shared value records and closed unions | `RuleRef`, `AdmissionRef`, `EpochDecisionRef`, `PartitionRef`, `PartitionProgress`, `SourceEventKey`, `SourceEvent`, `JobSubject`, `ThreadGenerationGuard`, `Claim` |
+
+The complete layouts below that are not in this list are deliberately not
+M1-01 code-generation instructions. Their owners must add an independently reviewed
+extension containing exact field types/closed unions/serialization before enabling
+them. Until that extension is accepted, no consumer may implement a placeholder,
+guess a missing field, or use an arbitrary dict under the same name.
+
+| Deferred complete record/interface | Owner and specific closure gate |
+| --- | --- |
+| `Projection`, `Binding`, `Rule`, `TrackedThread`, `Epoch`, `HistoryCheckpoint`, full `JobRecord`, mapping/attempt storage and SQL row serialization | M1-02 schema/repository plan and review; consume the frozen refs/keys/states below, explicitly type all remaining fields and nullable constraints before schema v1 code |
+| `CommandEnvelope`, typed command payloads, operation receipt/result, `Preview` scope/guards/risk requirements and canonical digest serializer | M1-03 reviewed command-registry extension; feature-specific payload additions require their handler owner's review before registration |
+| Credential envelope and actual-scope representation | M1-04 reviewed credential-manager plan; tokens never become shared domain payloads |
+| Full controlled `ErrorRecord`, typed audit before/after/object variants, public status/progress/issues/diagnostics DTOs | M1-02/M1-05 reviewed storage/output extension; use the ErrorCode/state enums, no untyped message/payload fallback |
+| Provider adapter call/result/error protocol | M2-01 reviewed extension; no claimed `ProviderResult` type exists in p1-core-v1, and P1-02 must not invent it |
+| Fingerprint record/canonicalization and recovered-attribution evidence variants | M2-02/M2-04 reviewed extensions; current unknown remains fail-closed |
+
+This separates a finite shared-value inventory from later feature/storage layouts;
+it does not defer any already listed value type or permit an unresolved choice in
+one of those types. M1-02 and later owners preserve the invariant tables below
+while closing their own layouts. Their package plans must cite both this freeze
+and their new extension revision; they cannot claim the current ADR approved a
+shape that it did not define.
 
 P1-02 can build its synthetic Gmail service, fault controller and privacy scan
 helpers in parallel with M1-01. Its fake exposes only the Google service's ordinary
@@ -74,9 +118,98 @@ Operational timestamps are not the email's Date. RFC Date is used transiently fo
 fidelity/date policy, not copied into public metrics. Private source internalDate
 may be retained when needed for ordering; latency methodology is frozen separately.
 
+For the executable inventory, `LocalId` has the UUID4 syntax above; semantic ID
+roles are distinct record field names, not interchangeable inference. `Timestamp`
+stores an aware UTC datetime; boundary serializers use the formats above.
+`Count` is an integer in `[0, 2^63-1]`; `Generation` and `Revision` use that bound
+and all integral value types reject bool as an integer. `PolicyVersion` is a
+1-64 character ASCII registry key matching `[a-z0-9][a-z0-9_.-]*`; syntax does not
+imply a policy is enabled.
+`ProviderPageToken` is an opaque nonempty string of at most 16384 UTF-8 bytes,
+without NUL, internal only; it is never parsed as provider JSON or used as a key.
+`Sha256Hex` is exactly 64 lowercase hexadecimal characters; the full versioned
+digest record is deferred to its owning contract, not guessed by M1-01.
+
+### Closed reference and progress values
+
+The following declarations are normative field inventories, not generic maps.
+Each displayed field is present and has exactly the declared type. A union tag
+selects only its displayed payload; unknown tags/fields are rejected.
+
+```text
+RuleRef(rule_id: LocalId, revision: Revision)
+
+AdmissionRef =
+  initial_backfill(epoch_id: LocalId, rule: RuleRef, policy_version: PolicyVersion)
+  future_rule(rule: RuleRef, policy_version: PolicyVersion)
+  manual_thread(preview_id: LocalId)
+  action_label(action_command_id: LocalId)
+
+EpochDecisionRef =
+  backfill_start(operation_id: LocalId, preview_id: LocalId, ruleset_revision: Revision)
+  gap_approval(operation_id: LocalId, preview_id: LocalId, ruleset_revision: Revision)
+  scheduled_reconcile(ruleset_revision: Revision)
+  requested_reconcile(operation_id: LocalId, ruleset_revision: Revision)
+  scheduled_target_audit()
+  requested_target_audit(operation_id: LocalId)
+
+PartitionRef =
+  source_window()
+  source_thread(source_thread_id: ProviderId)
+  target_catalog()
+  mapped_target_set()
+
+PartitionState = not_started | scanning | complete | needs_attention
+PartitionProgress(
+  partition: PartitionRef,
+  state: PartitionState,
+  completed_pages: Count,
+  observed_items: Count,
+  page_token: ProviderPageToken?,
+  after_source_message_id: ProviderId?
+)
+
+ThreadGenerationGuard = untracked() | tracked(generation: Generation)
+LabelChange = added | removed
+ClaimPhase = preparing | dispatching | verifying
+Claim(
+  claim_id: LocalId,
+  owner_run_id: LocalId,
+  acquired_at: Timestamp,
+  thread_generation: Generation?,
+  job_revision: Revision,
+  phase: ClaimPhase
+)
+```
+
+AdmissionRef tag equals AdmissionOrigin. Initial backfill records the specific
+matching rule/revision and epoch; a manual/action admission never pretends to
+carry verified authentication evidence. An epoch's `ruleset_revision` identifies
+an immutable rule-set snapshot supplied by the M1-02 repository; it is not a list
+of private values embedded in every job. Historical expansion uses
+`backfill_start`; a known bounded History gap can use `scheduled_reconcile`, while
+an unknown gap requires `gap_approval`. All references resolve within the same
+projection in the repository; a syntactically valid ID is not authorization.
+
+Only source_window/target_catalog progress may contain `page_token`.
+Only mapped_target_set may contain `after_source_message_id`, which is the last
+completed key in the repository's stable source-ID order; it is a local pagination
+cursor, not a Gmail History counter. All other variant-inapplicable nullable fields
+must be `None`. Source-thread scan progress is whole-thread completion. Scan
+partitions are stable for the epoch; advancing progress never changes partition
+identity. Empty tagged variants carry no other fields. A full epoch may reference
+separate PartitionProgress rows; their collection/SQL representation belongs to
+M1-02, not an unbounded opaque progress payload.
+
+`not_started` progress has both counts zero and both cursor fields None; complete
+progress clears its provider page token. `tracked` guards and thread-mutation
+JobSubject variants require generation at least 1, while generation 0 remains
+available to initialization metadata. Claim generation, when present, must match
+its owning job/attempt, not an independently chosen caller value.
+
 ## Projection, binding, policy and authorization
 
-| Record | Required fields / optional fields | Invariants |
+| Deferred storage record | Required fields / optional fields to type in its owner extension | Invariants |
 | --- | --- | --- |
 | Projection | `projection_id`, `state_instance_id`, `request_namespace`, `config_revision`, `schema_version`, `daemon_paused`, `binding_state`, `restore_state`; `last_owner_run_id?` | Instance identifies initialized DB lineage; restore rotates namespace; no automatic spike import |
 | Binding | `projection_id`, `role`, normalized account address, expected mode/scopes, `credential_revision`, `binding_revision`; actual scopes and `verified_at?` | Account/role immutable without separately reviewed rebind; source differs from target; actual scopes never inferred from config |
@@ -88,8 +221,8 @@ may be retained when needed for ordering; latency methodology is frozen separate
 `RuleOrigin = initial_config | cli | action_label`.
 `RuleKind = allow_sender | allow_domain | blacklist_sender`.
 `AdmissionOrigin = initial_backfill | future_rule | manual_thread | action_label`.
-An admission origin reference is a typed rule/preview/action ID, never arbitrary
-text. Store the admission policy version and applicable rule revision as provenance.
+An admission origin reference is the closed AdmissionRef above, never arbitrary
+text. Its automatic variants retain policy version and specific rule revision.
 
 Startup has a new `owner_run_id` and requires fresh live profiles before new Gmail
 writes; a cached `verified` row does not waive that runtime gate. Offline restore
@@ -105,12 +238,28 @@ Before the separate AUTH gate closes, automatic matched candidates can only be
 
 ## Events, epochs and identity keys
 
-Source events use three tagged records: `message_added(message_id, thread_id)`,
-`message_deleted(message_id, thread_id?)`, and
-`label_changed(message_id, thread_id, label_id, change=added|removed)`.
-Each includes projection, string History record ID and `observed_at`. Optional
-provider fields are omitted only where the provider actually lacks them; missing
-thread context needed by a command creates a resolution job, not guessed IDs.
+SourceEvent has the following exact value shape. Its key is a closed tagged
+union; the provider's thread field is required-nullable because omitted thread
+context must not be guessed. Normalization validates provider observations rather
+than converting a general provider `messages` entry into another typed event.
+
+```text
+SourceEventKey =
+  message_added(projection_id: ProjectionId, history_record_id: ProviderId,
+                source_message_id: ProviderId)
+  message_deleted(projection_id: ProjectionId, history_record_id: ProviderId,
+                  source_message_id: ProviderId)
+  label_changed(projection_id: ProjectionId, history_record_id: ProviderId,
+                source_message_id: ProviderId, label_id: ProviderId,
+                change: LabelChange)
+SourceEvent(key: SourceEventKey, observed_at: Timestamp,
+            source_thread_id: ProviderId?)
+```
+
+Missing thread context needed by a command creates a resolve_event job. Successful
+resolution enriches the stored event context transactionally without changing
+SourceEventKey or inventing a new History activation. Contradictory thread context
+for the same key is attention; deleted/unresolvable source remains explainable.
 
 | Object | Stable identity / durable fields |
 | --- | --- |
@@ -122,7 +271,10 @@ thread context needed by a command creates a resolution job, not guessed IDs.
 | Message projection job | `(projection, project_message, source_message, thread_generation)`; retry reuses this row and its attempts |
 | Authorized repair job | `(projection, repair_message, repair_operation_id, source_message, thread_generation)`; original mapping retained as audited history |
 | Thread expansion job | `(projection, expand_thread, source_thread, epoch_id, thread_generation)` |
-| Gap/reconcile/audit job | `(projection, job_kind, epoch_id, partition_key)`; partition key is a typed role/thread/page partition, not arbitrary JSON |
+| Event resolution job | `(projection, resolve_event, source_event_key)`; flatten the exact tagged SourceEventKey, including History record and label/change when present |
+| Operation read job | `(projection, operation_read, operation_id)`; one durable read operation has one immutable ReadTaskKind; retries reuse this job |
+| Insert recovery job | `(projection, recover_insert, attempt_id)`; all checks/retries for that unresolved attempt share one recovery job; never allocate another insert attempt |
+| Discovery/gap/reconcile/audit job | `(projection, job_kind, epoch_id, partition_ref)` for scan_discovery/scan_gap/reconcile_source/audit_target; use exact closed PartitionRef, not page token/progress |
 | Action cleanup job | `(projection, cleanup_action, action_command_id)`; never reruns business action |
 
 Key encoding is versioned, unambiguous length-prefixed tuple encoding, not delimiter
@@ -132,14 +284,33 @@ Ordinary new work checks existing verified mapping and outstanding insert intent
 before scheduling another message projection. New generations do not authorize
 recopying already mapped history; explicit missing-target repair has its own scope.
 
+Resolution/read/recovery retries change schedule, check count or claim on the
+existing job identity; they do not allocate an operation/attempt ID just to make
+another runnable job. Specifically:
+
+| Kind / replay or concurrency case | Required identity and allowed effect | Forbidden effect / acceptance case |
+| --- | --- | --- |
+| resolve_event: History page replays or two consumers enqueue its missing-thread resolution | Same SourceEventKey yields one job; resolve/enrich or explain source loss, then use the original activation key | New event identity or repeated label/admission business effect; CC-01/02 |
+| operation_read: accepted preview command's first response is lost, same request replays | Same request returns same operation ID and thus same read job; existing outcome/preview returned after completion | A new operation or preview merely from receipt loss; CC-02 |
+| operation_read: caller deliberately submits a different valid request key | A distinct read operation may inspect the same subject; each remains read-only and independently receipted | Implicit admission/insert from an extra preview; CC-01/02 |
+| recover_insert: restart plus two explicit check operations target one unresolved attempt | All join the one attempt-keyed recovery job; operation receipts reference that shared job; one claim updates check schedule/results atomically | New insert attempt, parallel target writes or double mapping success; CC-01/08 |
+| recover_insert: already resolved attempt is checked again or search is zero/delayed | Return recorded resolved facts or retain the same pending/attention attempt; zero search is not non-insert proof | Converting this job into project_message or permitting blind retry; CC-08 |
+
+The separately reviewed M2-04 recovery-retry policy may eventually authorize a
+new insert attempt using its scoped risk/preview guards. A recover_insert job, a
+fresh check request key or a retry count alone never provides that authorization.
+Enqueue/dedupe/claim tests assert one stable row across the interleavings above;
+they do not need a fake business-state or target-provenance oracle.
+
 `EpochKind = initial_backfill | historical_expansion | history_gap | source_reconcile |
 target_audit`. `EpochState = prepared | scanning | catching_up | draining | paused |
 completed | completed_with_issues | needs_attention`.
-Epoch fields: ID, projection, kind, state, fixed UTC start/end and optional discovery
-cutoff, rule revision/decision reference, created time, scanned/discovered counts,
+The deferred Epoch layout must include ID, projection, kind, state, fixed UTC
+start/end and optional discovery cutoff, `decision: EpochDecisionRef`, created
+time, scanned/discovered counts,
 `discovery_complete`, known target count?, H0/H1?, committed cursor?, coverage time?,
-short-lived page token?, typed partition progress. A page token is internal only and
-is a restart hint, never proof a scan is complete. Empty successful History polls
+short-lived page token?, referenced `PartitionProgress` rows. A page token is
+internal only and is a restart hint, never proof a scan is complete. Empty successful History polls
 update reliable coverage. Epoch state alone cannot declare all jobs successful.
 
 `HistoryCheckpoint` stores committed cursor and last reliable coverage time, plus
@@ -160,22 +331,60 @@ These states form mutually exclusive job counts. `failed` means a concrete termi
 non-retryable reason, not a retry-budget shortcut for auth/network failure. Unknown
 insert goes to recovery/attention, never terminal success or ordinary retry.
 
-Job fields: ID, key/version, projection, kind, typed subject reference, epoch/command
+The exact shared JobSubject inventory is below. Its tag equals JobKind; a
+JobRecord's kind/subject tag mismatch is invalid. Generation fields are required
+for the three thread-mutation/expansion variants. Read/recovery/scan jobs do not
+gain mutation permission merely because they omit a generation.
+
+```text
+ReadTaskKind = thread_preview | review_preview | backfill_preview | repair_preview |
+               recovery_preview | gap_preview | doctor_live
+JobSubject =
+  project_message(source_message_id: ProviderId, source_thread_id: ProviderId,
+                  generation: Generation)
+  repair_message(repair_operation_id: LocalId, source_message_id: ProviderId,
+                 source_thread_id: ProviderId, generation: Generation)
+  expand_thread(source_thread_id: ProviderId, epoch_id: LocalId,
+                generation: Generation)
+  resolve_event(event_key: SourceEventKey)
+  operation_read(operation_id: LocalId, read_kind: ReadTaskKind)
+  recover_insert(attempt_id: LocalId)
+  scan_discovery(epoch_id: LocalId, partition: PartitionRef)
+  scan_gap(epoch_id: LocalId, partition: PartitionRef)
+  reconcile_source(epoch_id: LocalId, partition: PartitionRef)
+  audit_target(epoch_id: LocalId, partition: PartitionRef)
+  cleanup_action(action_command_id: LocalId)
+```
+
+`scan_discovery` allows only source_window; `scan_gap` and reconcile_source allow
+source_window/source_thread; audit_target allows target_catalog/mapped_target_set.
+All operation/attempt/epoch/action references resolve within the JobRecord's
+projection. resolve_event's nested projection must equal that projection.
+recover_insert gets source IDs, original generation and current certainty from
+its immutable referenced attempt; no caller can substitute another source or
+create a new attempt by changing a recovery request payload.
+
+The source-thread ID in message subjects is not part of the message job's identity
+because source-message identity is already sufficient; repository validation must
+reject contradictory thread IDs for the same key rather than enqueueing a second
+job. operation_read's read_kind likewise must equal the immutable accepted
+operation's command kind mapping; a reused operation ID with another kind conflicts.
+
+The deferred JobRecord layout must include ID, key/version, projection, kind,
+`subject: JobSubject`, epoch/command
 reference?, thread generation?, priority, state, attempts, created/updated time,
 next eligible time?, controlled reason?, claim?. `Priority = stop | realtime |
 recovery | backfill | audit`; scheduler gives backfill a bounded fair share but never
 bypasses stop/binding/unknown outcome guards. Exact fairness scheduling is M2-03's
 local plan; it does not change keys or states.
 
-`operation_read` carries only the operation ID and its closed read-task kind
-(`thread_preview|review_preview|backfill_preview|repair_preview|recovery_preview|
-gap_preview|doctor_live`). It may inspect untracked threads without admitting them;
-its claim generation is absent until a tracked subject exists. The resulting
+`operation_read` carries the exact subject above. It may inspect untracked threads
+without admitting them; its claim generation is absent until a tracked subject
+exists. The resulting
 preview records expected-untracked state or the observed generation explicitly.
 It cannot transition to an insert job except through a later valid scoped command.
 
-Claim fields: unique claim ID, owner run ID, acquired time, source-thread generation?,
-job revision and phase `preparing | dispatching | verifying`. A claim is an
+Claim uses the exact value record and ClaimPhase above. A claim is an
 exclusive ownership token, not a timer that authorizes duplicate remote effects.
 Only the writer mutates claims. Workers return typed results through the owner;
 they never open independent DB write connections.
@@ -285,7 +494,8 @@ a frozen-content promise or Gmail freshness guarantee. M1-03 owns the default;
 changing it requires a reviewed command-contract revision.
 
 `ErrorClass = input | guard | ownership | dependency | attention | persistence`.
-Core error codes: `invalid_input`, `unsupported_version`, `request_conflict`,
+`ErrorCode` is the closed enum containing `invalid_input`, `unsupported_version`,
+`request_conflict`,
 `request_not_received`, `request_outcome_unknown`, `request_lineage_mismatch`,
 `confirmation_required`, `scope_required`, `binding_mismatch`, `binding_pending`,
 `preview_invalid`, `generation_stale`, `owner_unavailable`, `owner_busy`,
@@ -398,3 +608,7 @@ No AUTH accept algorithm, target attribution heuristic, implementation test resu
 Gmail verification or release gate is approved by these tables. Independent review
 and integration freeze this revision at their actual candidate commit, recorded
 in the package Issue/PR rather than a self-referential SHA inside this file.
+
+Candidate r2 closes the inventory/key omissions identified in independent review
+of the first candidate. It does not inherit that candidate's review or CI verdict:
+the exact revised commit must pass independent review before any inventory is frozen.

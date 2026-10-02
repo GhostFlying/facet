@@ -2,6 +2,7 @@
 
 Date: 2026-10-02. Package: P1-01. Revision: `p1-writer-v1`.
 Status: selected design, pending independent candidate review and integration.
+Candidate revision: r2; shared inventory/key closure is in the companion core ADR.
 Implementation base: `2618eafad817aee4e491aa87ebede0f44f27a20b`.
 
 This implements the reviewed [P1-01 plan](../p1-01-core-contracts.md) together with
@@ -91,6 +92,13 @@ read transaction/connection before releasing it. They perform no auth refresh,
 schema migration, write-mode PRAGMA or hidden initialization. An uninitialized
 root reports uninitialized without creating paths. They release their view lock
 before requesting any mutation or remote check; no SH→EX lock upgrade.
+
+This view protocol covers managed state/bundle reads, including managed config
+show/validate. Pure structural validation/show of an explicitly selected standalone
+configuration input or an in-memory template does not inspect managed state and
+does not initialize locks. M1-01 can implement that pure path first. Until the
+M1-03 shared-view provider is connected, managed-bundle reads return controlled
+owner-unavailable rather than inventing an alternate lock or reading during restore.
 
 The daemon takes the owner lock before opening a write connection or reading
 tokens for refresh. It does not expose command acceptance before schema and local
@@ -237,6 +245,10 @@ request key and controlled result; credentials never enter payload/journal/recei
 The exact mutable config field registry belongs to M1-01's reviewed config plan;
 until a field is registered `config_apply` rejects it. No placeholder arbitrary map
 is enabled in the interim.
+
+The initial mutable registry is empty. Its first nonempty revision requires the
+M1-01 field-specific config plan/review plus M1-03 executor integration; parsing
+ordinary config values does not implicitly register them as runtime mutable.
 
 Response is the CLI's versioned result envelope: schema version, command, status
 (`completed|accepted|blocked|needs_attention`), controlled code, allowlisted data
