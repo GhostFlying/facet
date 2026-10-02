@@ -2,8 +2,10 @@
 
 日期：2026-10-02
 
-状态：完整 CLI/commit 规范新增版待技术复审；上一版技术预审通过
-（`7c68991ef5f47ba65cc61a0dcc2dfd80fdb0ca46`），不覆盖本次新增。
+状态：完整 CLI/commit 规范新增版已通过独立 Astra high 技术审查
+（`eca99118b46db765960c7439246b6a1c5f4e5ccb`）；历史重挂后的等价候选
+`5d623f201b4e4f8c701b196d3f017bf874f3e79a` 已独立核验并通过 CI。
+此前 `7c68991` 审查保留为历史记录，本次新增有单独审查证据。
 整体计划待用户 review/明确批准（G0）；M1-M6 均未实现。GitHub 跟踪入口为
 [Phase 1 Epic #1](https://github.com/GhostFlying/facet/issues/1)。
 

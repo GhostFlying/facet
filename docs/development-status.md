@@ -12,7 +12,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | --- | --- | --- |
 | Phase 0 Gmail spike | Complete within its scope | See [redacted results](phase-0-gmail-spike-results.md); production behavior not implied |
 | Repository bootstrap | Complete | Public `main` published with account noreply identity; Python 3.11/3.12 offline CI passed |
-| Phase 1 execution planning | CLI/commit extension draft; new technical review pending; user G0 pending | Previous `7c68991` review historical only; 36 packages plus complete CLI acceptance; no product implementation |
+| Phase 1 execution planning | Complete CLI/commit extension technically approved; user G0 pending | Reviewed `eca99118` maps by verified tree equivalence to `5d623f2`; 36 packages, complete CLI acceptance, passing candidate CI; no product implementation |
 | M1 foundation | Not implemented | Config, bindings, schema/migrations, locks, rule storage, public status models |
 | M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
 | M3 admission/backfill | Not implemented | Rules/authenticity, preview, fixed six-month discovery, durable backfill |
@@ -34,9 +34,13 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
   command families, offline/Compose maintenance and CLI-01 through CLI-08 gates.
   Stable request keys before submission, explicit preview producers and coordinated
   DB/credential ownership address preliminary review feedback. This substantive
-  extension needs a new candidate review; previous approval does not cover it.
+  extension received its own independent Astra high technical approval at
+  `eca99118b46db765960c7439246b6a1c5f4e5ccb`; preliminary findings were closed.
   [History normalization](implementation-plans/commit-history-normalization.md)
-  is separately owned/reviewed; no refs have been rewritten by this document unit.
+  was separately reviewed, executed and independently accepted. The reviewed
+  CLI candidate maps to `5d623f201b4e4f8c701b196d3f017bf874f3e79a` with an
+  identical tree, identity and original dates; this traceability does not extend
+  the old `7c68991` review to the substantive CLI changes.
 - [Phase 1 planning record](implementation-plans/phase-1-planning.md),
   [complete execution plan](phase-1-execution-plan.md), and
   [agent workflow](agent-workflow.md). [Epic #1](https://github.com/GhostFlying/facet/issues/1)
@@ -49,8 +53,11 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
   uniqueness/missing-node/cycle checks and manual wave review passed. Prior
   [draft PR CI at `af3b793`](https://github.com/GhostFlying/facet/actions/runs/36960852657)
   passed Python 3.11/3.12; it does not cover this new CLI extension. The new
-  candidate's technical review/CI and overall user approval G0 remain pending. The
-  [review record](reviews/phase-1-plan-review.md) preserves both verdicts and
+  CLI candidate received separate review and
+  [new candidate CI at `5d623f2`](https://github.com/GhostFlying/facet/actions/runs/36965268013)
+  passed Python 3.11/3.12. Overall user approval G0 remains pending. These runs
+  validate their exact candidate SHAs, not a later report-only commit. The
+  [review record](reviews/phase-1-plan-review.md) preserves historical and current verdicts and
   responses. No
   production package, daemon, Gmail request, deployment, or image is
   introduced by this unit.
@@ -85,6 +92,15 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 - Initial published commit: `53ac21b`. Its [offline CI run](https://github.com/GhostFlying/facet/actions/runs/36955887359)
   completed successfully on both Python 3.11 and 3.12: 24 tests in each job,
   tracked-content safety baseline, locked install, lint, formatting, and CLI smoke.
+- The user-requested one-time main-subject rewrite now maps that root to
+  `34818fe9f5d2d7bcb30353939b146418b2d5a814` and old `9d8595d` to current
+  `main` `2f78fdf69cba786d2568689b0d0566d827d4285a`. All six reconstructed
+  commits passed independent tree/header/identity/date/topology acceptance;
+  the base-to-plan diff is unchanged. Private local rollback refs are retained
+  and were not published. [Fresh main CI](https://github.com/GhostFlying/facet/actions/runs/36965264011)
+  passed Python 3.11/3.12. [PR #2](https://github.com/GhostFlying/facet/pull/2)
+  remains Draft and unmerged, with G0 pending. Complete mappings and rollback
+  anchors are recorded in the history-normalization execution appendix.
 - Published GitHub tree checked: source/tests/docs/configuration only; no private
   runtime directory or credential files. The baseline scan is not a substitute
   for the production privacy tests still required by later milestones.
@@ -93,8 +109,8 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 
 ## Next authorized development unit
 
-Finish independent technical re-review and consistency/safety checks for the
-draft planning PR, then present the complete plan for the user's review and
+Finish review/publication of the report-only evidence update and its own CI,
+then present the technically approved plan for the user's review and
 explicit G0 approval. Do not merge the overall plan or start product code before
 that decision. Ordinary phase-internal plans/engineering PRs can advance under
 the approved autonomous gates after G0; material product/privacy/authority

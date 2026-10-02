@@ -2,7 +2,9 @@
 
 Date: 2026-10-02
 
-Status: documentation drafting; product implementation has not started.
+Status: complete CLI/document candidate technically approved and history
+normalization independently accepted. Overall user approval G0 is pending;
+product implementation has not started.
 
 ## Scope and authority
 
@@ -188,6 +190,23 @@ milestone evidence.
 - Locked local baseline passed on Python 3.13.5: `uv sync --locked --extra dev`,
   Ruff lint/format (31 files), 24 offline tests, and spike CLI help. No production
   or live Gmail behavior is claimed.
-- Pending: draft PR/CI, then explicit user overall-plan review/approval.
-  Production M1-M6 remain unimplemented; the overall planning PR stays unmerged
-  while G0 is pending.
+- Complete CLI/commit extension candidate
+  `eca99118b46db765960c7439246b6a1c5f4e5ccb` received independent Astra high
+  technical approval; preliminary findings were closed. Its eleven-file scope
+  remains documentation only; no runtime CLI behavior is claimed.
+- The separately approved history plan was executed under exclusive Git-writer
+  ownership. All six reconstructed commits passed independent raw-header,
+  identity/date/tree/parent mapping, backup and diff-equivalence acceptance.
+  The substantive candidate maps to
+  `5d623f201b4e4f8c701b196d3f017bf874f3e79a`; its tree is unchanged.
+  Current main is `2f78fdf69cba786d2568689b0d0566d827d4285a`.
+  See the [history execution appendix](commit-history-normalization.md) for
+  full mappings and private local rollback ref names.
+- Fresh [main CI](https://github.com/GhostFlying/facet/actions/runs/36965264011)
+  and [planning candidate CI](https://github.com/GhostFlying/facet/actions/runs/36965268013)
+  passed Python 3.11/3.12, including safety, locked install, lint, format,
+  offline tests and spike CLI smoke. They validate their exact SHAs and do not
+  stand in for CI on a later report-only commit.
+- Pending: report-only evidence review/publication and its own CI, then explicit
+  user overall-plan review/approval. PR #2 remains Draft and unmerged;
+  production M1-M6 and the runtime maintenance CLI remain unimplemented.

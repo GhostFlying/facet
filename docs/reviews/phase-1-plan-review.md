@@ -2,8 +2,10 @@
 
 Date: 2026-10-02
 
-Status: earlier candidate technically approved; complete CLI/commit extension
-awaits new SHA-bound review. Earlier approval does not cover the extension.
+Status: complete CLI/commit extension independently technically approved at
+`eca99118b46db765960c7439246b6a1c5f4e5ccb`, with independently accepted
+tree-equivalent reparenting to `5d623f201b4e4f8c701b196d3f017bf874f3e79a`.
+Earlier review records below retain their original historical SHAs.
 Overall user Phase 1 plan approval G0 is separately pending. This technical
 record cannot authorize merging the overall plan or starting implementation.
 
@@ -53,14 +55,48 @@ image publication or deployment occurred.
 ## Complete CLI and commit-contract extension
 
 The user added complete maintenance CLI and commit-subject requirements after
-the earlier reviewed candidate. Current changes require their own technical
+the earlier reviewed candidate. The changes received their own technical
 review. Preliminary reading identified missing thread/review/recovery preview
 producers, lookup when the first mutation response is lost, and maintenance versus
-credential-refresh ownership. The draft now specifies these paths and their
-CLI-02/06/08 acceptance; this response is not a review verdict.
+credential-refresh ownership. The author's preliminary response specified these
+paths and their CLI-02/06/08 acceptance; that response was not itself a verdict.
 
 The existing unknown-History-gap recovery decision also has an explicit scoped
 range preview/approve path and CLI-04 guards, not a direct DB edit or cursor reset.
 
-Pending: precise candidate SHA and independent integrated review. Overall user
-approval G0 remains pending; no product implementation or overall-plan merge.
+- Reviewed candidate SHA: `eca99118b46db765960c7439246b6a1c5f4e5ccb`;
+  parent `af3b7933ad052b9a9484dc894e5e77ea84f287b9`.
+- Reviewer: independent Astra high agent, separate from the CLI/document author.
+- Scope: the eleven changed documentation files, complete CLI and maintenance
+  ownership/acceptance, commit convention and history-operation plan.
+- Verdict: `approved`; preliminary preview-producer, lost-first-response lookup
+  and maintenance/refresh-ownership findings closed; no blocking findings remain.
+- This approval belongs to the substantive CLI candidate, not the earlier
+  `7c68991` review. It does not claim runtime CLI, Gmail or deployment validation.
+
+## History normalization and candidate traceability
+
+The original history plan was independently approved at SHA-256
+`eab928e34e440be59cd1dbdf16d3679503fcae2d2695246913bd2393a1e12288` before
+execution. The integration agent reconstructed the two main commits and four
+planning descendants; an independent reviewer accepted all six raw-object pairs,
+header/date/identity/tree preservation, parent mapping, rollback anchors,
+unchanged base-to-plan diff and the remote Draft PR state.
+
+The reviewed `eca99118b46db765960c7439246b6a1c5f4e5ccb` maps to
+`5d623f201b4e4f8c701b196d3f017bf874f3e79a`, tree
+`8f3884ea158dd9ddf8eb8da2eb5e1a0f02c141e1`. Only its parent changed; the
+independent equivalence acceptance explicitly establishes this traceability.
+Original reviewed SHAs remain in the historical records above. Full mappings
+are in the [execution appendix](../implementation-plans/commit-history-normalization.md).
+
+[Main CI at `2f78fdf`](https://github.com/GhostFlying/facet/actions/runs/36965264011)
+and [CLI candidate CI at `5d623f2`](https://github.com/GhostFlying/facet/actions/runs/36965268013)
+completed successfully for Python 3.11/3.12. An earlier same-head PR run was
+superseded and cancelled under workflow concurrency; the latest run succeeded.
+These results apply to those exact SHAs. This report-only update needs its own
+publication/CI evidence and does not relabel the candidate runs as its checks.
+
+Overall user approval G0 remains pending; PR #2 remains Draft and unmerged.
+No product implementation, CLI runtime, Gmail operation, image publication or
+deployment was introduced by these documentation/history units.

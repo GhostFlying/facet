@@ -2,8 +2,11 @@
 
 Date: 2026-10-02
 
-Status: plan prepared for independent review. No refs, commits, or remote history
-have been changed by this unit.
+Status: the independently approved one-time operation has been executed and
+independently accepted. The original reviewed plan version had SHA-256
+`eab928e34e440be59cd1dbdf16d3679503fcae2d2695246913bd2393a1e12288`.
+The baseline/steps below describe that consumed authorization; the execution
+appendix is report-only evidence, not authority for another history rewrite.
 
 ## Authority and scope
 
@@ -215,3 +218,60 @@ identity, signatures not addressed by the plan, non-linear/unexpected history,
 tree or date mismatch, safety failure, atomic-push rejection, lease failure,
 unclear remote outcome, or failed required CI. Preserve the state and evidence;
 do not hide failure, weaken checks, merge the plan, or start product work.
+
+## Executed operation and independent acceptance
+
+The CLI/document owner froze clean candidate
+`eca99118b46db765960c7439246b6a1c5f4e5ccb` after independent Astra high
+technical approval. The original approved history-plan hash above was verified
+unchanged before execution. The coordinator then assigned exclusive Git-writer
+ownership and explicitly handed off this one-time operation. Fresh checks found
+main/remote at the planned old SHA, remote plan at `af3b793`, four local planning
+descendants, clean worktrees, unchanged identity and no protection/rules/tag drift.
+
+| Old full SHA | New full SHA |
+| --- | --- |
+| `53ac21b10dc6f6d055d5b49e720e5a00ab29632b` | `34818fe9f5d2d7bcb30353939b146418b2d5a814` |
+| `9d8595da789e6e450a5bdb0bfe391aab34244237` | `2f78fdf69cba786d2568689b0d0566d827d4285a` |
+| `a8e87de8e02469f018a317efeea1be6493dafdc2` | `ba664a2e6fc2e1877cbf9cd026b6282ef51faa30` |
+| `7c68991ef5f47ba65cc61a0dcc2dfd80fdb0ca46` | `ad0ed79aeeedbc8c3a5678cd95bd6b3d9a9fe1f1` |
+| `af3b7933ad052b9a9484dc894e5e77ea84f287b9` | `cf1a69116d6097eee87ec7e2b83a263565808314` |
+| `eca99118b46db765960c7439246b6a1c5f4e5ccb` | `5d623f201b4e4f8c701b196d3f017bf874f3e79a` |
+
+The two main messages became exactly the approved subjects. All four planning
+messages remained unchanged. `git commit-tree` preserved original tree,
+author/committer identities, timestamps and timezones. Raw reconstructed objects
+matched the expected original headers/messages byte-for-byte after only approved
+parent/main-subject substitutions. Commit counts/topology and the entire
+base-to-plan diff were unchanged. An independent reviewer accepted all six pairs
+and explicitly confirmed review traceability from the substantive `eca99118`
+candidate to tree-identical `5d623f2`; older review SHAs remain historical.
+
+Private local rollback refs were created and verified:
+
+| Local-only ref | Retained commit |
+| --- | --- |
+| `refs/facet-history-backups/20261002-normalization/main-before` | `9d8595da789e6e450a5bdb0bfe391aab34244237` |
+| `refs/facet-history-backups/20261002-normalization/plan-before` | `eca99118b46db765960c7439246b6a1c5f4e5ccb` |
+| `refs/facet-history-backups/20261002-normalization/remote-plan-before` | `af3b7933ad052b9a9484dc894e5e77ea84f287b9` |
+
+Local branch changes used one atomic compare-and-swap transaction. The remote
+push used `--atomic` and exact full-SHA leases for old main `9d8595d` and old
+remote plan `af3b793`; both updates succeeded together. There was no fallback,
+branch deletion, content reset or identity-config change. Post-push remote tips
+were main `2f78fdf69cba786d2568689b0d0566d827d4285a` and planning branch
+`5d623f201b4e4f8c701b196d3f017bf874f3e79a`. No backup/capture refs or tags
+were published; both worktrees remained clean. Independent acceptance included
+the backups, remote tips, unchanged diff and Draft/open PR #2 based on main.
+
+[Fresh main CI](https://github.com/GhostFlying/facet/actions/runs/36965264011)
+and [fresh plan-candidate CI](https://github.com/GhostFlying/facet/actions/runs/36965268013)
+completed successfully for Python 3.11/3.12. Every safety, locked dependency,
+lint, format, offline test and CLI-smoke step passed. Earlier same-head PR run
+`36965267744` was superseded/cancelled under existing workflow concurrency;
+the latest run succeeded without a manual rerun. These CI results validate the
+listed SHAs; this report-only appendix does not claim CI for its later commit.
+
+The one-time history gate is complete. G0 remains pending, PR #2 remains Draft
+and unmerged, and maintenance CLI/product runtime remain planned. No product
+code, Gmail operation, image publication, deployment or release occurred.
