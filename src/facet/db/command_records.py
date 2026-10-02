@@ -81,6 +81,8 @@ class _RecordType(type):
     def __call__(cls, *args, **kwargs):
         if cls not in _RECORD_TYPES:
             _fail()
+        if any(type(name) is not str for name in kwargs):
+            _fail()
         names = tuple(f.name for f in fields(cls))
         if (
             len(args) > len(names)

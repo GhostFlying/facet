@@ -7,7 +7,7 @@ from test_command_bootstrap_storage import command_seed, expect_fixed
 from unit.test_db_schema import NOW, P, bootstrap_rows, lid
 
 from facet.contracts import Count, ErrorCode, OperationState, Revision, Role
-from facet.db.codecs import SchemaVersion
+from facet.db.codecs import SchemaVersion, StorageFailure
 from facet.db.command_records import (
     AuthCommand,
     AuthPayloadRow,
@@ -292,3 +292,86 @@ def test_boolean_cannot_be_a_closed_command_revision_or_count(variant):
             lambda: replace(payload(), initialized_schema_version=True),
             ErrorCode.INVALID_INPUT,
         )
+
+
+@pytest.mark.parametrize("record", VALUES)
+def test_exact_builtin_keyword_names_preserve_every_record(record):
+    kwargs = {field.name: getattr(record, field.name) for field in fields(record)}
+    assert all(type(name) is str for name in kwargs)
+    assert type(record)(**kwargs) == record
+
+
+@pytest.mark.parametrize("record", VALUES)
+@pytest.mark.parametrize("caller_context", [False, True])
+@pytest.mark.parametrize("hook_behavior", ["raise", "equal", "unequal"])
+def test_foreign_keyword_names_refuse_before_facet_hooks(
+    record, caller_context, hook_behavior
+):
+    # A genuine **kwargs str-subclass key survives Python's call binder. Its
+    # possible pre-entry comparison to the implicit cls argument is benign;
+    # count only the hook that the historical Facet membership invoked.
+    hooks = []
+    sentinel = "SYNTHETIC_PRIVATE_COMMAND_KEYWORD_ERROR"
+
+    class ForeignKey(str):
+        __hash__ = str.__hash__
+
+        def __eq__(self, other):
+            if type(other) is str and other == "cls":
+                return str.__eq__(self, other)
+            hooks.append("foreign_equality")
+            if hook_behavior == "raise":
+                raise ValueError(sentinel)
+            return hook_behavior == "equal"
+
+    names = tuple(field.name for field in fields(record))
+    kwargs = {
+        ForeignKey(names[0]): getattr(record, names[0]),
+        **{name: getattr(record, name) for name in names[1:]},
+    }
+    assert type(next(iter(kwargs))) is ForeignKey
+
+    def observe():
+        try:
+            type(record)(**kwargs)
+        except BaseException as error:
+            entered_facet = False
+            traceback = error.__traceback__
+            while traceback is not None:
+                frame = traceback.tb_frame
+                entered_facet |= (
+                    frame.f_code.co_name == "__call__"
+                    and frame.f_globals.get("__name__") == "facet.db.command_records"
+                )
+                traceback = traceback.tb_next
+            # Only fixed observations survive: no private exception is retained
+            # or included in an assertion's outward diagnostic.
+            return {
+                "entered_facet": entered_facet,
+                "hook_calls": len(hooks),
+                "fixed_failure": type(error) is StorageFailure,
+                "fixed_code": getattr(error, "code", None) is ErrorCode.INVALID_INPUT,
+                "fixed_text": str(error) == ErrorCode.INVALID_INPUT.value,
+                "private_text": sentinel in str(error) or sentinel in repr(error),
+                "cause": error.__cause__ is not None,
+                "context": error.__context__ is not None,
+            }
+        return {"unexpected_success": True, "hook_calls": len(hooks)}
+
+    if caller_context:
+        try:
+            raise ValueError(sentinel)
+        except ValueError:
+            facts = observe()
+    else:
+        facts = observe()
+    assert facts == {
+        "entered_facet": True,
+        "hook_calls": 0,
+        "fixed_failure": True,
+        "fixed_code": True,
+        "fixed_text": True,
+        "private_text": False,
+        "cause": False,
+        "context": False,
+    }

@@ -646,3 +646,54 @@ Historical 74d9 HOLD and green tests/CI remain unchanged, not retrospective
 acceptance. The main-integration plan remains paused; no main/shared-state edit,
 Source B, provider/consumer/dependency activation, native issuer, whole M1-02/
 M1-03/RV11/G1-G6 or external deployment/Gmail/release authority is added.
+
+## K1 corrected-source factual author handoff
+
+Date: 2026-10-03 PRC. AUTHOR EVIDENCE ONLY; independent corrected SOURCE
+acceptance, fresh CI and root qualification remain pending. The preceding
+648-line prospective note remains exact at SHA-256
+96492c581658233b89edce85fef71540819e0f9146f788768d86ab1c1a8fafab.
+It was committed before tests/code in
+4489b6a42fe6ce4d63e57a7864b243c3d9e68781, parent historical HOLD74d9.
+Original 600/533/497/477/421/390 prefixes and the unchanged 372-line ADR remain.
+
+Production changes precisely two lines: exact keyword-name type refusal before
+Facet membership/equality or super construction. All other 186 historical74d9
+path/mode/blob and working-byte entries remain identical. Every original record
+test function/class AST remains exact; two additive test functions contribute
+nine built-in-key positives and 54 foreign-key behavior/context pairs across
+all nine records. Native Python cls binding is explicitly benign and is not
+attributed as a Facet violation. Before correction the actual raising/context
+pair failed for every record: nine failures/0.22 seconds on unchanged production.
+After correction all 63 new cases pass/0.18 seconds, with an actual Facet frame,
+zero foreign hooks and exact fixed error/no-cause/no-context observations.
+
+Final stable-byte local measurements: CPython3.12.13, SQLite3.53.1/eUID1001,
+verified local TMPFS synthetic fixtures; no arbitrary mount/power-loss claim.
+Actual whole collection2332; full2332 PASS/446.97 seconds. Four Source A files
+522 PASS/10.89 seconds, records197 PASS/0.26 seconds. Genuine native exit-class
+matrix51 PASS/2.77 seconds; expanded native/COMMIT-denial54 PASS/3.07 seconds.
+Retained R3/OS/read/MG/CLI: 73/150/71/114/40 PASS respectively, measured
+16.89/88.63/13.77/52.32/4.66 seconds. All original tests remain retained.
+
+Fresh noneditable installed Source A522 PASS/10.92 seconds; exact independent
+causal control f27c0fed passes both source2/0.08 seconds and installed2/0.12
+seconds. Installed actual R3/WAL8 PASS/0.64 seconds and all nine unchanged
+literal read-helper scenarios PASS. Fresh wheel SHA-256
+909c070b74105161abcc60536216183b65b1261d06a0121079a340d240ce9845;
+69 source/archive/installed byte proofs, 54 individually guarded inert imports,
+combined FD/empty-registry inventory and actual connect detecting negative PASS.
+All 125 retained base source/test blobs/63 old tests, six v1 ASTs, exact renamed
+v1 inspector, old registries and original migration prefix/58 ASTs PASS.
+Locked offline sync/Ruff/format184, source/installed helps and JSON version PASS.
+
+A copied private installed-R3 probe initially retained the previous wheel's
+absolute site assertion and failed collection. Only that sandbox-location check
+was corrected; the subsequent eight real probes passed. This is a private
+verification setup diagnostic, not a candidate-source failure or skipped gate.
+No old report/finding/candidate/CI is rewritten: 74d9 remains SOURCE HOLD despite
+its green2269/CI. The new candidate requires fresh exact nonauthor SOURCE review
+and actual dual-CI checkout/tree qualification before any integration decision.
+PR27 remains Draft against the unchanged qualified combined branch. Main plan,
+main/shared-state/source inputs and Source B/provider/consumer/dependency/full
+package/live/deployment/release gates remain untouched and pending as before.
