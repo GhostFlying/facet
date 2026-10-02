@@ -678,3 +678,46 @@ not proof that the proposed fake or production service works:
   cursor 404; no fixed lifetime is encoded into tests.
 - [Official Python client thread safety](https://googleapis.github.io/google-api-python-client/docs/thread_safety.html):
   separate HTTP instances for concurrent workers; helpers probe this constraint.
+
+## Execution appendix: mandatory core compatibility slice
+
+Date: 2026-10-02. This appendix supersedes historical drafting/pending status
+above without changing the approved r3 body: its first 53808 bytes retain
+SHA-256 `000e7c079108edceaa50b902d421e06b2e99cf333dd4b86d3f36bab5827512e9`.
+Independent plan review approved that exact r3. Provider/helper candidate
+`c18bfbee09b985ee7b9bb5c230ee2a70427c7edc` passed independent review and
+candidate/main CI and actually merged in PR #10. M1-01 revised whole candidate
+`b1e4ae08f7e361518eaa4f7fb1ae9f7f0b278f28` passed independent review, actually
+merged in PR #11 and passed post-merge main CI 36980646059. Root verified those
+gates and explicitly dispatched CT-01 through CT-04. This owned branch normally
+fast-forwarded c18 to b1e; b1e is the CT implementation base, not a rewritten
+original plan base. OAuth planning was paused for this dependency-ready slice.
+
+All 47 exports/canonical constructors match the approved inventory. The new
+`tests/unit/test_fakes_contract_compatibility.py` directly imports actual core
+types and covers exact enum/union/field/tag inventory, required/nullability,
+primitive bounds, provider string event keys and generation/partition guards.
+Privacy assertions consume explicit test-owned buffers, not new DB/DTO models.
+Fault closures retain real selectors and independent axes across two scripted
+exceptions; these are not process-crash or production-recovery claims.
+
+Only that test file, this appendix and `test-evidence-matrix.md` change in the CT
+slice. Source/core/config/other worker tests, dependencies, CI and shared status
+remain untouched. No duplicate core types or future provider protocol exists.
+Actual local locked offline verification: CPython 3.12.13 / SQLite 3.53.1,
+92 CT tests and 379 full tests passed, Ruff lint/format and both entrypoint help
+passed. Initial targeted verification caught missing `userId` in this test's
+strict provider script; the script was corrected without changing the helper.
+No test was skipped or production contract changed.
+
+Root authorized task-local complete Python 3.12.13 after the old 3.13.5 lacked
+`_sqlite3`, plus ordinary locked dependency bootstrap. This supersedes the old
+draft's environment/download instructions; b1e locked offline sync succeeded
+from cache. No runtime binaries or private state enter tracked artifacts.
+Staged safety, approved-prefix hash and exact scope checks precede commit/push.
+
+New exact-candidate independent review, Python 3.12/3.13 CI and actual integration
+are pending; record their real identities in PR/Issue without self-referential
+report commits. Issue #5 stays open and M1-02 stays unreleased until root verifies
+all package gates. Future business/CLI/Web consumer cases remain separately
+pending with their owners, not a circular dependency on future M2 implementation.

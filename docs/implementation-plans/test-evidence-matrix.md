@@ -1,19 +1,23 @@
 # P1-02 test-foundation evidence
 
-Date: 2026-10-02. Delivery: provider/helper partial engineering unit.
+Date: 2026-10-02. Delivery: provider/helpers plus mandatory core compatibility candidate.
 Owner: P1-02 delegated worker. Tracking: [Issue #5](https://github.com/GhostFlying/facet/issues/5).
-Implementation base: `09031e723af1ef6590dc6746744ee52894501e38`.
-Approved [plan](p1-02-test-foundations.md) SHA-256:
+Provider/helper starting base: `09031e723af1ef6590dc6746744ee52894501e38`.
+Current CT implementation base: `b1e4ae08f7e361518eaa4f7fb1ae9f7f0b278f28`.
+Approved [plan](p1-02-test-foundations.md) first-53808-byte prefix SHA-256:
 `000e7c079108edceaa50b902d421e06b2e99cf333dd4b86d3f36bab5827512e9`.
-Inputs: integrated `p1-core-v1` / `p1-writer-v1` at that base. No feature-specific
+Inputs: integrated `p1-core-v1` / `p1-writer-v1` at 09031 and reviewed actual
+M1-01 types merged in PR #11 at b1e; root verified main CI 36980646059 and
+dispatched CT implementation after that gate. No feature-specific
 provider/SQL/wire/public-DTO extension is implemented by this unit.
 
 Candidate commit, independent review and exact-head CI are recorded in the focused
 PR and Issue, not a self-referential document commit. Local verification below is
 complete for this working candidate; independent candidate acceptance is pending.
-P1-02 remains incomplete: CT-01 through CT-04 are not coded/run and wait for the
-independently reviewed actual M1-01 merge plus coordinator carry/dispatch.
-Do not close Issue #5, release M1-02 or claim a production milestone from this slice.
+CT-01 through CT-04 are implemented and locally passed against actual merged
+types. P1-02 awaits this new candidate's independent review, exact-head CI and
+integration; do not close Issue #5 or release M1-02 until root verifies those
+gates. No production milestone follows from test-foundation completion.
 
 ## Actual local verification
 
@@ -40,13 +44,16 @@ probe is not M1-02 production WAL/filesystem/deployment acceptance.
 | `uv run --frozen --offline --no-python-downloads ruff check .` | PASS |
 | `uv run --frozen --offline --no-python-downloads ruff format --check .` | PASS |
 | `uv run --frozen --offline --no-python-downloads pytest tests/unit/test_fakes_gmail.py tests/unit/test_fakes_faults.py tests/unit/test_fakes_privacy.py -q` | PASS, 126 tests after the metadata-format review correction |
-| `uv run --frozen --offline --no-python-downloads pytest -q` | PASS, 150 tests, including unchanged Phase 0/repository tests |
+| `uv run --frozen --offline --no-python-downloads pytest tests/unit/test_fakes_contract_compatibility.py -q` | PASS, 92 CT parameterized tests |
+| `uv run --frozen --offline --no-python-downloads pytest -q` | PASS, 379 tests, including merged M1-01 and unchanged Phase 0/repository tests |
+| `uv run --frozen --offline --no-python-downloads facet --help` | PASS, package entrypoint only, not complete CLI/G1 acceptance |
 | `uv run --frozen --offline --no-python-downloads facet-spike --help` | PASS, no service/auth startup |
-| Original approved plan SHA-256 comparison | PASS, byte-identical |
+| Original approved plan SHA-256 comparison | PASS, first 53808 bytes remain byte-identical; append-only execution handoff added |
 | `git diff --check` and explicit new-file inspection | PASS; staged repository safety is additionally required before commit/push |
 
-The test counts include parameterized hook/marker cases. They are not 126 separate
-production invariants, performance measurements, live Gmail evidence or CT passes.
+Counts include parameterized hook/marker/core cases, not separate production
+invariants, performance measurements or live Gmail evidence. The provider-only
+150-test baseline is historical; b1e adds M1-01 tests, this slice adds 92 CT cases.
 
 ### Independent review correction: get metadata format
 
@@ -64,8 +71,9 @@ The additional 12 parameterized controls in
 content exclusion, absent/empty/mixed-case/nonmatching header selections,
 preserved duplicate header order/casing, deep-copy isolation, full-format retention
 and minimal-format payload absence. These remain synthetic wire-shape controls,
-not actual Gmail verification. The revised candidate requires new review/CI;
-the first candidate's 138-test/CI success does not approve this fix.
+not actual Gmail verification. Revised c18 passed independent review and
+candidate/main CI and actually merged in PR #10. Its approval does not approve
+this subsequent CT candidate; the first candidate's 138-test result is historical.
 
 Primary definitions rechecked on 2026-10-02:
 [Gmail message formats](https://developers.google.com/workspace/gmail/api/reference/rest/v1/Format),
@@ -103,24 +111,26 @@ the three files in `tests/unit/test_fakes_*.py`, without duplicating runtime pol
 | TF-20 | `helper_verified`: `test_labels_legacy_facts_and_guarded_cleanup`, remove/re-add event test | M5-01/02/03: legacy no-execution, durable action dedupe and convenience cleanup retries; fake has no rules |
 | TF-21 | `helper_verified`: `test_profile_wire_has_no_scope_or_binding_oracle` | M1-04/06: actual scopes/role/profile binding verification separately; profile has exactly Gmail fields |
 
-## Mandatory core compatibility remains blocked, not skipped
+## Mandatory core compatibility: locally verified against actual merged types
 
-| Case | Status | Missing evidence before P1-02 completion |
+| Case | Status | Actual control and remaining acceptance |
 | --- | --- | --- |
-| CT-01 | `core_compatibility_pending`, not coded/run | Actual independently reviewed merged M1-01 types, exact 47 exports/branch constructors and owner/version checks |
-| CT-02 | `core_compatibility_pending`, not coded/run | Real primitive/closed-value bounds, required-nullable fields, string History keys and generation/partition guards |
-| CT-03 | `core_compatibility_pending`, not coded/run | Minimal production values through the two-layer privacy helpers, without invented SQL/DTO records |
-| CT-04 | `core_compatibility_pending`, not coded/run | Actual selectors/state axes through helper callbacks/traces without duplicate business logic or leaking selectors |
+| CT-01 | `core_compatibility_verified` locally; candidate gates pending | `test_ct01_*`: exact 47 exports/modules, all 27 enum value sets, six unions/four direct records, exact required fields/tags and missing/drifted export negative controls |
+| CT-02 | `core_compatibility_verified` locally; candidate gates pending | `test_ct02_*`: actual primitive bounds/UTC/integer units, required-nullables, provider-shaped non-contiguous History strings, event identity/enrichment, positive generation and every partition/progress guard |
+| CT-03 | `core_compatibility_verified` locally; candidate gates pending | `test_ct03_actual_metadata_two_privacy_layers`: explicit actual RuleRef/SourceEvent/JobSubject/Claim fields; internal metadata passes, same IDs fail public, content/credential/output markers fail both layers; no DTO/SQL invented |
+| CT-04 | `core_compatibility_verified` locally; candidate gates pending | `test_ct04_fault_callbacks_hold_real_selectors_without_transition_or_trace_leaks`: real recovery/read/claim/guard and independent axes retained across two bounded helper exceptions; safe traces and leak negative control |
 
-M1-01's r3 plan approval is not executable evidence. The CT file intentionally
-does not exist in this partial candidate; there is no skip/import fallback or
-fixture-owned substitute. Subsequent CT integration must update this matrix with
-the real M1-01 merge, candidate tests/review/CI and coordinator release.
+Cases reside in `tests/unit/test_fakes_contract_compatibility.py`, without skips,
+fallback imports, duplicate types or guessed JobKey/Binding/DTO/provider models.
+Review binds this candidate to actual b1e inputs and p1-core-v1, not only a plan.
+Independent review/CI/integration remain externally recorded release gates.
+Helpers do not prove durable SQL dedupe, receipt replay or production recovery.
 
 ## Scope limits and safe reuse
 
-- Only `tests/fakes/`, shared `tests/conftest.py`, three helper test files and the
-  two owned planning/evidence documents changed. Production/spike sources,
+- Across P1-02, only `tests/fakes/`, root conftest, four helper/core test files
+  and two owned planning/evidence documents changed. This CT slice touches only
+  its new test file and those documents. Production/spike sources,
   existing tests, dependencies, CI and shared status files are unchanged.
 - The fake supports a deliberately small Google-style service/request surface.
   Unknown methods/arguments and unexpected page scripts fail. Unscripted search
