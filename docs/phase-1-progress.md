@@ -13,8 +13,9 @@ PR merge、offline、Gmail 或 deployment 证据混为完成。Package 状态沿
 实际 MERGED 在同一 SHA，normal fast-forward 保留原子用户/noreply commits；
 [candidate CI](https://github.com/GhostFlying/facet/actions/runs/36968387054) 与
 [main CI](https://github.com/GhostFlying/facet/actions/runs/36969107636) 成功。
-G1-G6 均未通过；本候选仅实现生产 package/config/CLI 基础，Gmail/Compose/Dashboard
-和完整维护 CLI 均未完成。
+G1-G6 均未通过；package/config/CLI foundation 和 P1-02 已集成，SQL 仍是部分切片，
+本候选交付 M1-05 pure/logging early unit。真实 DB/auth/runtime consumers、
+Gmail/Compose/Dashboard 和完整维护 CLI 均未完成。
 
 D1 phase 内合格工程 PR 集成与 D2 限定 GHCR/main-SHA scope 已随 phase 启动生效，
 仍按各包 dependencies/review/CI/gates 执行，不提前实现 image workflow。D3 live
@@ -25,8 +26,9 @@ D1 phase 内合格工程 PR 集成与 D2 限定 GHCR/main-SHA scope 已随 phase
 
 Root 只调度/review 核证/汇报；shared current-state/coordination 文档由 P1-00 的
 delegated `phase1_plan_author` integration/docs owner 单独维护，直到 root 显式转交。
-当前同时负责 M1-01，owned worktree/branch 为 sibling `m1-01-package-config` /
-`feat/m1-01-package-config`；P1-00 已集成，旧 worktree 保留。其他 workers
+当前 SQL owner 的 worktree/branch 为 sibling `m1-02-persistence` /
+`feat/m1-02-persistence`；本次独占 M1-05 分支的两份 shared docs 作 coherent handoff。
+M1-01/P1-00 已集成，旧 worktrees 保留。其他 workers
 维护自己的 plan/ADR/source，通过 Issue/handoff 提交共享文档建议，不并行覆写
 AGENTS/README/status/workflow/全局计划/本台账。GitHub 不自动 assign/mention 外人。
 
@@ -34,12 +36,19 @@ P1-00 r2 [plan](implementation-plans/p1-00-execution-baseline.md) 独立 approve
 SHA-256 `b77d4f90d44ea61aad286851454e9db7d98cef0e1c703ad5968470e4d7242bae`；
 implementation/acceptance review、CI 均实际通过，PR #6 集成 exact `2618eaf`。
 P1-01 修订 ADR 候选独立 approved，PR #8 集成 exact `09031e7`，candidate/main CI 成功；
-core-v1/writer-v1 设计已 freeze，未实现相应 runtime。M1-01 r3 plan 独立 approved 后
-实施本候选；独立实现验收与 3.12/3.13 CI 待完成。P1-02 provider-slice 的
-metadata-format finding 已修正并独立 approved，PR #10 实际集成 exact `c18bfbe`、
-candidate/main CI passed；这仅为部分工程输入，
-闭包必需的 CT-01..04 等 reviewed merged M1-01 types，不能把 provider-only slice
-当本包完成/M1-02 放行。M1-02 仅 plan preparation；未为后续全部工作包建 Issue。
+core-v1/writer-v1 设计已 freeze，未实现相应 runtime。M1-01 PR #11 实际集成 exact
+`b1e4ae0`，287 offline tests、独立 whole/closure review、3.12/3.13 candidate/main CI
+通过。P1-02 provider-slice PR #10 exact `c18bfbe` 后，mandatory CT PR #12 实际集成
+exact `1b7cd58`，92 CT/379 full tests、独立 review、candidate/main CI 通过；Issue5
+关闭，仅满足测试基础工程包及 M1-02 的该项依赖，不证明后续 feature consumers。
+M1-02 r3 design 独立 approved 后已派实际 SQL；PR #15 values/schema exact `56eaac6`
+独审/450 full/CI 通过，new repo slice `bf0bf0b` 504 local tests passed、review/CI 待验，
+整包 DB-01..28 未完成。M1-03 wire extension 设计局部 changes requested、无 source；
+M1-04 credential design approved、实际 owner/schema 仍 pending。M1-05 early library
+source `c455f71` 独立 accepted，488 full/33 logging subprocess/wheel/3.12+3.13 CI
+通过；本候选两份 docs 的 exact-head review/CI、实际 integration receipt 在 PR #16。
+Issue14 保持 open，真实 DB/auth/runtime/HTTP/DOM/Compose 消费验收未完成。
+未为后续全部工作包建 Issue。
 
 每次 dispatch 仍需 canonical deps、exact base/interface version、owned files、
 owner/model、独立 reviewer、plan/revision、acceptance 和 external gates。
@@ -57,12 +66,12 @@ milestone/live verified。按现有 workflow 记录 blocker 原因/下游/解除
 | --- | --- | --- | --- | --- | --- |
 | [P1-00](phase-1-execution-plan.md) | W0a | integrated | PR #6 exact2618；review/candidate+main CI passed，非 G1 | 集成/docs S / 独立 A | [#3](https://github.com/GhostFlying/facet/issues/3) |
 | [P1-01](phase-1-execution-plan.md) | W0a | integrated | PR #8 exact09031；core/writer freeze+review/CI passed，非 runtime | 架构设计 A / 独立 A | [#4](https://github.com/GhostFlying/facet/issues/4) |
-| [P1-02](phase-1-execution-plan.md) | W0b | implementing | Provider/helper partial PR #10 exactc18 已 integrated；actual reviewed merged M1-01 CT 必需，Issue5 open/M1-02 未放行 | 测试 worker / 独立 reviewer | [#5](https://github.com/GhostFlying/facet/issues/5) |
-| [M1-01](phase-1-execution-plan.md) | W0b | implementation_review | f00 全审/CI pass 后 hold 两项 parser/help 修正；修订树287 offline tests passed，新 exact review/CI/integration 待完成 | package/config S、shared docs owner / 独立 reviewer | [#7](https://github.com/GhostFlying/facet/issues/7) |
-| [M1-02](phase-1-execution-plan.md) | W1a | plan_drafting | 仅准备 persistence plan；实施等 M1-01 merged 与 P1-02 完整闭包 | persistence plan worker / 独立 reviewer 待排 | [#9](https://github.com/GhostFlying/facet/issues/9) |
-| [M1-03](phase-1-execution-plan.md) | W1b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
-| [M1-04](phase-1-execution-plan.md) | W1b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
-| [M1-05](phase-1-execution-plan.md) | W1c | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
+| [P1-02](phase-1-execution-plan.md) | W0b | integrated | PR #12 exact1b7 mandatory CT/379 full/review/candidate+main CI passed；后续 feature consumers 另验 | 测试 worker / 独立 reviewer | [#5](https://github.com/GhostFlying/facet/issues/5) closed |
+| [M1-01](phase-1-execution-plan.md) | W0b | integrated | PR #11 exactb1e revised whole/closure review、287 full/candidate+main CI passed；仅 foundation，非完整 CLI/G1 | package/config S / 独立 reviewer | [#7](https://github.com/GhostFlying/facet/issues/7) closed |
+| [M1-02](phase-1-execution-plan.md) | W1a | implementing | r3 design approved；PR15 values/schema exact56eaac 独审+450full+CI pass，repo bf0bf0b 504 local pass 待审；History/insert/backup/crash/whole DB01–28 pending | SQL/shared docs S / 非作者独立 A | [#9](https://github.com/GhostFlying/facet/issues/9), [PR15](https://github.com/GhostFlying/facet/pull/15) |
+| [M1-03](phase-1-execution-plan.md) | W1b | plan_review | plan approved；wire/storage extension 局部 changes requested、无 source，等实际 storage input | writer design A / 非作者独立 A | [#13](https://github.com/GhostFlying/facet/issues/13) |
+| [M1-04](phase-1-execution-plan.md) | W1b | ready_for_implementation | credential design approved；actual writer/schema input 未齐、未派 source，无 live OAuth | credential design A / 非作者独立 A | 未物化 |
+| [M1-05](phase-1-execution-plan.md) | W1c | implementation_review | pure/logging early source c455 独审/488full/33 loggingproc/wheel/CI pass；本交付 docs/head gate 待验，未 merge；真实 consumers/完整包 pending | models/logging A + shared docs S / 非作者独立 reviewer | [#14](https://github.com/GhostFlying/facet/issues/14), [PR16](https://github.com/GhostFlying/facet/pull/16) |
 | [M1-06](phase-1-execution-plan.md) | W1c | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M2-01](phase-1-execution-plan.md) | W2a | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M2-02](phase-1-execution-plan.md) | W2b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
