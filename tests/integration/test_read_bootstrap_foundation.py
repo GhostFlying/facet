@@ -204,11 +204,11 @@ def test_rb06_optional_missing_vs_actual_hostile_implementation(
 def test_rb06_actual_alternate_native_binding_refuses_before_load(
     installed_read_foundation, tmp_path
 ):
-    specification = importlib.util.find_spec("_uuid")
+    specification = importlib.util.find_spec("_sqlite3")
     assert specification is not None and specification.origin is not None
     native = Path(specification.origin)
     if specification.origin == "built-in":
-        # The locked standalone CPython compiles _uuid into the interpreter.
+        # The locked standalone CPython compiles _sqlite3 into the interpreter.
         # Its actual shared libpython still exercises the real dynamic-loader
         # audit before dlopen, under the otherwise permitted extension name.
         native = Path(sysconfig.get_config_var("LIBDIR")) / sysconfig.get_config_var(
@@ -218,6 +218,37 @@ def test_rb06_actual_alternate_native_binding_refuses_before_load(
     alternate = tmp_path / "alternate.so"
     shutil.copyfile(native, alternate)
     child(installed_read_foundation, "alternate_native", alternate)
+
+
+@pytest.mark.parametrize("scenario", ["errno_builtin", "errno_nonbuiltin"])
+def test_rb06_actual_builtin_errno_identity(installed_read_foundation, scenario):
+    child(installed_read_foundation, scenario)
+
+
+def test_rb06_errno_builtin_only_genuine_native_causal_pair(
+    installed_read_foundation, tmp_path
+):
+    specification = importlib.util.find_spec("_sqlite3")
+    assert specification is not None and specification.origin is not None
+    native = Path(specification.origin)
+    if specification.origin == "built-in":
+        native = Path(sysconfig.get_config_var("LIBDIR")) / sysconfig.get_config_var(
+            "LDLIBRARY"
+        )
+    assert native.is_file()
+    boundary = tmp_path / "test-only-native-boundary"
+    boundary.mkdir(mode=0o700)
+    alternate = boundary / "mandatory-binding.so"
+    shutil.copyfile(native, alternate)
+    alternate.chmod(0o600)
+    before = inventory(boundary)
+    # Same real file and primitive policy facts, two fresh actual children.
+    # Generic positive MUST return a module; errno negative MUST fail via the
+    # builtin-only audit BEFORE dlopen, not missing PyInit_errno or generic path.
+    child(installed_read_foundation, "errno_native_generic_positive", alternate)
+    assert inventory(boundary) == before
+    child(installed_read_foundation, "errno_native_builtin_negative", alternate)
+    assert inventory(boundary) == before
 
 
 def test_rb04_rb08_actual_site_poison_and_inherited_fd_not_admitted(

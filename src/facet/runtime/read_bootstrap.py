@@ -76,6 +76,7 @@ _MODULES = frozenset(
         "encodings.aliases",
         "encodings.utf_8",
         "enum",
+        "errno",
         "functools",
         "genericpath",
         "hashlib",
@@ -164,6 +165,35 @@ def _creator(latch):
         _fail()
 
 
+def _builtin_errno():
+    # This sole startup addition is a CPython builtin, never another native
+    # path or arbitrary module implementation. Inspect exact inert records.
+    if "errno" not in sys.builtin_module_names:
+        return False
+    if "errno" not in sys.modules:
+        return True
+    module = sys.modules["errno"]
+    frozen = sys.modules["_frozen_importlib"]
+    if type(module) is not type(sys):
+        return False
+    values = vars(module)
+    specification = values.get("__spec__")
+    if type(specification) is not vars(frozen)["ModuleSpec"]:
+        return False
+    facts = vars(specification)
+    loader = vars(frozen)["BuiltinImporter"]
+    return (
+        type(values.get("__name__")) is str
+        and type(facts.get("name")) is str
+        and type(facts.get("origin")) is str
+        and values["__name__"] == facts["name"] == "errno"
+        and values.get("__loader__") is facts.get("loader") is loader
+        and facts["origin"] == "built-in"
+        and facts.get("submodule_search_locations") is None
+        and "__file__" not in values
+    )
+
+
 class ReadBootstrapLatch:
     __slots__ = (
         "creator_pid",
@@ -222,6 +252,8 @@ class ReadBootstrapLatch:
                 sys.platform,
                 "unix",
             )
+            if not _builtin_errno():
+                _fail("consistency_failure")
         except BaseException as error:
             failed = (
                 error.code
@@ -293,7 +325,11 @@ def _audit(latch, event, arguments):
         # allowed name is not permission for an alternate installed binding.
         filename = arguments[1]
         allowed = False
-        if type(filename) is str and arguments[0] not in _ABSENT_IMPORTS:
+        if (
+            type(filename) is str
+            and arguments[0] not in _ABSENT_IMPORTS
+            and arguments[0] != "errno"
+        ):
             absolute = os.path.abspath(filename)
             if (
                 absolute.endswith(".so")
@@ -358,6 +394,7 @@ def _begin_read_bootstrap():
         or not sys.flags.dont_write_bytecode
         or not sys.flags.utf8_mode
         or not frozenset(sys.modules) <= _MODULES
+        or not _builtin_errno()
         or any(
             name == "sqlite3" or name == "_sqlite3" or name.startswith("facet")
             for name in sys.modules

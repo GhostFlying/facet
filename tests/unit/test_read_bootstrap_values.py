@@ -2,6 +2,7 @@
 
 import copy
 import pickle
+import sys
 
 import pytest
 
@@ -78,6 +79,8 @@ def test_rb06_compiled_graph_not_provider_or_runtime_registration():
     assert frozenset(("_wmi",)) == read_bootstrap._ABSENT_IMPORTS
     assert "_wmi" not in read_qualification._MODULES
     assert type(read_bootstrap._MODULES) is frozenset
+    assert "errno" in read_bootstrap._MODULES
+    assert read_bootstrap._builtin_errno() and read_qualification._builtin_errno()
     assert not hasattr(read_bootstrap.ReadBootstrapLatch, "claim")
     assert read_bootstrap.ReadBootstrapLatch.__slots__ == (
         "creator_pid",
@@ -89,3 +92,21 @@ def test_rb06_compiled_graph_not_provider_or_runtime_registration():
     )
     assert read_launcher._ENV == {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
     assert read_launcher._SECONDS == 10 and read_launcher._BYTES == 256
+
+
+@pytest.mark.parametrize("value", [Trap(), type(sys)("errno"), None])
+def test_rb06_builtin_errno_does_not_admit_foreign_module(monkeypatch, value):
+    if value is None:
+        # Absence is supported on3.12; it grants only the compiled builtin name.
+        monkeypatch.delitem(sys.modules, "errno", raising=False)
+        assert read_bootstrap._builtin_errno() and read_qualification._builtin_errno()
+    else:
+        monkeypatch.setitem(sys.modules, "errno", value)
+        assert not read_bootstrap._builtin_errno()
+        assert not read_qualification._builtin_errno()
+
+
+def test_rb06_errno_failed_import_entry_is_not_an_absent_builtin(monkeypatch):
+    monkeypatch.setitem(sys.modules, "errno", None)
+    assert not read_bootstrap._builtin_errno()
+    assert not read_qualification._builtin_errno()

@@ -48,6 +48,7 @@ _MODULES = frozenset(
         "encodings.aliases",
         "encodings.utf_8",
         "enum",
+        "errno",
         "functools",
         "genericpath",
         "hashlib",
@@ -105,12 +106,40 @@ _MODULES = frozenset(
 )
 
 
+def _builtin_errno():
+    if "errno" not in sys.builtin_module_names:
+        return False
+    if "errno" not in sys.modules:
+        return True
+    module = sys.modules["errno"]
+    frozen = sys.modules["_frozen_importlib"]
+    if type(module) is not type(sys):
+        return False
+    values = vars(module)
+    specification = values.get("__spec__")
+    if type(specification) is not vars(frozen)["ModuleSpec"]:
+        return False
+    facts = vars(specification)
+    loader = vars(frozen)["BuiltinImporter"]
+    return (
+        type(values.get("__name__")) is str
+        and type(facts.get("name")) is str
+        and type(facts.get("origin")) is str
+        and values["__name__"] == facts["name"] == "errno"
+        and values.get("__loader__") is facts.get("loader") is loader
+        and facts["origin"] == "built-in"
+        and facts.get("submodule_search_locations") is None
+        and "__file__" not in values
+    )
+
+
 def _verify_foundation(facts):
     # Pure validation returns metadata only; it issues no capability or entry.
     if (
         type(facts) is not tuple
         or len(facts) != 7
         or not frozenset(sys.modules) <= _MODULES
+        or not _builtin_errno()
     ):
         raise ValueError("consistency_failure")
     import hashlib
@@ -146,6 +175,7 @@ def _verify_foundation(facts):
 
     if (
         not frozenset(sys.modules) <= _MODULES
+        or not _builtin_errno()
         or read_views._PROVIDER_TYPES != ()
         or read_views._QUALIFIED_RUNTIMES != ()
     ):

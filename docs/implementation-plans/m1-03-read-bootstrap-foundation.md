@@ -503,3 +503,52 @@ allocated existing tests/helper plus this factual plan may change. The genuine
 helper-boundary native positive must return an actual module; inability to do
 so is a STOP gate, not permission to relax its oracle. Launcher, DB/OS/core/CLI,
 dependencies/CI, shipping empty registries and all authority gates are unchanged.
+
+## C1 corrected author source handoff
+
+The pre-code approval/release receipt was committed at
+`b617f8a872c8e01830ab6aa40e514d679e2e55b1`, parent historical HOLD eb839.
+Exactly five allocated code/test paths changed afterward; the unchanged launcher
+and exact229 design remain. Both fixed compiled inventories add ONLY literal
+errno. Loaded errno requires exact builtin module/spec types, builtin origin and
+loader identity; an absent builtin differs from a failed-import None entry.
+Any errno native-filename import refuses before the existing generic native gate.
+No native path, graph wildcard, audit enrollment, latch/API or trust is broadened.
+
+The old optional_uuid fixture is replaced with mandatory actual _sqlite3 native
+origin or the matching existing linked libpython. The real outside-production-
+prefix loader negative remains. Two fresh genuine installed helpers then prove
+the approved TEST-ONLY namespace-boundary causal pair: actual _imp.create_dynamic
+under _sqlite3 returns a native module, while errno using the identical file/policy
+delivers its actual filename event then raises fixed consistency_failure before
+load. Neither invokes the returned module's APIs, changes the original binding,
+reopens SQLite nor changes closed probe/runtime facts. Boundary restoration and
+fixture physical-byte equality pass; this is not production runtime qualification.
+
+Final stable code/test bytes measured focused71 PASS13.70s and full1696
+PASS362.87s: all original1625 plus original64 and seven additive cases, no skips.
+The earlier70 PASS13.64s predates the additive failed-import distinction. Its
+1695-collected full run was obsolete and stopped only through this author's
+original session handle at495 passes136.89s, exit130; it is NOT a full-suite pass.
+The first narrow7-pass/1-fail batch reached the builtin positive but exposed a
+helper dispatch omission; the retained scenario was corrected before final runs.
+Historical initial441/HOLD, earlier no-reset2 failures and failed dual37049522627
+CI remain unchanged. The new final full run used unchanged code/test hashes.
+
+Fresh offline noneditable wheel SHA-256:
+`b330ca1b90dee03da4f0752fafd81e5e8eb761d301d3f75fa990ed2578e31000`.
+All archive/source/installed Python bytes, no helpers/private assets, ordinary
+import no-hook/SQL/child/network, empty read/runtime/ACTION inventories and nine
+additional actual installed normal/builtin/fork/live/recycled/native controls
+pass. Launcher remains owner_unavailable. The existing local3.13.5 proves repaired
+startup/builtin/audit enrollment only; it lacks SQLite and is NOT full3.13 evidence.
+Actual new dual-version CI remains mandatory, not an unchanged-eb839 rerun.
+
+Locked offline dev sync, Ruff/format168, both CLI helps, JSON version, whitespace,
+staged safety and all217/250/351/486/design229 frozen hashes pass. Graph AST delta
+is literal errno only; all original foundation test names/decorators and all120
+accepted-base source/test/script blobs are preserved. These are author checks,
+not independent source acceptance. A new exact fix SHA, fresh CI checkout/tree,
+nonauthor SOURCE verdict and separate root integration remain required. PR15
+stays Draft/unmerged; no provider, state opener, CLI activation, VFS/native-file
+provenance, bundle/credentials, full M102/M103/RV11/G1 or live/deployment is claimed.

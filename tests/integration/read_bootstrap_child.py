@@ -186,6 +186,19 @@ def fork_control(ns, latch):
 def run():
     scenario, path = sys.argv[1:3]
     ns = load_entry(path)
+    if scenario == "errno_nonbuiltin":
+        module = type(sys)("errno")
+        module.__file__ = SENTINEL
+        sys.modules["errno"] = module
+        refusal(ns["_begin_read_bootstrap"])
+        assert ns["_LATCH"] is ns["_REFUSED"]
+        refusal(ns["_begin_read_bootstrap"])
+        print("PASS")
+        return
+    if scenario == "errno_builtin":
+        module = __import__("errno")
+        assert module.__spec__.origin == "built-in"
+        assert ns["_builtin_errno"]()
     if scenario in ("preloaded_sqlite", "preloaded_application"):
         if scenario == "preloaded_sqlite":
             __import__("sqlite3")
@@ -235,10 +248,13 @@ def run():
     if scenario in ("thread_live", "thread_reused"):
         thread_control(ns, scenario)
         return
-    events, state_opens, fd_before = [], [], set(os.listdir("/proc/self/fd"))
+    events, state_opens, native_events = [], [], []
+    fd_before = set(os.listdir("/proc/self/fd"))
 
     def observe(event, args):
         events.append(event)
+        if event == "import" and args[1] is not None:
+            native_events.append((args[0], args[1]))
         if (
             event == "open"
             and type(args[0]) is str
@@ -324,7 +340,7 @@ def run():
         print("PASS")
         return
     statements, owned = [], []
-    if scenario == "normal":
+    if scenario in ("normal", "errno_builtin"):
         import sqlite3
 
         original = sqlite3.connect
@@ -346,7 +362,7 @@ def run():
     assert events.index("facet.read_bootstrap.enrolled") < events.index(
         "sqlite3.connect"
     )
-    if scenario == "normal":
+    if scenario in ("normal", "errno_builtin"):
         assert ns["_stage_b"](latch) == "owner_unavailable"
         from facet.db import read_views
 
@@ -355,6 +371,7 @@ def run():
             not read_views._SEALS and not read_views._LEASES and not read_views._PERMITS
         )
         assert "_wmi" not in sys.modules
+        assert ns["_builtin_errno"]()
         assert not state_opens and set(os.listdir("/proc/self/fd")) == fd_before
         assert (
             facts[0] == tuple(sys.version_info[:3])
@@ -427,15 +444,43 @@ def run():
         refusal(lambda: ns["_stage_b"](latch), "consistency_failure")
         assert latch.phase == "invalidated"
         refusal(lambda: ns["_stage_b"](latch))
-    elif scenario == "alternate_native":
+    elif scenario in (
+        "alternate_native",
+        "errno_native_generic_positive",
+        "errno_native_builtin_negative",
+    ):
         import _imp
         import importlib.machinery
 
-        specification = importlib.machinery.ModuleSpec(
-            "_uuid", None, origin=sys.argv[3]
-        )
-        refusal(lambda: _imp.create_dynamic(specification), "consistency_failure")
-        assert "_uuid" not in sys.modules and latch.phase == "invalidated"
+        original = sys.modules["_sqlite3"]
+        before = snapshot(latch)
+        native_events.clear()
+        boundary = ns["_STDLIB"]
+        causal = scenario != "alternate_native"
+        name = "errno" if scenario == "errno_native_builtin_negative" else "_sqlite3"
+        specification = importlib.machinery.ModuleSpec(name, None, origin=sys.argv[3])
+        if causal:
+            # Approved helper-only namespace-boundary fault after the ORIGINAL
+            # memory probe/confirmed close, never a production fallback.
+            assert latch.probe_connection is None and latch.phase == "probed"
+            ns["_STDLIB"] = os.path.dirname(sys.argv[3])
+        try:
+            if scenario == "errno_native_generic_positive":
+                module = _imp.create_dynamic(specification)
+                assert type(module) is type(sys) and module.__name__ == "_sqlite3"
+                assert snapshot(latch) == before
+                # Never exec_dynamic/call this module's APIs/connect again.
+            else:
+                refusal(
+                    lambda: _imp.create_dynamic(specification), "consistency_failure"
+                )
+                assert latch.phase == "invalidated"
+                assert snapshot(latch)[3:] == before[3:]
+        finally:
+            ns["_STDLIB"] = boundary
+        assert (name, sys.argv[3]) in native_events
+        assert sys.modules["_sqlite3"] is original
+        assert latch.probe_connection is None and latch.runtime_facts is facts
     elif scenario == "optional_implementation":
         sys.path.insert(0, sys.argv[3])
         refusal(lambda: __import__("_wmi"), "consistency_failure")
