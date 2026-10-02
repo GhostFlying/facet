@@ -1,0 +1,37 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
+
+# OAuth client credentials, refresh tokens, private account bindings, and
+# experiment evidence must never be committed.
+.facet-spike/
+
+# Production state and local deployment material.
+/.facet/
+/data/
+/credentials/
+/backups/
+.env
+.env.*
+!.env.example
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
+
+# Build and test artifacts.
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/

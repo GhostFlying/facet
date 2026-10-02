@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "facet-gmail-spike"
+version = "0.1.0"
+description = "Phase 0 Gmail projection experiments for Facet"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "google-api-python-client>=2.184,<3",
+  "google-auth>=2.41,<3",
+  "google-auth-httplib2>=0.2,<1",
+  "google-auth-oauthlib>=1.2,<2",
+  "pysocks>=1.7,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4,<9",
+  "ruff>=0.13,<1",
+]
+
+[project.scripts]
+facet-spike = "facet_spike.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/facet_spike"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
