@@ -172,3 +172,93 @@ source evidence, not independent acceptance or a claim that historical failed
 main36b CI passed. Fresh exact-head dual-Python CI and nonauthor source review
 remain required before root-qualified normal integration. No migration, SQL,
 shared-status, production runtime, Gmail or deployment action was taken.
+
+## Proposed bounded inventory-oracle correction, 2026-10-03 PRC
+
+Status: plan-only amendment; independent exact-plan approval and root source
+release required before editing either test file. Preserve the preceding 174
+lines byte-for-byte and source candidate `a410ca1dab1e0f0a8980f77d0443f88a92e7b982`.
+
+Independent acceptance placed a410 on HOLD: the focused run passed 147 tests and
+failed one complete batch in `thread_timeout_fault`, before its handshake, at
+`test_original_inventory_changed`. Its full 756 run and both CI37033521251 jobs
+passed; those successes do not override the detecting failure. A paired isolated
+probe passed without sibling activity but deterministically reproduced the error
+with ONE freshly owned sibling directory. Only inventory component5, full native
+`fstat` results, changed: ancestor directory nlink3->4, size60->80 and mtime/ctime.
+Primitive components0–4, enrolled objects, dev/inode/UID/mode and phases remained
+identical; real kernel contention and creator cleanup remained correct. The
+author's separate owned-sibling probe confirmed the same causal oracle defect.
+This is test overcomparison, not observed lock ownership acceptance.
+
+### Exact comparison and retained controls
+
+Only the same two test files and this plan remain allocated. Production runtime,
+the entire qualified OS/C1 plan, SQL/migration/shared docs, dependencies and CI
+stay unchanged. No ownership policy or runtime callable is altered.
+
+Keep every current primitive PID/strong-Thread/object/phase/entered/lease/terminal
+and inode-enrollment snapshot field. For every actually retained descriptor,
+compare its integer, enrolled descriptor-object identity and saved `_Identity`,
+plus actual `fstat` device/inode/UID/mode. For regular lock files also compare
+actual nlink and size: stable lock files still require one link and zero bytes.
+Do not compare directory nlink/size or native atime/mtime/ctime: ordinary sibling
+activity can change them without changing any enrolled descriptor or ownership
+invariant. Ancestor safety and private-directory/file policies remain enforced
+by the unchanged production checks; this does not exempt any path or filesystem.
+Parent tests retain their exact private-root tree/bytes/mtime and FD before/after
+oracles. The original sibling is outside that private root, not a mutation of it.
+
+Add exactly two fixed paired whole-child scenarios to existing detecting cases
+and each fixed twenty-batch run, preserving every prior case and timeout:
+
+- `thread_timeout_sibling`: retain the actual live creator/root/owner, capture the
+  baseline, then create ONE fresh owner-only sibling under the test-owned parent.
+  Keep it present through actual started-worker readiness-timeout/finally joins
+  and the corrected inventory comparison. Require unchanged enrollment/identity/
+  phases, original creator checks and real external owner_busy. Finally remove
+  only this freshly created empty sibling, finish/join the creator, and prove
+  post-exit acquisition plus no fixture/parent-FD leak. No generic retry is used.
+- `thread_oracle_negative`: a genuine creator retains an actual root/owner, then
+  changes only its fresh synthetic owner.lock mode0600->0640. The real retained
+  FD comparison must detect the actual mode change while enrollment and phase
+  snapshots initially remain unchanged. Call the genuine owner's check_lock;
+  require its fixed refusal and actual invalid phase transition to be detected
+  too. Restore0600 only on that owned file, retain original kernel contention
+  through the handshake, then explicitly release/close in creator finally.
+  Parent proves post-exit availability and unchanged final bytes/tree/FDs.
+
+The negative uses supported real owned-file policy drift and legitimate creator
+validation/cleanup, not fake IDs/participants, manual registry/phase mutation,
+closing/reopening foreign descriptor integers or a new native-attack API. Keep
+actual retirement, strong-Thread difference, all four original refusal calls,
+captured worker failures, maximum64 held candidates and common allocation/cleanup
+deadlines unchanged. Every actual Thread/helper is joined/reaped in finally;
+signals remain limited to fresh owned children. No skip/xfail/fallback/CI change.
+
+### Acceptance and immutable handoff
+
+Require the deterministic sibling-positive and descriptor/phase-negative pair,
+all seven original child scenarios, twenty fixed complete nine-scenario batches,
+all original focused OS cases and full retained756 plus two new cases. Record
+actual runtimes/counts instead of predicting results. Repeat existing locked,
+Ruff/format, CLI, privacy/safety, original test-AST/prefix/production-byte and
+fresh installed-wheel controls. Preserve a410 HOLD and main36b failed CI receipts.
+Save exact independent approval/root release before test edits; freeze a new
+ordinary user/noreply commit, normal push and fresh exact-head dual-Python CI for
+independent nonauthor acceptance. Neither green CI nor this plan author can
+qualify/merge the correction; root must release normal integration separately.
+Stop for a required extra file/API, weakened actual identity/file policy,
+unbounded cleanup, inability to prove the detecting pair or any production change.
+
+## Independent H1 pre-code release receipt
+
+On 2026-10-03 PRC, independent nonauthor Sol `phase1_os_acceptance_sol`
+approved the exact 252-line amendment SHA-256
+`fe9bb5b913e873f73b09dc2306248fc6c03be00cc3d7e1426fba56d7fd8b5edd`,
+including actual unchanged-runtime feasibility. Root read the full verdict and
+explicitly source-released only the same two test paths and this plan. Save this
+receipt in an atomic user/noreply commit before either test edit. Require a
+separate actual primitive root/lease phase difference after restoring0600, not
+whole-inventory inequality explained only by mode. New source acceptance/CI and
+separate root integration release remain required; a410 HOLD/main36b FAIL persist.
