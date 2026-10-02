@@ -629,6 +629,36 @@ class MigrationBackupReceipt(_Record):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class MigrationState(_Record):
+    projection_id: ProjectionId
+    state_instance_id: LocalId
+    request_namespace: LocalId
+    schema_version: SchemaVersion
+    config_revision: Revision
+    source_credential_revision: Revision
+    target_credential_revision: Revision
+    last_owner_run_id: LocalId | None
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class MigrationResult(_Record):
+    disposition: Literal["unchanged", "migrated"]
+    from_version: SchemaVersion
+    to_version: SchemaVersion
+    state_instance_id: LocalId
+    request_namespace: LocalId
+
+    def _validate(self) -> None:
+        if (
+            self.disposition == "unchanged" and self.from_version != self.to_version
+        ) or (
+            self.disposition == "migrated"
+            and self.from_version.value >= self.to_version.value
+        ):
+            invalid()
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class DatabaseSnapshotInfo(_Record):
     schema_version: SchemaVersion
     state_instance_id: LocalId
