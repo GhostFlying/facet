@@ -356,3 +356,62 @@ remain pending. OS foundation success does not implement SQLite/read-provider
 registration, initialization receipts, actor/UDS/CLI mutation, credentials,
 backup/restore or a second real daemon refusal. Whole M1-02/RV11, canonical M1-03,
 WR/RI acceptance, G1–G6 and live Gmail/deployment gates remain open.
+
+## Proposed closed-resource metadata retirement r2
+
+Status: proposed for independent review, not released for lifecycle source edits.
+Independent source review placed historical candidate `183dc6d6d43f9bdeb0a9221ff867e022982ebb31`
+on HOLD: order/dependency checks must aggregate the physical root device/inode,
+not only one opaque root object's local lease set. That is an in-scope correction
+to the accepted ordering contract, with paired distinct-handle/Thread controls.
+Green CI did not complete acceptance or release integration.
+
+Review also measured permanent metadata growth after normal explicit close:
+the strong root and lease registries retained every closed handle. The proposed
+bounded lifecycle refinement below preserves strong enrollment while resources
+are live, and requires this exact appendix's independent acceptance before code.
+
+- Active open/invalid roots and held/invalid leases remain in strong private
+  identity registries until explicit one-shot close/release. Dropping application
+  references never closes descriptors, unlocks, transfers or abandons authority.
+- After terminal explicit close/release (including uncertain-close outcomes),
+  remove the handle from the active registry. Store only original PID, strong
+  Thread and the terminal closed/released phase in private weak-key metadata
+  registries. Opaque handle slots permit weak references, not an FD/path/property,
+  mutable inventory, caller constructor, serialization or new public callable.
+- A caller-held terminal handle remains enrolled for same-creator repeated
+  close/release with zero syscalls. Foreign Thread/fork, forged objects, and
+  terminal checks/acquisitions still refuse before resource operations. The
+  terminal proof cannot acquire authority or close a later descriptor.
+- Once callers drop a terminal handle, its weak-key entry may disappear; no
+  strong registry/tombstone retains it, its old root or descriptor inventory.
+  Automatic weak-entry retirement removes metadata only. No finalizer, atexit,
+  weak callback or garbage collection path performs FD close/flock/filesystem
+  work. Uncertain integer close is still never retried.
+- Lifecycle controls will retain terminal handles across repeated calls and
+  refuse foreign/forged use, then drop a real repeated open/owner/release/close
+  batch and assert bounded active/terminal inventories after collection. A paired
+  dropped-live-reference control must keep the actual kernel lock contended until
+  the creator explicitly retrieves/releases the retained handle. Existing fork,
+  descriptor-reuse, uncertain-close, fixed-error and wheel/import gates rerun.
+
+This is metadata lifecycle only: no additional OS ownership model, compatibility
+API, provider, consumer, DB/credential operation or product/privacy change. Raw
+external descriptor close/reopen/dup remains outside the declared trusted native
+descriptor discipline; this proposal does not add an external-attack API.
+
+### C1 independent design release receipt
+
+Independent Sol reviewer `phase1_os_acceptance_sol` approved the exact full plan
+SHA-256 `4b7895159612699a05f7278652e9c45c884a914478ff61490a63f3358dcc898f`,
+including the proposed terminal-metadata appendix above. Root then explicitly
+released only that finite strategy for implementation within the original seven
+owned paths. This receipt was saved before lifecycle strategy source changes.
+Terminal weak values contain only original PID, strong Thread and phase; no root,
+lease, key, path or FD/inventory reference is retained. Active/invalid resources
+remain strongly held until explicit close, with no automatic resource cleanup.
+
+The appendix's prior proposed status is historical. It does not approve source
+or supersede the HOLD at `183dc6d6d43f9bdeb0a9221ff867e022982ebb31`. R1 physical-root
+ordering and this released C1 lifecycle refinement require new exact-source
+tests/wheel/CI and independent nonauthor acceptance before root integration.
