@@ -471,14 +471,17 @@ def test_actual_admitted_getters_reject_cursor_bounds_and_registered_family(stat
         assert probe.call("guard_read_cursor", P) == {"actual_child_assertions": True}
 
 
-@pytest.mark.parametrize("variant", ["foreign", "instance", "schema", "sql"])
+@pytest.mark.parametrize(
+    "variant",
+    ["foreign", "single_owner", "late_loss", "instance", "schema", "sql", "allocation"],
+)
 def test_actual_admitted_attachment_refusal_preserves_or_closes_only_owned_handle(
     state, variant
 ):
     with view(state) as probe:
         assert probe.call("read_attach_failure", P, variant=variant) == (
             {"actual_child_assertions": True}
-            if variant == "foreign"
+            if variant in {"foreign", "single_owner", "late_loss"}
             else {"ordered_cleanup": True}
         )
 

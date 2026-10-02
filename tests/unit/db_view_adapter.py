@@ -4,9 +4,11 @@ This owns actual descriptors, advisory locks, peer lifetime and every SQLite
 handle in its fresh reader. It is not a capability mock or a product opener.
 """
 
+import copy
 import fcntl
 import hashlib
 import os
+import pickle
 import select
 import socket
 import sqlite3
@@ -30,9 +32,10 @@ from facet.contracts import (
     Role,
     Sha256Hex,
 )
+from facet.db import connection as sessions
 from facet.db import read_views as views
 from facet.db.codecs import PageLimit, StorageFailure
-from facet.db.connection import _attach_view
+from facet.db.connection import ReadSession, _attach_view
 from facet.db.migration_backup import snapshot_database
 from facet.db.repositories import reads
 from facet.db.repositories.serialization import _encode_row
@@ -431,7 +434,15 @@ def physical_case(case, root, latch, facts, request):
     connection, permit = provider.open_bound(lease)
     if case == "read_attach_failure":
         variant = request["variant"]
-        assert variant in {"foreign", "instance", "schema", "sql"}
+        assert variant in {
+            "foreign",
+            "single_owner",
+            "late_loss",
+            "instance",
+            "schema",
+            "sql",
+            "allocation",
+        }
         trace = []
         connection.set_trace_callback(trace.append)
         if variant == "foreign":
@@ -455,11 +466,30 @@ def physical_case(case, root, latch, facts, request):
             thread.join(2)
             assert not thread.is_alive() and errors == [ErrorCode.OWNER_UNAVAILABLE]
             assert trace == [] and not provider.seal.invalidated
+        elif variant in {"single_owner", "late_loss"}:
+            # The paired assertions below need the first, successful attachment.
+            pass
         elif variant == "instance":
             # Genuine bound ownership, but mismatching expected identity, must
             # close rather than leave the adopted source handle alive.
             wrong = LocalId("00000000000040008000000000000063")
             _expect_failure(lambda: _attach_view(connection, wrong, permit=permit))
+        elif variant == "allocation":
+            original = sessions._Session.__init__
+
+            def failed_allocation(*args):
+                assert permit.phase == "attached"
+                assert provider.inventory[connection] == (lease, "claimed")
+                raise MemoryError("SYNTHETIC_PRIVATE_ALLOCATION_EXCEPTION")
+
+            sessions._Session.__init__ = failed_allocation
+            try:
+                _expect_failure(
+                    lambda: _attach_view(connection, instance, permit=permit),
+                    code=ErrorCode.PERSISTENCE_FAILURE,
+                )
+            finally:
+                sessions._Session.__init__ = original
         else:
             action = (
                 sqlite3.SQLITE_READ if variant == "schema" else sqlite3.SQLITE_PRAGMA
@@ -470,13 +500,112 @@ def physical_case(case, root, latch, facts, request):
                 )
             )
             _expect_failure(lambda: _attach_view(connection, instance, permit=permit))
-        if variant != "foreign":
+        if variant not in {"foreign", "single_owner", "late_loss"}:
             assert not provider.resources and not provider.inventory
             assert provider.events[-2:] == ["retired", "released"]
             return {"status": "ok", "result": {"ordered_cleanup": True}}
     reader = _attach_view(connection, instance, permit=permit)
     try:
-        if case == "guard_history_types":
+        if case == "read_attach_failure" and request["variant"] == "single_owner":
+            trace.clear()
+            inventory, resources, events = (
+                provider.inventory.copy(),
+                provider.resources.copy(),
+                tuple(provider.events),
+            )
+            for duplicate in (
+                lambda: ReadSession(connection, instance, permit),
+                lambda: ReadSession.__init__(reader, connection, instance, permit),
+                lambda: _attach_view(connection, instance, permit=permit),
+                lambda: copy.copy(reader),
+                lambda: copy.deepcopy(reader),
+                lambda: pickle.dumps(reader),
+            ):
+                _expect_failure(duplicate, code=ErrorCode.OWNER_UNAVAILABLE)
+                assert trace == []
+                assert provider.inventory == inventory
+                assert provider.resources == resources
+                assert tuple(provider.events) == events
+                assert permit.phase == "attached" and not reader._closed
+
+            failures = []
+
+            def other_owner():
+                for function in (
+                    lambda: reader._read("SELECT 1"),
+                    lambda: _attach_view(connection, instance, permit=permit),
+                ):
+                    try:
+                        function()
+                    except StorageFailure as error:
+                        failures.append(error.code)
+
+            thread = Thread(target=other_owner)
+            thread.start()
+            thread.join(2)
+            assert not thread.is_alive()
+            assert failures == [ErrorCode.OWNER_UNAVAILABLE] * 2
+            assert trace == [] and not reader._closed
+            assert tuple(provider.events) == events
+            assert provider.inventory == inventory and provider.resources == resources
+
+            readfd, writefd = os.pipe()
+            pid = os.fork()
+            if pid == 0:
+                os.close(readfd)
+                try:
+                    for function in (
+                        lambda: reader._read("SELECT 1"),
+                        lambda: _attach_view(connection, instance, permit=permit),
+                    ):
+                        _expect_failure(function, code=ErrorCode.OWNER_UNAVAILABLE)
+                    assert trace == [] and tuple(provider.events) == events
+                    assert provider.inventory == inventory
+                    assert provider.resources == resources
+                    os.write(writefd, b"ok")
+                except Exception:
+                    os.write(writefd, b"no")
+                finally:
+                    os._exit(0)
+            os.close(writefd)
+            try:
+                assert select.select([readfd], [], [], 2)[0]
+                assert os.read(readfd, 2) == b"ok"
+                assert os.waitpid(pid, 0)[1] == 0
+            finally:
+                os.close(readfd)
+
+            assert reader._read("SELECT 1") == ((1,),)
+            assert provider.inventory == inventory and provider.resources == resources
+            assert tuple(provider.events) == events
+            reader.close()
+            assert provider.events == list(events) + ["retired", "released"]
+            assert permit.phase == "closed"
+            _expect_failure(reader.close, code=ErrorCode.OWNER_UNAVAILABLE)
+            assert provider.events == list(events) + ["retired", "released"]
+        elif case == "read_attach_failure" and request["variant"] == "late_loss":
+            # A real inode metadata change invalidates the acquired OS identity;
+            # only the actual holder may then close its own admitted resources.
+            path = Path(root) / "metadata.db"
+            before = (path.stat().st_ino, path.read_bytes())
+            path.chmod(0o400)
+            trace.clear()
+            try:
+                _expect_failure(
+                    lambda: reader._read("SELECT 1"),
+                    code=ErrorCode.OWNER_UNAVAILABLE,
+                )
+            finally:
+                path.chmod(0o600)
+            assert trace == [] and reader._closed and provider.seal.invalidated
+            assert permit.phase == "closed"
+            assert not provider.inventory and not provider.resources
+            assert provider.events[-2:] == ["retired", "released"]
+            assert (path.stat().st_ino, path.read_bytes()) == before
+            after = tuple(provider.events)
+            _expect_failure(reader.close, code=ErrorCode.OWNER_UNAVAILABLE)
+            assert tuple(provider.events) == after
+        elif case == "guard_history_types":
             variant = request["variant"]
             assert variant in {"view", "projection", "poll", "ordinal", "zero"}
 

@@ -141,13 +141,22 @@ class WriterSession(_Session):
 class ReadSession(_Session):
     __slots__ = ("_permit",)
 
-    def __init__(self, connection, instance, permit):
-        # Constructors, including a direct class call, cannot bypass admission.
-        _check_permit(permit)
-        if permit.connection is not connection or permit.expected_instance != instance:
-            raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
-        super().__init__(connection, instance)
-        self._permit = permit
+    def __new__(cls, *args, **kwargs):
+        # A bound permit has exactly one admitted holder, allocated only by
+        # _attach_view. An attached permit cannot construct another alias.
+        raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+
+    def __init__(self, *args, **kwargs):
+        # Do not permit direct reinitialization of the existing holder either.
+        raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+
+    def __reduce__(self):
+        raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+
+    def __reduce_ex__(self, protocol):
+        # Copy/deepcopy and pickle must not reconstruct a second holder or
+        # traverse its private connection/capability state.
+        raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
 
     def _check(self):
         # A wrong-thread/closed caller must not close or poison the real owner.
@@ -231,9 +240,11 @@ def _attach_view(
         or type(connection) is not sqlite3.Connection
     ):
         raise StorageFailure(ErrorCode.INVALID_INPUT)
+    consumed = False
     try:
         # All provenance and creator checks precede even connection-local SQL.
         _consume_permit(permit, connection, expected_instance)
+        consumed = True
         if connection.autocommit is not True or connection.in_transaction:
             raise StorageFailure(ErrorCode.INVALID_INPUT)
         # These are connection-local defenses, never journal/checkpoint PRAGMAs.
@@ -247,18 +258,29 @@ def _attach_view(
         ).fetchone() != (expected_instance.value,):
             raise StorageFailure(ErrorCode.REQUEST_LINEAGE_MISMATCH)
         _check_permit(permit)
-        return ReadSession(connection, expected_instance, permit)
+        session = object.__new__(ReadSession)
+        _Session.__init__(session, connection, expected_instance)
+        session._permit = permit
+        return session
+    except MemoryError:
+        # First-consumption allocation failure owns cleanup, just like a schema
+        # failure. There must not be an attached permit without its holder.
+        if consumed:
+            _close_permit(permit)
+        raise StorageFailure(ErrorCode.PERSISTENCE_FAILURE) from None
     except sqlite3.Error as error:
         _close_permit(permit)
         raise sqlite_failure(error) from None
     except StorageFailure:
-        # Only an enrolled permit for this exact handle is ours to clean up.
+        # Only this first attachment, or a still-bound exact handle, is ours.
+        # A failed duplicate must never retire an already-admitted holder.
         # _close_permit repeats actual creator checks before closing, including
         # on pre-SQL lease failure; a foreign caller never adopts the owner.
         if (
             type(permit) is ReadViewPermit
             and permit in _PERMITS
             and permit.connection is connection
+            and (consumed or permit.phase == "bound")
         ):
             _close_permit(permit)
         raise
