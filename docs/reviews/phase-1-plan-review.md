@@ -2,7 +2,8 @@
 
 Date: 2026-10-02
 
-Status: independent technical pre-review approved for the revised candidate.
+Status: earlier candidate technically approved; complete CLI/commit extension
+awaits new SHA-bound review. Earlier approval does not cover the extension.
 Overall user Phase 1 plan approval G0 is separately pending. This technical
 record cannot authorize merging the overall plan or starting implementation.
 
@@ -48,3 +49,18 @@ The following report-only metadata commit records this reviewed SHA/verdict and
 check results. It does not change the substantive plan. Overall G0 is pending;
 the draft planning PR must remain unmerged. No product code, Gmail operation,
 image publication or deployment occurred.
+
+## Complete CLI and commit-contract extension
+
+The user added complete maintenance CLI and commit-subject requirements after
+the earlier reviewed candidate. Current changes require their own technical
+review. Preliminary reading identified missing thread/review/recovery preview
+producers, lookup when the first mutation response is lost, and maintenance versus
+credential-refresh ownership. The draft now specifies these paths and their
+CLI-02/06/08 acceptance; this response is not a review verdict.
+
+The existing unknown-History-gap recovery decision also has an explicit scoped
+range preview/approve path and CLI-04 guards, not a direct DB edit or cursor reset.
+
+Pending: precise candidate SHA and independent integrated review. Overall user
+approval G0 remains pending; no product implementation or overall-plan merge.

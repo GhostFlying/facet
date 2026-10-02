@@ -37,6 +37,7 @@ authority 改变重新提交用户 review。
 | 交付保证 | 持久队列、可恢复、重复抑制；跨 Gmail 和 SQLite 不承诺 exactly once |
 | AI 产品责任 | connector 的授权、索引、附件读取和检索由各 AI 产品负责 |
 | Web Dashboard | 第一期开启只读状态、进度、数量、异常和诊断，不展示邮件细节 |
+| 维护入口 | 完整 CLI 必交付：setup/config/auth、服务、规则/thread/backfill、queue/review、审计/受限修复、备份恢复迁移与升级；容器可运行且支持 offline 故障维护 |
 | Web 访问边界 | Facet 提供 HTTP，前置 Nginx 负责 HTTPS 和用户认证 |
 | 内容存储 | DB 只保存必要 metadata 和状态；默认 raw 仅驻内存，不建立磁盘 spool |
 | 镜像交付 | Actions 发布 public `ghcr.io/ghostflying/facet`；main full-SHA 自动发布，PR 只构建，正式版本 tag 另确认 |
@@ -65,6 +66,11 @@ Phase 0 验证了数据面的可行性。六个月 backfill、长期运行、His
 6. 在断网、限流、重启和授权故障后保留工作，恢复后继续。
 7. 用 Web Dashboard、status、doctor、审计记录和定期校对说明当前进度、异常与缺失。
 8. 通过 Compose 长期运行，按文档备份、恢复和升级。
+
+完整命令/JSON/退出码/确认/锁与各阶段验收见 [CLI 契约](cli-spec.md)。M1 的 CLI
+foundation 是阶段性基础；G6 要求真实可维护的全套命令及容器 E2E，不以 help-only
+骨架过关。Status/doctor 与停机 backup/restore/migrate/inspect 可以 offline 运行，
+即使 invalid_grant 或 Gmail 不可用仍能看 pending。维护协调 DB+credential ownership。
 
 第一期不实现 agent 代发、双向同步、source 状态完整复制、多租户、Web 邮件浏览或规则编辑、LLM 自动分类、通用 MCP、其他邮件 provider 或自动删除 target 邮件。Dashboard 仅用于只读运维观察，setup 与服务控制仍使用 CLI。
 
@@ -151,6 +157,10 @@ M4 完成后，形成可通过 CLI 配置、带只读 Dashboard、可长期同�
 现有 Apps Script 留下的 action labels 作为 legacy 记录展示，首次启动默认不执行；用户可以明确导入，或移除再添加以触发新命令。
 
 ### M6 自托管交付和 v0.1 验收
+
+完整 CLI 随镜像交付，exec/one-off 维护不要求 host Python。CLI-06/07/08 验收包含
+offline 故障维护、锁竞争、稳定 request key/首应答丢失、preview producer、受限
+recovery/repair 与升级回滚；真实 OAuth/Gmail/故障撤权仍受明确范围许可。
 
 交付：非 root 镜像、Compose、配置示例、HTTP Dashboard、Nginx proxy 示例、
 healthcheck、backup 和 restore CLI、中英文使用文档、离线 CI、显式开启的真实

@@ -12,7 +12,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | --- | --- | --- |
 | Phase 0 Gmail spike | Complete within its scope | See [redacted results](phase-0-gmail-spike-results.md); production behavior not implied |
 | Repository bootstrap | Complete | Public `main` published with account noreply identity; Python 3.11/3.12 offline CI passed |
-| Phase 1 execution planning | Draft; technical pre-review passed; user G0 approval pending | Reviewed `7c68991`; 36 packages, corrected dispatch dependencies, conditional internal merge/GHCR scope; no product implementation |
+| Phase 1 execution planning | CLI/commit extension draft; new technical review pending; user G0 pending | Previous `7c68991` review historical only; 36 packages plus complete CLI acceptance; no product implementation |
 | M1 foundation | Not implemented | Config, bindings, schema/migrations, locks, rule storage, public status models |
 | M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
 | M3 admission/backfill | Not implemented | Rules/authenticity, preview, fixed six-month discovery, durable backfill |
@@ -28,6 +28,15 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 ## Active implementation record
 
 - [Repository bootstrap](implementation-plans/repository-bootstrap.md).
+- User requested a complete maintenance CLI and atomic English commit subjects
+  (`feat: impl ...`, `fix: fix ...`, other types with action verbs), plus one-time
+  main-history normalization. [CLI specification](cli-spec.md) now covers full
+  command families, offline/Compose maintenance and CLI-01 through CLI-08 gates.
+  Stable request keys before submission, explicit preview producers and coordinated
+  DB/credential ownership address preliminary review feedback. This substantive
+  extension needs a new candidate review; previous approval does not cover it.
+  [History normalization](implementation-plans/commit-history-normalization.md)
+  is separately owned/reviewed; no refs have been rewritten by this document unit.
 - [Phase 1 planning record](implementation-plans/phase-1-planning.md),
   [complete execution plan](phase-1-execution-plan.md), and
   [agent workflow](agent-workflow.md). [Epic #1](https://github.com/GhostFlying/facet/issues/1)
@@ -37,8 +46,10 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
   repository safety passed for the initial candidate. Independent review of
   `a8e87de` requested changes. Independent technical re-review approved
   `7c68991ef5f47ba65cc61a0dcc2dfd80fdb0ca46`, closing R1-R3 and C1; 36-package
-  uniqueness/missing-node/cycle checks and manual wave review passed. PR CI and
-  overall user approval G0 remain pending. The
+  uniqueness/missing-node/cycle checks and manual wave review passed. Prior
+  [draft PR CI at `af3b793`](https://github.com/GhostFlying/facet/actions/runs/36960852657)
+  passed Python 3.11/3.12; it does not cover this new CLI extension. The new
+  candidate's technical review/CI and overall user approval G0 remain pending. The
   [review record](reviews/phase-1-plan-review.md) preserves both verdicts and
   responses. No
   production package, daemon, Gmail request, deployment, or image is

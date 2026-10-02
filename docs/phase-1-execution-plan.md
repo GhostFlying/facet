@@ -2,12 +2,13 @@
 
 日期：2026-10-02
 
-状态：计划技术预审通过（reviewed `7c68991ef5f47ba65cc61a0dcc2dfd80fdb0ca46`）；
+状态：完整 CLI/commit 规范新增版待技术复审；上一版技术预审通过
+（`7c68991ef5f47ba65cc61a0dcc2dfd80fdb0ca46`），不覆盖本次新增。
 整体计划待用户 review/明确批准（G0）；M1-M6 均未实现。GitHub 跟踪入口为
 [Phase 1 Epic #1](https://github.com/GhostFlying/facet/issues/1)。
 
-目标：交付单用户、自托管、可恢复的 Gmail projection，包含只读 Dashboard、
-Docker Compose 一键启动、GitHub Actions 发布的镜像、备份恢复和完整 v0.1 验收。
+目标：交付单用户、自托管、可恢复的 Gmail projection，包含完整维护 CLI、只读
+Dashboard、Docker Compose 一键启动、Actions 镜像、备份恢复和完整 v0.1 验收。
 协调 agent 负责依赖分解、派工、review 调度、验收、进度与 blocker 汇报；设计、
 代码、测试、文档、提交和冲突处理由负责的子 agent 完成。
 
@@ -17,6 +18,27 @@ Docker Compose 一键启动、GitHub Actions 发布的镜像、备份恢复和�
 [agent 工作流](agent-workflow.md)，当前能力以
 [开发状态](development-status.md) 为准。计划中的路径、命令、指标和交付件不是
 已实现功能；Phase 0 只证明其采样范围内的 Gmail 可行性。
+
+## 完整 CLI 与现有工作包
+
+[CLI 契约](cli-spec.md) 是必需交付，不能以 skeleton/help-only 验收；命令/ownership/
+JSON/退出码/confirmation/故障与 privacy 细节集中于该规格，36 个工作包 ID 不变。
+共享 command registry/types/请求键/preview 与输出规则由 foundation/integration
+owner 管理，各 feature handler 归对应包。以下 CLI acceptance 增加到包的现有 gate：
+
+| Gate / CLI acceptance | 已有包 owner | 必需实际操作 |
+| --- | --- | --- |
+| G1 / CLI-01/08 | M1-01/03/04/05/06，P1-02 | config/init、auth-status、offline status/doctor/inspect、JSON/退出码/非 TTY/privacy；稳定请求键及首次应答丢失 lookup |
+| G2 / CLI-02/08 | M2-04/05 | threads/review/recovery preview producer、track/stop、queue/operations、安全 retry；unknown insert 不绕过 recovery |
+| G3 / CLI-03 | M3-01/02/03/04 | rules、preview/start/backfill pause/resume、review；用途/范围/过期 preview guards |
+| G4 / CLI-04 | M1-03，M4-02/03/04/06 | daemon 控制和持久 pause、ingestion/mutation 边界、unknown gap 的显式范围决定、可续 reconcile/audit、bounded repair |
+| G5 / CLI-05 | M5-01/02/03 | mode/实际 scopes、legacy report、blacklist/stop，不复活 stopped generation |
+| G6 / CLI-06/07/08 | M6-01/02/03/06/07/08 | 最终 image 完整 CLI，无 host Python；offline backup/restore/migrate/inspect、re-auth、升级回滚和容器 E2E |
+
+M1-03/M1-04 的 writer/auth ADR 同时定义成套维护与 auth/refresh 的 DB+credential
+ownership/锁层次，防止 backup/restore 跨版本。离线读命令不因 invalid_grant 失效；
+CLI 私密 metadata 与公共 aggregate DTO 分开，所有模式都禁止正文/raw/凭据/原始
+provider errors。实际 Gmail/re-auth/repair 仍须独立范围许可，G0 当前 pending。
 
 ## 完成定义和调度原则
 
@@ -83,7 +105,7 @@ G1→G2→G3→G4→G5→G6 的验收顺序保持不变。后阶段的 ADR、合
 | G3 | 规则、可信 admission、固定六个月边界、H0、可恢复发现和 preview；认证证据启用门槛 | 合成 parser 测试不能独自证明 Gmail-path 信任 |
 | G4 | 完整 History 分页、gap/reconcile/audit、runtime 与只读 Dashboard；初始化交错实测和浏览器隐私 | 离线 backfill 完成不等于增量无缝衔接 |
 | G5 | 三种 action、legacy、幂等、readonly/便利模式、BlackList 竞争测试与范围内 live 证据 | 当前 label 快照不能复原过期 add/remove 命令 |
-| G6 | 备份恢复、公开镜像验证、Compose/Nginx、升级回滚、双语文档、授权部署和 72h dogfood | 构建成功不能证明架构运行、真实部署或长期稳定 |
+| G6 | 完整 CLI-06/07/08、备份恢复、镜像/Compose/Nginx、升级回滚、双语文档、授权部署和 72h dogfood | Build/help 成功不能证明完整维护 CLI、真实部署或长期稳定 |
 
 ## P1：开工基础和测试基座
 

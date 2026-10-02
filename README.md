@@ -45,6 +45,9 @@ autonomously. Material product, privacy or authority changes return to the user.
   configuration, storage, queues, recovery, and CLI.
 - [Dashboard specification](docs/dashboard-spec.md): read-only sync status,
   progress, counts, issues, diagnostics, and privacy boundaries.
+- [Complete maintenance CLI](docs/cli-spec.md): command/ownership contract,
+  offline troubleshooting, JSON/exit codes, confirmations, bounded repair and
+  recovery, backup/restore/migration, and Compose end-to-end acceptance.
 
 Facet's acceptance boundary ends at correct target Gmail materialization and
 readback. Each AI product owns its connector indexing and retrieval behavior.
@@ -64,6 +67,17 @@ Image workflow implementation and publication triggers begin after Phase 1 plan
 approval/start; the approved package scope does not start that work now.
 Formal version tags/releases, live mailbox scope and deployment host remain
 separate decisions.
+
+The complete CLI is a required Phase 1 deliverable, not help-only scaffolding.
+All maintenance commands will run from the image without host Python. Status,
+doctor and stopped backup/restore/migration/inspection work offline when Gmail
+or OAuth fails; queue retry cannot bypass unknown-insert recovery. This new CLI
+contract requires its own technical review and remains unimplemented.
+
+Commit subjects use atomic English `type: action summary` form: features use
+`feat: impl ...`, fixes use `fix: fix ...`, and documentation/test/refactor/CI/
+chore commits use a clear action verb. The user-authorized one-time main-history
+normalization is a separately reviewed operation, not general rewrite authority.
 
 ## Local setup
 

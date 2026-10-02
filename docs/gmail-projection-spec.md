@@ -260,42 +260,32 @@ trigger、full source SHA/digest、amd64/arm64、SBOM/provenance 和匿名拉取
 
 ## 计划中的 CLI
 
+完整命令、preview producers、稳定 request key/receipt lookup、JSON/退出码、确认、
+private/public DTO 和分阶段验收以 [完整维护 CLI 契约](cli-spec.md) 为准；这些是
+必交付接口，不是 help-only 骨架。以下仅展示默认 offline 诊断路径：
+
 ```text
-facet init
-facet gmail auth source
-facet gmail auth target
-facet run
-facet status
-facet doctor
-
-facet rules list
-facet rules add-domain <domain>
-facet rules add-sender <address>
-facet rules blacklist <address> --thread <source-thread-id>
-facet rules remove <rule-id>
-facet gmail track --thread <source-thread-id> --yes
-facet gmail stop --thread <source-thread-id>
-
-facet backfill preview --since 6m
-facet backfill start --since 6m --yes
-facet backfill status
-facet backfill stop
-facet backfill resume
-
-facet review list
-facet review show <item-id>
-facet review approve <item-id> --yes
-facet reconcile --source
-facet reconcile --target
-facet reconcile --target --repair-missing --yes
-facet audit target --full
-facet backup <destination>
+facet config validate --json
+facet gmail auth-status --json
+facet status --json
+facet doctor --json
+facet maintenance inspect --json
 ```
 
-CLI 规则变更通过事务和 audit 与 daemon 协作，不直接绕过 queue 调用 insert。需要扩大披露的操作明确显示范围；JSON 输出用于脚本，默认不含邮件正文。`doctor` 返回配置、路径权限、账号、scope、schema、进程锁、存储与最近同步状态的可操作结果。
+CLI 规则变更通过事务/audit 和唯一 writer，不直接绕过 queue insert。Thread/review/
+recovery/repair/start 都有对应 scoped preview 入口；queue retry 不绕 unknown intent。
+需要扩大披露或维修状态的操作明确范围/确认，first response 丢失可按 client-held
+request key 查询。Status/doctor 默认 offline；live check 显式选择，不因 invalid_grant
+失去本地 pending 诊断能力。Private metadata 需 opt-in，public DTO 遵守 Dashboard
+边界；所有模式禁止正文/raw/凭据/provider response。
 
 CLI 的实际 writer 协作遵守已评审 command ADR，mutation 的 crash/replay 不能重复
 规则效果；read-only status/doctor 不申请写入所有权。
+
+Offline inspect/backup/restore/migrate 不要求 Gmail 可用，恢复后先保
+`binding_verification_pending` 写入禁止，再在 startup 核验 live profiles/unknown
+outcomes。成套维护同时协调 DB 与 credential ownership，避免并发 auth/refresh
+跨版本；one-off container 与 daemon 共用 state/锁，无 host Python 要求。
 
 ## 交付和实施顺序
 

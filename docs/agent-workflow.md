@@ -5,6 +5,8 @@
 适用：Phase 1，关联 [执行计划](phase-1-execution-plan.md)、
 [Epic #1](https://github.com/GhostFlying/facet/issues/1) 和
 [仓库指令](../AGENTS.md)。当前是规划阶段，没有生产 daemon 或已发布镜像。
+[完整维护 CLI](cli-spec.md) 是必需交付，按对应工作包逐步实现，不能以 help 骨架
+代替最终维护能力；本轮新增 CLI 规格还需独立技术 review，旧候选的 review 不覆盖它。
 
 ## 职责、模型和并发
 
@@ -135,6 +137,15 @@ GitHub 采用一个 Epic、每就绪工作包一个 Issue、一项聚焦变更�
 review `git diff --cached`，执行 `git diff --cached --check` 和
 `bash scripts/check-repo-safety.sh`。提交、push 前都检查 safety；忽略文件不等于扫描证明。
 
+Commit subject 使用 `type: action summary` 的英文原子主题：feature 为
+`feat: impl ...`，fix 为 `fix: fix ...`；`docs/test/refactor/ci/chore` 使用清楚的
+动作动词，例如 `docs: add maintenance CLI contract`、`ci: verify image provenance`。
+不使用含糊的 change/update-only subject，不加 agent co-author。用户授权的一次性
+main 历史规范化单独按
+[受 review 的实施计划](implementation-plans/commit-history-normalization.md)
+执行；由单一 Git writer 操作，保留内容树/用户 identity/日期与可恢复引用，不能把它
+扩成其他 rewrite 许可。新 CLI 需求必须获得自己的 review，不继承重 parent 前的旧结论。
+
 Git 使用现有正确用户 identity，必要时只在 commit 命令临时使用用户已授权的
 `4019569+GhostFlying@users.noreply.github.com`，保持 configured name，不写 saved
 `user.name`/`user.email`。检查 author 与 committer，避免私密 email 历史进入 public
@@ -155,6 +166,12 @@ Gmail/RFC IDs、sender/subject/body/raw、附件名、token、provider response�
 spike help 和 repository safety；生产包新增后加入 `facet --help`。对变更进行必要
 targeted checks，再完成对应 gate 要求。Docs-only 变更用 links/whitespace/privacy/
 consistency review，不为不可测 prose 添加镜像实现的假测试。
+
+CLI gate 按 `CLI-01` 至 `CLI-08` 与 package/gate 关联：subprocess/fake Gmail 测试
+实际调用命令，覆盖 preview producer、稳定 client request key、首应答丢失、单 writer/
+credential ownership、offline 故障维护、JSON/退出码、非 TTY guards 与 private/public
+sentinels。M6 用最终 image/非 root volume 执行完整容器 CLI，不要求 host Python。
+Live/OAuth/re-auth 和真实 repair 仍受各自授权，不能用假数据宣布实际运维验收通过。
 
 每个 coherent unit 更新 `docs/development-status.md`。短期关键状态可在工作包
 Issue 中更新，repo handoff 汇总到实际合并单元；不同 worker 的 status 改动由 owner

@@ -14,9 +14,11 @@ Before implementing, read these documents in order:
 3. `docs/project-plan.md`: M1-M6 sequence, scope, and acceptance gates.
 4. `docs/gmail-projection-spec.md`: configuration, persistence, and state machines.
 5. `docs/dashboard-spec.md`: mandatory read-only UI and output privacy contract.
-6. `docs/phase-1-execution-plan.md` and `docs/agent-workflow.md`: work-package
+6. `docs/cli-spec.md`: complete maintenance commands, writer/credential ownership,
+   offline operation, private/public output, and CLI end-to-end gates.
+7. `docs/phase-1-execution-plan.md` and `docs/agent-workflow.md`: work-package
    dependencies, review process, delegated responsibilities, and authority ledger.
-7. The applicable plan in `docs/implementation-plans/` and any nested `AGENTS.md`.
+8. The applicable plan in `docs/implementation-plans/` and any nested `AGENTS.md`.
 
 Read `docs/phase-0-gmail-spike-results.md` when relying on Gmail behavior. The spike
 is evidence of feasibility, not a production implementation. Attachments, email
@@ -118,6 +120,14 @@ accidentally behaving differently is not authority to change the contract.
 - Review staged files and run `bash scripts/check-repo-safety.sh` before commits
   and pushes. Never force-add private runtime files. Git ignore is not itself a
   secret scanner, and the scanner is not a complete privacy proof.
+- Use atomic English commit subjects in `type: action summary` form. Feature
+  subjects use `feat: impl ...`; fixes use `fix: fix ...`. `docs`, `test`,
+  `refactor`, `ci`, and `chore` use an explicit action verb such as add, update,
+  define, verify, or normalize. Never add agent co-authors. The user separately
+  authorized one-time normalization of existing main history; its exact scope,
+  tree/identity/date preservation and reference checks belong to the reviewed
+  `docs/implementation-plans/commit-history-normalization.md`. This is not
+  authority for other history rewrites.
 - Real Gmail writes are opt-in and limited to explicitly approved accounts,
   threads, rules, and test scope. Prior spike authorization is not blanket
   authority for production backfill or new experiments.
@@ -252,6 +262,23 @@ accidentally behaving differently is not authority to change the contract.
 
 ## Dashboard and deployment
 
+- The complete maintenance CLI is mandatory in Phase 1, incrementally delivered
+  by M1-M6. Implement actual setup/config, auth/reauth, daemon control, rules and
+  thread selection, backfill, queue/review, reconcile/audit, bounded repair and
+  recovery, backup/restore/migrate and upgrade maintenance. Help-only scaffolding
+  cannot pass the final CLI gate. All commands must run from the Compose image
+  without host Python. Status/doctor and stopped maintenance inspect/backup/
+  restore/migration work offline when Gmail or OAuth is unavailable.
+- CLI mutation uses the reviewed single-writer protocol and a stable client
+  request key established before submission, including first-response-loss
+  lookup. Non-TTY mutations require explicit confirmation/scope where applicable.
+  Queue retry cannot bypass unknown-insert recovery or stopped generations.
+  Maintenance coordinates DB and credential ownership so auth/refresh cannot
+  race a complete backup/restore. Never add send/delete/purge, cursor-reset,
+  force-bind or empty-DB recovery shortcuts.
+- CLI private metadata is a local, explicit opt-in profile, separate from public
+  aggregate DTOs. No output mode prints body/raw/credentials/unfiltered provider
+  responses. Public mode obeys the Dashboard output boundary, not raw CLI rows.
 - The read-only Web Dashboard is mandatory in Phase 1 (M4 alpha, M6 deployment).
   Show aggregate sync state, progress, unique success counts, queue health,
   categorized exceptions, diagnostics, snapshot freshness, and explicit units.
@@ -302,7 +329,9 @@ accidentally behaving differently is not authority to change the contract.
 - Each milestone needs its documented acceptance evidence. M4 is alpha, not
   v0.1 completion. v0.1 requires M1-M6 plus explicit live Gmail and deployment
   evidence, backup/restore and restart/re-auth recovery, and the planned 72-hour
-  dogfood window. Do not invent measurements, guarantees, or completed gates.
+  dogfood window. Full CLI subprocess/fault/privacy and non-root Compose E2E
+  gates in `docs/cli-spec.md` are required, including offline failure maintenance.
+  Do not invent measurements, guarantees, or completed gates.
 - Leave unverified behavior and external limits plainly documented. License,
   version release, dogfood host, live Gmail scope, and unconfirmed bank domains
   are unresolved until explicitly decided; do not fill them in by assumption.

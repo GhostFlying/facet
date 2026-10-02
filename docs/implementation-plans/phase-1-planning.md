@@ -30,6 +30,9 @@ overwritten.
 
 ## File scope
 
+- Add `docs/cli-spec.md` for the user's complete maintenance-CLI requirement:
+  command groups, effect/lock ownership, JSON/exit-code contract, confirmation,
+  offline operation, privacy and local/Compose E2E acceptance.
 - Add `docs/phase-1-execution-plan.md`: stable work-package IDs, dependency graph,
   interfaces, M1-M6 gates, evidence requirements, release/Compose scope, risks,
   decision ledger, and first dispatch wave.
@@ -81,6 +84,53 @@ Combine this clarification with the independent technical review of candidate
 issues, and commit a new local candidate for re-review. Do not push or create a
 PR until the coordinator directs it, and do not implement product code or run
 Gmail/publication/deployment actions.
+
+## CLI and commit-subject extension before editing
+
+The user added two requirements: a complete CLI for maintenance, and commit
+subjects in the `type: action summary` form, specifically `feat: impl ...` and
+`fix: fix ...`, with one-time normalization of existing main history. This
+author only edits documentation; the separate history agent owns
+`docs/implementation-plans/commit-history-normalization.md` and all later
+approved reference/history operations. Do not edit or stage that agent's file.
+
+Before implementation, specify the full CLI across config/init/validation,
+OAuth/status/re-auth, daemon control and pause boundaries, rules/thread actions,
+preview/backfill, queue/review, reconcile/audit, bounded repair/recovery, and
+backup/restore/migrate/upgrade maintenance. Map commands to existing package
+owners and G1-G6 gates, preserving the 36 package IDs. Status/doctor and stopped
+maintenance inspection/backup/restore/migration must work offline and from the
+image without installing host Python. Queue retry cannot bypass unknown-insert
+recovery or stopped generations; one-off containers must honor locks.
+
+Synchronize AGENTS, workflow, execution/project/Gmail specifications, development
+status and README. Make clear that complete CLI is a Phase 1 deliverable, not
+help-only scaffolding. Define private local metadata separately from public DTOs;
+neither profile permits mail bodies/raw/credentials/unfiltered exceptions.
+Set structured JSON, exit codes, non-TTY confirmations and explicit write scopes.
+
+Acceptance: all requested maintenance paths have command/owner/effect/lock and
+test coverage; offline/Compose E2E requirements are explicit; no send/delete/
+purge, reset-cursor or force-bind shortcuts appear. Documentation checks and
+independent review apply to the new revision, not the previously approved SHA.
+Risks: unintended disclosure from generic retry/repair, a second writer in a
+maintenance container, credential output, and reusing old review after substantive
+CLI requirements change. Stop for those conflicts. Product implementation and
+user overall-plan approval G0 remain pending.
+
+The current baseline is published draft PR #2 at `af3b793`; this extension is
+prepared as a reviewable working-tree diff. Do not commit, push, stage the history
+agent's file or operate on refs until the coordinator assigns the single Git
+writer after review.
+
+The coordinator has now assigned this author candidate-only Git ownership:
+after documentation/whitespace/safety checks, stage the owned documents and the
+separately approved, unchanged history-plan file (SHA-256
+`eab928e34e440be59cd1dbdf16d3679503fcae2d2695246913bd2393a1e12288`) and make one
+local `docs: plan complete maintenance CLI and commit conventions` candidate.
+No push, merge or reference rewrite is authorized by this candidate step. The
+history agent's file is not edited by this author. Freeze the resulting SHA for
+independent review; previous plan approval is historical only.
 
 ## Acceptance and checks
 
