@@ -1,5 +1,6 @@
 """Owner-supplied connection adapters, not production filesystem/lock factories."""
 
+import os
 import sqlite3
 import threading
 from contextlib import suppress
@@ -92,12 +93,35 @@ class _Session:
 
 
 class WriterSession(_Session):
-    __slots__ = ("_info", "_uow")
+    __slots__ = ("_info", "_uow", "_creator_pid", "_creator_thread")
 
     def __init__(self, connection: sqlite3.Connection, info: OwnerSessionInfo):
         super().__init__(connection, info.state_instance_id)
         self._info = info
         self._uow = None
+        self._creator_pid = os.getpid()
+        self._creator_thread = threading.current_thread()
+
+    def _check_creator(self) -> None:
+        # Identity is available even after native connection failure. Refused
+        # foreign/fork callers cannot probe, poison or clean up the real owner.
+        if (
+            os.getpid() != self._creator_pid
+            or threading.current_thread() is not self._creator_thread
+        ):
+            raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+
+    def _check(self) -> None:
+        self._check_creator()
+        super()._check()
+
+    def _invalidate(self) -> None:
+        self._check_creator()
+        try:
+            super()._invalidate()
+        finally:
+            if self._uow is not None:
+                self._uow._retire()
 
     def _check_lineage(self) -> None:
         row = self._connection.execute(

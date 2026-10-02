@@ -499,3 +499,48 @@ scope correction and additive tests above. This receipt is saved in a normal
 documentation-only commit before any R3 strategy source. Neither historical62
 nor source246 is accepted; downstream migration source and restore plan remain
 paused, and a new exact candidate needs separate non-author acceptance and CI.
+
+#### R3 corrected-source author verification handoff
+
+Pre-strategy receipt commit `7e274a3c67d554f7e320e54d2293dd009c41ea3e`
+preserves the exact independently approved 490-line plan. The finite correction
+retains the actual WriterSession creator PID and Thread object, checks them
+before any native connection probe or state/resource mutation, and retires only
+the exact current UoW. Foreign entry/exit/close/cleanup and stale-UoW refusal do
+not clear OPEN/CONSUMED/attention fences, poison or close the creator. Genuine
+creator close, rollback and failed/ambiguous persistence still invalidate the
+owned writer and retire its exact scope; uncertainty never returns success.
+No `_Session` or ReadSession class behavior, read permit/provider, OS source,
+schema/model/core contract, public API or producer registration was changed.
+
+Actual author verification on Python 3.12.13 / SQLite 3.53.1:
+
+- Full offline suite: **1598 passed in 272.26 seconds**, retaining all 1525
+  prior cases and adding 73 R3 cases. Existing ACTION function/class AST bodies
+  and `_Session`/ReadSession class ASTs are unchanged. Accepted OS paths and all
+  other original SQL tests remain unchanged.
+- New R3 subgroup: **73 passed in 16.31 seconds**, after an initial 73 passing
+  run. Actual foreign public lifecycle controls cover all three reported fence
+  erasures, zero SQL/state effects, native default and `check_same_thread=False`
+  connections, valid creator completion/read/commit and detecting whole rollback.
+  Attention controls explicitly keep the shipping producer tuple empty.
+- Repeated recycled-Thread/fork/stale-UoW/uncertainty subgroup: **15 passed in
+  3.05 seconds**. Numeric ID reuse is actually observed in a bounded isolated
+  child, not mocked or skipped; the retained original Thread refuses transfer.
+  Owned fork uses immediate child exit without inherited SQLite finalizers.
+  Actual before/after COMMIT and after ROLLBACK acknowledgment faults close and
+  retire the creator; independent file reopen inspects actual old/new outcomes.
+- Locked offline sync, Ruff/format (158 files), both CLI helps, JSON version,
+  whitespace and repository safety pass. Original185, reviewed336, historical399
+  and reviewed490 prefixes plus the exact329 ADR preserve their recorded hashes.
+- A fresh noneditable wheel build/install outside the repository passes exact
+  DB/OS source/archive/installed-byte, empty production registry, absent test/
+  private artifact and no connection/file/FD/fork-hook/network/log/provider import
+  effect checks. The installer hardlink-to-copy warning is non-failing.
+
+These are author checks on this finite branch, not independent acceptance or a
+claim that the separately corrected main Thread harness is included. Its actual
+qualified main carry and measured combined evidence remain a separate root gate.
+Historical source62/246 remain HOLD. The new exact R3 candidate still requires
+non-author source acceptance and exact dual-Python CI; PR15/Issue9, whole M1-02,
+production M5/M103/RV11/G1, migration source and restore work remain pending.

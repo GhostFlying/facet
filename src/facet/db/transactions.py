@@ -33,12 +33,11 @@ class UnitOfWork:
 
     def __enter__(self) -> "UnitOfWork":
         session = self._session
+        session._check_creator()
+        if self._entered or session._uow is not None:
+            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
         session._check()
-        if (
-            self._entered
-            or session._uow is not None
-            or session._connection.in_transaction
-        ):
+        if session._connection.in_transaction:
             raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
         self._entered = True
         try:
@@ -60,9 +59,25 @@ class UnitOfWork:
         return self
 
     def _check(self) -> None:
-        self._session._check()
+        self._session._check_creator()
         if not self._active or self._session._uow is not self or self._failed:
             raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+        self._session._check()
+
+    def _retire(self) -> None:
+        session = self._session
+        session._check_creator()
+        if session._uow is not self:
+            # Owned invalidation may already have retired this exact UoW. It
+            # must never clean up a different current transaction.
+            if not self._active and session._uow is None:
+                return
+            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+        from .repositories.actions import _invalidate_action_scope
+
+        _invalidate_action_scope(self)
+        self._active = False
+        session._uow = None
 
     def _execute(self, sql: str, parameters: tuple = ()) -> sqlite3.Cursor:
         """Only fixed internal repository SQL calls this private helper."""
@@ -75,29 +90,29 @@ class UnitOfWork:
 
     def _rollback(self) -> None:
         session = self._session
+        session._check_creator()
+        if not self._active or session._uow is not self:
+            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
         try:
             session._connection.execute("ROLLBACK")
         except sqlite3.Error:
             session._invalidate()
             raise StorageFailure(ErrorCode.PERSISTENCE_FAILURE) from None
         finally:
-            from .repositories.actions import _invalidate_action_scope
-
-            _invalidate_action_scope(self)
-            self._active = False
-            session._uow = None
+            self._retire()
 
     def __exit__(self, exc_type, exc, traceback) -> bool:
         session = self._session
+        # This must be outside the owned cleanup handler. A foreign refusal is
+        # not authority to erase the creator's OPEN/CONSUMED/attention fences.
+        session._check_creator()
+        if not self._active or session._uow is not self:
+            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
         try:
             session._check()
         except StorageFailure:
-            from .repositories.actions import _invalidate_action_scope
-
-            _invalidate_action_scope(self)
+            session._invalidate()
             raise
-        if not self._active:
-            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
         if exc_type is not None or self._failed:
             self._rollback()
             if isinstance(exc, StorageFailure):
@@ -123,9 +138,5 @@ class UnitOfWork:
             session._invalidate()
             raise sqlite_failure(error) from None
         finally:
-            from .repositories.actions import _invalidate_action_scope
-
-            _invalidate_action_scope(self)
-            self._active = False
-            session._uow = None
+            self._retire()
         return False

@@ -1,9 +1,16 @@
 """AP01–12: real WAL/UoW action facts, not production M5 learning authority."""
 
+import os
+import signal
 import sqlite3
-from contextlib import contextmanager, suppress
+import subprocess
+import sys
+import threading
+import time
+from contextlib import contextmanager, nullcontext, suppress
 from dataclasses import FrozenInstanceError, replace
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from fakes.privacy import (
@@ -26,7 +33,7 @@ from test_db_repositories import (
     view,
 )
 from test_db_repositories import state as state
-from test_db_schema import NOW, P, lid
+from test_db_schema import NOW, P, create_state, lid
 
 from facet.contracts import (
     ErrorCode,
@@ -1843,3 +1850,449 @@ def test_ap12_sensitive_payloads_errors_and_provider_exceptions_never_enter_sink
     captured = capsys.readouterr()
     assert_private_boundary(captured.out + captured.err, sentinels, Profile.PUBLIC)
     assert connection.execute("SELECT COUNT(*) FROM audit_events").fetchone() == (0,)
+
+
+@pytest.fixture
+def r3_state(tmp_path, request):
+    path = tmp_path / "creator-lifecycle.db"
+    connection, session, info = create_state(path)
+    if not request.param:
+        session.close()
+        connection = sqlite3.connect(path, autocommit=True, check_same_thread=False)
+        session = _attach_writer(connection, info)
+    yield path, connection, session, info
+    if not session._closed:
+        session.close()
+
+
+def _r3_lifecycle_state(uow):
+    session = uow._session
+    scope = uow._action_scope
+    return (
+        uow._entered,
+        uow._active,
+        uow._failed,
+        session._closed,
+        session._uow,
+        scope,
+        None if scope is None else scope.phase,
+        scope in actions._ENROLLED_SCOPES,
+        uow._action_business_touched,
+        uow._action_attention_completed,
+        session._connection.in_transaction,
+        session._connection.total_changes,
+    )
+
+
+def _r3_foreign_refusal(uow, operation):
+    before = _r3_lifecycle_state(uow)
+    errors, statements = [], []
+    connection = uow._session._connection
+    connection.set_trace_callback(statements.append)
+
+    def foreign():
+        try:
+            if operation == "enter":
+                uow.__enter__()
+            elif operation == "exception_exit":
+                uow.__exit__(
+                    StorageFailure, StorageFailure(ErrorCode.INVALID_INPUT), None
+                )
+            elif operation == "close":
+                uow._session.close()
+            elif operation == "rollback":
+                uow._rollback()
+            elif operation == "retire":
+                uow._retire()
+            elif operation == "scope_retire":
+                actions._invalidate_action_scope(uow)
+            elif operation == "writer_invalidate":
+                uow._session._invalidate()
+            else:
+                for _ in range(2 if operation == "repeated_exit" else 1):
+                    with pytest.raises(StorageFailure) as caught:
+                        uow.__exit__(None, None, None)
+                    errors.append(caught.value.code)
+                return
+        except StorageFailure as error:
+            errors.append(error.code)
+
+    child = threading.Thread(target=foreign)
+    try:
+        child.start()
+        child.join(5)
+        assert not child.is_alive()
+    finally:
+        connection.set_trace_callback(None)
+    assert errors == [ErrorCode.OWNER_UNAVAILABLE] * (
+        2 if operation == "repeated_exit" else 1
+    )
+    assert statements == []
+    assert _r3_lifecycle_state(uow) == before
+
+
+@pytest.mark.parametrize("r3_state", [True, False], indirect=True)
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "open_forget",
+        "open_complete",
+        "consumed_commit",
+        "consumed_business",
+        "attention_commit",
+        "attention_business",
+    ],
+)
+@pytest.mark.parametrize(
+    "operation", ["exit", "exception_exit", "repeated_exit", "close"]
+)
+def test_ap08_r3_foreign_public_lifecycle_preserves_creator_fences(
+    r3_state, producer, monkeypatch, scenario, operation
+):
+    path, connection, session, _ = r3_state
+    attention_phase = scenario.startswith("attention")
+    if attention_phase:
+        monkeypatch.setattr(actions, "_ACTION_PRODUCER_TYPES", ())
+        assert actions._ACTION_PRODUCER_TYPES == ()
+        publish(session)
+    row = register(session)
+    selected_epoch = None if attention_phase else prepare_epoch(session)
+    before = image(connection)
+    rollback = scenario.endswith(("forget", "business"))
+    terminal = replace(
+        row,
+        state=ActionState.NEEDS_ATTENTION,
+        error_code=ErrorCode.SOURCE_AUTH_REQUIRED,
+        revision=Revision(1),
+    )
+    with (
+        pytest.raises(StorageFailure) if rollback else nullcontext(),
+        session.transaction() as uow,
+    ):
+        if attention_phase:
+            actions.complete_action(uow, P, terminal, RevisionGuard(row.revision))
+        else:
+            effects(uow, row, producer, selected_epoch)
+            if scenario.startswith("consumed"):
+                actions.complete_action(
+                    uow, P, executed(row), RevisionGuard(row.revision)
+                )
+        assert image(connection) != before
+        _r3_foreign_refusal(uow, operation)
+        if scenario == "open_complete":
+            actions.complete_action(uow, P, executed(row), RevisionGuard(row.revision))
+        elif scenario == "consumed_business":
+            with suppress(StorageFailure):
+                policy.stop_thread(
+                    uow, P, T, Generation(1), NOW, ThreadStopReason.MANUAL_STOP
+                )
+            assert uow._failed
+        elif scenario == "attention_business":
+            tracked, admission = thread_rows()
+            with suppress(StorageFailure):
+                policy.admit_thread(
+                    uow,
+                    P,
+                    tracked,
+                    admission,
+                    (),
+                    ThreadGenerationGuardUntracked("untracked"),
+                )
+            assert uow._failed
+        else:
+            assert reads.get_action(uow, P, row.action_command_id) == (
+                terminal
+                if attention_phase
+                else executed(row)
+                if scenario.startswith("consumed")
+                else row
+            )
+    assert uow._action_scope is None and not uow._active
+    assert not uow._action_business_touched and not uow._action_attention_completed
+    assert session._uow is None and not actions._ENROLLED_SCOPES
+    expected = image(connection)
+    assert (expected == before) is rollback
+    with view(r3_state) as reader:
+        assert reader.get_action(P, row.action_command_id) == (
+            row if rollback else terminal if attention_phase else executed(row)
+        )
+    session.close()
+    with sqlite3.connect(path, autocommit=True) as independent:
+        assert image(independent) == expected
+
+
+@pytest.mark.parametrize("r3_state", [True, False], indirect=True)
+@pytest.mark.parametrize("entered", [False, True])
+def test_ap08_r3_foreign_entry_refusal_preserves_valid_creator_sequence(
+    r3_state, producer, entered
+):
+    _, _, session, _ = r3_state
+    row = register(session)
+    selected_epoch = prepare_epoch(session)
+    uow = session.transaction()
+    if not entered:
+        _r3_foreign_refusal(uow, "enter")
+    with uow:
+        effects(uow, row, producer, selected_epoch)
+        if entered:
+            _r3_foreign_refusal(uow, "enter")
+        actions.complete_action(uow, P, executed(row), RevisionGuard(row.revision))
+    _r3_foreign_refusal(uow, "repeated_exit")
+    with reopen(r3_state) as actual:
+        assert get_action(actual, row) == executed(row)
+
+
+@pytest.mark.parametrize(
+    "operation", ["rollback", "retire", "scope_retire", "writer_invalidate"]
+)
+def test_ap08_r3_foreign_internal_cleanup_cannot_retire_actual_scope(
+    state, producer, operation
+):
+    _, _, session, _ = state
+    row = register(session)
+    selected_epoch = prepare_epoch(session)
+    with session.transaction() as uow:
+        effects(uow, row, producer, selected_epoch)
+        _r3_foreign_refusal(uow, operation)
+        actions.complete_action(uow, P, executed(row), RevisionGuard(row.revision))
+    with reopen(state) as actual:
+        assert get_action(actual, row) == executed(row)
+
+
+@pytest.mark.parametrize("old_entered", [False, True])
+@pytest.mark.parametrize(
+    "operation", ["exit", "enter", "rollback", "retire", "scope_retire"]
+)
+def test_ap08_r3_stale_uow_cannot_change_a_different_current_uow(
+    state, producer, old_entered, operation
+):
+    _, connection, session, _ = state
+    stale = session.transaction()
+    if old_entered:
+        with stale:
+            pass
+    row = register(session)
+    selected_epoch = prepare_epoch(session)
+    with session.transaction() as current:
+        effects(current, row, producer, selected_epoch)
+        before = _r3_lifecycle_state(current)
+        statements = []
+        connection.set_trace_callback(statements.append)
+        try:
+            with pytest.raises(StorageFailure, match="^consistency_failure$"):
+                if operation == "exit":
+                    stale.__exit__(None, None, None)
+                elif operation == "enter":
+                    stale.__enter__()
+                elif operation == "rollback":
+                    stale._rollback()
+                elif operation == "retire":
+                    stale._retire()
+                else:
+                    actions._invalidate_action_scope(stale)
+        finally:
+            connection.set_trace_callback(None)
+        assert statements == [] and _r3_lifecycle_state(current) == before
+        actions.complete_action(current, P, executed(row), RevisionGuard(row.revision))
+    with reopen(state) as actual:
+        assert get_action(actual, row) == executed(row)
+
+
+@pytest.mark.parametrize("mode", ["native_close", "session_close"])
+def test_ap08_r3_creator_owned_close_retires_scope_and_rolls_back_real_writes(
+    state, producer, mode
+):
+    path, connection, session, _ = state
+    row = register(session)
+    selected_epoch = prepare_epoch(session)
+    before = image(connection)
+    uow = session.transaction()
+    uow.__enter__()
+    effects(uow, row, producer, selected_epoch)
+    assert image(connection) != before
+    if mode == "native_close":
+        connection.close()
+        code = "owner_unavailable"
+    else:
+        session.close()
+        code = "consistency_failure"
+    with pytest.raises(StorageFailure, match="^" + code + "$"):
+        uow.__exit__(None, None, None)
+    assert session._closed and session._uow is None and not uow._active
+    assert uow._action_scope is None and not actions._ENROLLED_SCOPES
+    assert not uow._action_business_touched and not uow._action_attention_completed
+    with sqlite3.connect(path, autocommit=True) as independent:
+        assert image(independent) == before
+
+
+class _R3PersistenceFault(sqlite3.Connection):
+    mode = None
+
+    def execute(self, sql, parameters=()):
+        if sql == "COMMIT" and self.mode == "commit_before":
+            raise sqlite3.OperationalError("synthetic_commit_failure")
+        result = super().execute(sql, parameters)
+        if (sql, self.mode) in {
+            ("COMMIT", "commit_after"),
+            ("ROLLBACK", "rollback_after"),
+        }:
+            raise sqlite3.OperationalError("synthetic_ack_failure")
+        return result
+
+
+@pytest.mark.parametrize("mode", ["commit_before", "commit_after", "rollback_after"])
+def test_ap08_r3_creator_uncertain_persistence_closes_and_retires_exact_scope(
+    tmp_path, producer, mode
+):
+    path = tmp_path / "uncertain-lifecycle.db"
+    connection, session, _ = create_state(path, factory=_R3PersistenceFault)
+    row = register(session)
+    selected_epoch = prepare_epoch(session)
+    before = image(connection)
+    connection.mode = mode
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        effects(uow, row, producer, selected_epoch)
+        if mode != "rollback_after":
+            actions.complete_action(uow, P, executed(row), RevisionGuard(row.revision))
+        proposed = image(connection)
+    assert session._closed and session._uow is None and not uow._active
+    assert uow._action_scope is None and not actions._ENROLLED_SCOPES
+    assert not uow._action_business_touched and not uow._action_attention_completed
+    with sqlite3.connect(path, autocommit=True) as independent:
+        actual = image(independent)
+        assert actual == (proposed if mode == "commit_after" else before)
+    with pytest.raises(StorageFailure):
+        session.transaction()
+
+
+def test_ap08_r3_inherited_fork_lifecycle_refuses_without_parent_interference(
+    state, producer
+):
+    _, connection, session, _ = state
+    row = register(session)
+    selected_epoch = prepare_epoch(session)
+    with session.transaction() as uow:
+        effects(uow, row, producer, selected_epoch)
+        before = _r3_lifecycle_state(uow)
+        child = os.fork()
+        if child == 0:
+            try:
+                statements = []
+                connection.set_trace_callback(statements.append)
+                for operation in (
+                    lambda: uow.__exit__(None, None, None),
+                    uow.__enter__,
+                    session.close,
+                    uow._rollback,
+                    uow._retire,
+                    session._invalidate,
+                ):
+                    try:
+                        operation()
+                    except StorageFailure as error:
+                        assert error.code is ErrorCode.OWNER_UNAVAILABLE
+                    else:
+                        os._exit(2)
+                    assert _r3_lifecycle_state(uow) == before
+                assert statements == []
+            except BaseException:
+                os._exit(3)
+            # Do not finalize or close inherited SQLite objects in the child.
+            os._exit(0)
+        deadline = time.monotonic() + 5
+        reaped = False
+        try:
+            while time.monotonic() < deadline:
+                waited, status = os.waitpid(child, os.WNOHANG)
+                if waited == child:
+                    reaped = True
+                    assert os.waitstatus_to_exitcode(status) == 0
+                    break
+                time.sleep(0.01)
+            assert reaped, "owned_fork_timeout"
+        finally:
+            if not reaped:
+                os.kill(child, signal.SIGKILL)
+                os.waitpid(child, 0)
+        assert _r3_lifecycle_state(uow) == before
+        actions.complete_action(uow, P, executed(row), RevisionGuard(row.revision))
+    with reopen(state) as actual:
+        assert get_action(actual, row) == executed(row)
+
+
+_R3_RECYCLED_THREAD_CHILD = """
+import os, sqlite3, sys, threading
+sys.path[:0] = sys.argv[1:3]
+from test_db_schema import create_state
+from test_db_actions import register
+from facet.contracts import ErrorCode
+from facet.db.connection import _attach_writer
+from facet.db.codecs import StorageFailure
+stored, outcomes = [], []
+def creator():
+    connection, session, info = create_state(sys.argv[3])
+    register(session)
+    session.close()
+    connection = sqlite3.connect(sys.argv[3], autocommit=True, check_same_thread=False)
+    session = _attach_writer(connection, info)
+    uow = session.transaction()
+    uow.__enter__()
+    stored.append((
+        connection, session, uow, threading.get_ident(), threading.current_thread()
+    ))
+first = threading.Thread(target=creator)
+first.start()
+first.join(5)
+assert not first.is_alive() and len(stored) == 1
+connection, session, uow, ident, retained = stored[0]
+def foreign():
+    if threading.get_ident() != ident:
+        return
+    assert threading.current_thread() is not retained
+    statements = []
+    connection.set_trace_callback(statements.append)
+    for operation in (
+        lambda: uow.__exit__(None, None, None), uow.__enter__, session.close
+    ):
+        try:
+            operation()
+        except StorageFailure as error:
+            assert error.code is ErrorCode.OWNER_UNAVAILABLE
+        else:
+            raise AssertionError("recycled_thread_accepted")
+    assert statements == [] and uow._active and session._uow is uow
+    assert not session._closed
+    outcomes.append(True)
+for _ in range(128):
+    candidate = threading.Thread(target=foreign)
+    candidate.start()
+    candidate.join(5)
+    assert not candidate.is_alive()
+    if outcomes:
+        break
+assert outcomes, "actual_thread_ident_reuse_not_observed"
+print("actual_recycled_thread_refused", flush=True)
+# Creator has exited: no other Thread receives its cleanup authority.
+os._exit(0)
+"""
+
+
+def test_ap08_r3_actual_recycled_thread_ident_never_inherits_writer(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            _R3_RECYCLED_THREAD_CHILD,
+            str(root / "tests"),
+            str(root / "tests/unit"),
+            str(tmp_path / "recycled-thread.db"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "actual_recycled_thread_refused"

@@ -141,6 +141,9 @@ def _validate_action_commit(uow):
 
 
 def _invalidate_action_scope(uow):
+    uow._session._check_creator()
+    if uow._session._uow is not uow:
+        _inconsistent()
     scope = uow._action_scope
     if type(scope) is _ActionScope:
         _ENROLLED_SCOPES.discard(scope)
