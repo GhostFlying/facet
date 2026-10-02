@@ -249,3 +249,100 @@ Issue9, whole M1-02, genuine M1-03 producer/RV11, G1 and all M5 learning, resolv
 label binding, epoch/admission integration, source cleanup and mode-switch gates
 remain pending. No real Gmail/OAuth, deployment, image, license or release claim
 is made by these synthetic storage tests.
+
+## Proposed r2: symmetric attention/business boundary
+
+Status: clarification proposed after independent source review HOLD on
+`62d75c0253a6d66710a9d4d4a4b4346b8b55c6db`; independent plan acceptance and
+root release are required before implementing the R2 strategy below. The original
+185-line plan and exact 329-line supplement retain their hashes above. This is
+not acceptance of the held candidate or a production producer/provider gate.
+
+The independent review reproduced attention followed by same-action admission
+in one actual WAL UoW with the shipping producer tuple still empty. The existing
+touched flag rejects the opposite order only. Attention is terminal and cannot
+create authorization; neither operation ordering may commit both facts.
+
+### Finite enforcement and lifecycle
+
+Allocate one private boolean `_action_attention_completed` in `UnitOfWork`,
+initialized false at construction/entry and reset by the existing fixed action
+lifecycle invalidation on every exit. It is transient transaction state, not a
+new scope, persisted field, caller proof, registry or public interface. Only the
+actual successful PENDING-to-NEEDS_ATTENTION update in `complete_action` sets it.
+The existing prerequisite remains: no OPEN/CONSUMED effect scope and no preceding
+publish/admit/stop/enqueue call, including a semantic no-op, in that same UoW.
+
+Once that boolean is set, the four existing finite business participants
+publish_rules/admit_thread/stop_thread/enqueue reject CONSISTENCY_FAILURE before
+their SQL and before any replay/no-op path. The sole private effect-scope entry
+also rejects before its SQL. Their existing failure-poisoning wrapper ensures a
+caught refusal rolls back the entire composing UoW, including the attention row.
+This deliberately follows the already-approved transaction-level touched rule:
+unrelated policy/job work uses another UoW rather than a same-UoW exception.
+
+Standalone attention followed by reads and commit remains valid. Registration
+and non-business event bookkeeping retain their existing finite semantics; this
+clarification does not make attention a new all-repository mutation fence.
+EXECUTED retains its stronger existing CONSUMED all-mutator fence until UoW exit.
+No reset, second action scope, attention-to-executed transition, or business retry
+is enabled. A fresh UoW resets the transient flag, not the durable action state.
+
+### Durable same-action admission boundary and historical replay
+
+Independently of that transient flag, `admit_thread` must not create or reactivate
+a thread through AdmissionRefActionLabel whose actual canonical action row is
+NEEDS_ATTENTION. Check the actual stored state at the finite admission boundary
+before any tracked-thread/admission write. This applies in a fresh UoW as well,
+including after an exact historical attention replay; ending the first UoW is
+not permission to turn its unresolved action into new disclosure authorization.
+Existing kind/thread/projection/reference validation remains mandatory. A valid
+PENDING action's ordinary admission and a real scoped EXECUTED composition keep
+their current prerequisites; this is not a new producer requirement for every
+ordinary policy call or a fabricated M5 admission capability.
+
+Exact full-row `complete_action` replay, with the current guard checked first,
+still returns the actual revision with zero writes and does not arm the transient
+flag or reconstruct a scope. Exact already-active admission replay must preserve
+its historical thread/admission rows and create no authorization; do not silently
+rewrite or invalidate retained historical facts. A new/reactivated admission
+through a NEEDS_ATTENTION reference refuses, while separate ordinary transactions
+using an unrelated valid rule/action keep their existing behavior.
+
+### Bounded files and paired real-file evidence
+
+Only actions.py, transactions.py, policy.py and test_db_actions.py need this R2
+delta; the existing base failure wrapper is unchanged unless a demonstrated
+ordinary defect requires its already-allocated finite correction. No schema,
+core record, API, provider registration, migration, read bridge, configuration,
+dependency, CI, CLI or shared-document change is allocated.
+
+Extend AP10 with both actual attention-to-same-action-admit and reverse-order
+sequences, ordinary uncaught and inside-UoW suppressed failures, whole-schema
+rollback and close/reopen comparisons. Pair the later business guard against all
+four named operations, including actual valid no-op arguments and scope entry.
+Add standalone attention/read/commit, fresh-UoW ordinary business, historical
+attention replay with zero SQL writes and no transient flag, cross-UoW new and
+reactivated same-action admission refusal, and retained historical exact-admission
+replay controls. Retain all valid EXECUTED, consumed-fence, cleanup, AP01-12 and
+original 1188 tests. The empty shipping producer tuple is tested unchanged for
+the attention/admission counterexample; a test producer cannot hide the guard.
+
+The separate source-review R1 is an existing-contract repair, not a new strategy:
+captured enabled current-member rule identity determines the preserved-rule
+branch, irrespective of a caller-selected next revision. Add detecting rollback
+for that bypass plus preserved no-op and absent/disabled/out-of-snapshot positives.
+New exact source, fresh wheel, full offline suite, both Python CI jobs and
+non-author acceptance remain required before any root integration release.
+
+### R2 independent approval and finite source-release receipt
+
+Independent non-author Sol xhigh reviewer `phase1_os_acceptance_sol` approved the
+exact 336-line clarification plan at SHA256
+`60333e9ccddc88caf60c01d3cef3670b84f55d0a1db95a5a06c02c5c7cc7bf8f`.
+Root read that report and released only the finite strategy above after this
+author completed its separate independent corrected OS acceptance task. This
+receipt is saved in a documentation-only commit before any R2 strategy code.
+The bounded R1 repair remains an existing-contract correction. Historical source
+`62d75c0253a6d66710a9d4d4a4b4346b8b55c6db` remains HOLD; no source acceptance,
+production registration, whole M1-02/RV11/G1 or migration dispatch is inferred.
