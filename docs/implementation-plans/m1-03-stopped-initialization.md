@@ -419,3 +419,79 @@ migration, public init/CLI/daemon, credentials/bundles/restore, whole milestones
 G1 and all live/deployment/release authority remain closed or pending.
 Independent exact SOURCE acceptance, fresh dual-Python CI and root qualification
 are still required; this pre-code release is not candidate acceptance or merge.
+
+## Proposed A1: exact passive storage-value dependencies
+
+Date: 2026-10-03 PRC. PLAN AMENDMENT ONLY; independent approval and a root
+corrective source release are pending. Source has not started. The original
+390-line plan and 372-line ADR remain exact; the factual pre-code release at
+ff349bf840f7b83b88b92a0ad2d14e5a4681dddc remains historical authority only
+within its allocation. The preceding 421-line plan is unchanged.
+
+### Concrete trigger and finite resolution
+
+The A allocation says command_records depends on core/stdlib only, while the
+exact approved six-field BootstrapInspection requires the already accepted
+storage-local SchemaVersion and OwnerSessionInfo classes. Constructor failures
+must likewise use the existing sealed StorageFailure, not a shadow error type.
+The actual immutable input supplies SchemaVersion/StorageFailure in db.codecs
+and OwnerSessionInfo in db.models. Both are passive value modules, but importing
+them would violate that literal dependency sentence. This is a dependency-text
+conflict, not an observed source failure or accepted implementation.
+
+Replace ONLY that dependency interpretation for command_records: it may import
+accepted contracts and stdlib, plus the existing exact db.codecs.SchemaVersion
+and StorageFailure and db.models.OwnerSessionInfo. These are finite passive
+value dependencies, not an opener, session, schema inspector or authority.
+No imported class is duplicated, coercively substituted, or validated by its
+module/name string. No caller flag, factory, provider registration or callback
+is added. The existing codec/model files and their dependencies stay unchanged.
+Command records must not import connection, schema, migrations, transactions,
+repositories, runtime, CLI, config, Google SDKs or the future bootstrap issuer.
+Its constructors retain exact-class/full-field validation and constant repr;
+fixed failures never retain private exception cause/context.
+
+### Unchanged signatures, scope and detecting acceptance
+
+BootstrapInspection still has precisely schema_version, owner,
+current_operation/current_payload and prior_operation/prior_payload, with the
+existing exact SchemaVersion/OwnerSessionInfo and matching nullable pairs.
+All other fields/signatures/tables, seven DB/four test/two document paths,
+atomic initialization/CAS/inspection strategy and v1 consumer barriers remain.
+No new public symbol, field, SQL statement family or production capability is
+authorized by this clarification. In particular the literal accepted read
+Stage B graph still does not import command_records or any allocated writer
+module; read_views and all three no-state foundation files remain byte-identical.
+
+SI04 extends its existing record controls with genuine codec/model values as
+positive inputs, and malformed/wrong-class/subclass/foreign-metadata/surplus/
+bool/null-pair cases as detecting negatives, rather than forged type names.
+SI10 retains fresh noneditable installed import-effect/byte-manifest controls
+for the complete A modules and the nine actual retained Stage B helper cases.
+These verify no SQL/open/network/Thread/hook/log/write effect or new registration
+from this passive dependency, not that constructing a result grants ownership.
+All original 1810 tests, native WAL/fault/creator/privacy checks, independent
+exact source acceptance and both fresh CI lanes remain mandatory. Source B,
+existing-state migration/provider, full CLI/package and external gates remain
+pending. This appendix must be independently approved and root-released BEFORE
+the clarified dependency is implemented; it does not self-approve its author.
+
+## Factual A1 independent approval and continuation release
+
+Date: 2026-10-03 PRC. The preceding 477-line exact A1 plan remains unchanged
+at SHA-256 2f9342e00c3549bdea8784ce0ae43d322752627e1d5bf42a8d43b97776b51d92.
+The independent nonauthor reviewer approved ONLY this finite dependency amendment
+in the complete 149-line report SHA-256
+876f370d9feb62b4e9a10144ba327dcc3e75f78b558825be281cc8db8dfddb29.
+Root personally read and verified that report and all 477/421/390 prefixes plus
+the unchanged 372-line ADR, then separately released Source A continuation.
+The sole author records this plan-only receipt BEFORE any implementation.
+
+Only the existing exact SchemaVersion/StorageFailure from db.codecs and
+OwnerSessionInfo from db.models are permitted extra command-record dependencies;
+no existing invalid/sqlite_failure helper or other storage/runtime import is
+added there. Existing codecs/models/contracts and literal read graph stay exact.
+All original seven DB/four NEW test paths and exact approved APIs/37-table/v1
+barrier/CAS/stable-key/native-fault/privacy/full1810/wheel/nine-helper/CI gates
+remain. This is not source acceptance, Source B authority, provider registration,
+existing-state upgrade, complete CLI/G1 or merge permission.
