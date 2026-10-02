@@ -6,7 +6,14 @@ import sqlite3
 from facet.contracts import ErrorCode
 
 from .codecs import StorageFailure
-from .migrations import CHECKSUMS, REGISTRY, REGISTRY_DIGEST, _SchemaManifest, v0001
+from .migrations import (
+    _FRESH_V2_MANIFEST,
+    CHECKSUMS,
+    REGISTRY,
+    REGISTRY_DIGEST,
+    _SchemaManifest,
+    v0001,
+)
 
 
 def _catalogue():
@@ -23,6 +30,15 @@ TRUSTED_CATALOGUE = _catalogue()
 
 
 def _inspect(connection: sqlite3.Connection) -> None:
+    """Recognize exact supported schemas; consumers still choose their version."""
+    version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if version == 2:
+        _inspect_manifest(connection, _FRESH_V2_MANIFEST)
+        return
+    _inspect_v1(connection)
+
+
+def _inspect_v1(connection: sqlite3.Connection) -> None:
     """Supplied private owner/view connection only; never a path or fallback."""
     application_id = connection.execute("PRAGMA application_id").fetchone()[0]
     version = connection.execute("PRAGMA user_version").fetchone()[0]

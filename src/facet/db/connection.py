@@ -10,11 +10,14 @@ from facet.contracts import (
     BindingState,
     ErrorCode,
     LocalId,
+    ProjectionId,
     RestoreState,
     Role,
+    Timestamp,
 )
 
 from .codecs import StorageFailure, encode_scalar, sqlite_failure, timestamp_to_sql
+from .command_records import BootstrapInspection, FreshCommandBootstrap
 from .migrations import CHECKSUMS, REGISTRY, REGISTRY_DIGEST, v0001
 from .models import (
     BindingRow,
@@ -30,7 +33,7 @@ from .read_views import (
     _close_permit,
     _consume_permit,
 )
-from .schema import _inspect, _pristine
+from .schema import _inspect, _inspect_v1, _pristine
 from .transactions import UnitOfWork
 
 
@@ -245,12 +248,15 @@ def _attach_writer(
         session = WriterSession(connection, info)
         session._check_lineage()
         return session
-    except sqlite3.Error as error:
-        connection.close()
-        raise sqlite_failure(error) from None
-    except StorageFailure:
-        connection.close()
-        raise
+    except BaseException as error:
+        code = _command_code(error)
+        # Native acknowledgement/close uncertainty never causes a second close
+        # or permits a success/session. This path owns this supplied handle.
+        try:
+            connection.close()
+        except BaseException:
+            code = ErrorCode.PERSISTENCE_FAILURE
+        _command_fail(code)
 
 
 def _attach_view(
@@ -271,6 +277,9 @@ def _attach_view(
         consumed = True
         if connection.autocommit is not True or connection.in_transaction:
             raise StorageFailure(ErrorCode.INVALID_INPUT)
+        # Provenance is consumed first, but unsupported v2 never configures a
+        # read connection or becomes a ReadSession through generic inspection.
+        _inspect_v1(connection)
         # These are connection-local defenses, never journal/checkpoint PRAGMAs.
         connection.execute("PRAGMA query_only=ON")
         connection.execute("PRAGMA trusted_schema=OFF")
@@ -295,7 +304,7 @@ def _attach_view(
     except sqlite3.Error as error:
         _close_permit(permit)
         raise sqlite_failure(error) from None
-    except StorageFailure:
+    except StorageFailure as error:
         # Only this first attachment, or a still-bound exact handle, is ours.
         # A failed duplicate must never retire an already-admitted holder.
         # _close_permit repeats actual creator checks before closing, including
@@ -307,6 +316,8 @@ def _attach_view(
             and (consumed or permit.phase == "bound")
         ):
             _close_permit(permit)
+        error.__cause__ = None
+        error.__context__ = None
         raise
 
 
@@ -425,3 +436,342 @@ def _initial_insert(connection, table, row):
     connection.execute(
         f"INSERT INTO {table} VALUES({','.join('?' for _ in values)})", values
     )
+
+
+def _command_fail(code):
+    try:
+        raise StorageFailure(code) from None
+    except StorageFailure as error:
+        error.__cause__ = None
+        error.__context__ = None
+        raise
+
+
+def _command_code(error):
+    if type(error) is StorageFailure:
+        return error.code
+    if isinstance(error, sqlite3.Error):
+        return sqlite_failure(error).code
+    return ErrorCode.PERSISTENCE_FAILURE
+
+
+def _v2_settings(connection):
+    if type(connection) is not sqlite3.Connection or connection.autocommit is not True:
+        raise StorageFailure(ErrorCode.INVALID_INPUT)
+    if connection.in_transaction:
+        raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+    if sqlite3.sqlite_version_info < (3, 37, 0):
+        raise StorageFailure(ErrorCode.UNSUPPORTED_VERSION)
+    for name, value in (
+        ("journal_mode", "wal"),
+        ("foreign_keys", 1),
+        ("synchronous", 2),
+        ("busy_timeout", 5000),
+        ("trusted_schema", 0),
+        ("wal_autocheckpoint", 1000),
+        ("query_only", 0),
+    ):
+        if connection.execute(f"PRAGMA {name}").fetchone() != (value,):
+            raise StorageFailure(ErrorCode.DATABASE_UNAVAILABLE)
+    if connection.row_factory is not None:
+        raise StorageFailure(ErrorCode.INVALID_INPUT)
+
+
+def _v2_rollback_close(connection, begin_attempted, commit_attempted, code):
+    # Armed BEFORE native BEGIN: a c_return fault can lose its acknowledgement
+    # after SQLite really entered the transaction. Never retry BEGIN/COMMIT.
+    if begin_attempted and not commit_attempted:
+        try:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            if connection.in_transaction:
+                code = ErrorCode.PERSISTENCE_FAILURE
+        except BaseException:
+            code = ErrorCode.PERSISTENCE_FAILURE
+    try:
+        connection.close()
+    except BaseException:
+        # An uncertain close is not retried; no metadata result/session escapes.
+        code = ErrorCode.PERSISTENCE_FAILURE
+    _command_fail(code)
+
+
+def _initialize_database_v2(
+    connection: sqlite3.Connection,
+    *,
+    bootstrap: BootstrapInitContext,
+    initial_projection: ProjectionRow,
+    source_binding: BindingRow,
+    target_binding: BindingRow,
+    initial_ruleset: RulesetRow,
+    commands: FreshCommandBootstrap,
+) -> WriterSession:
+    """Storage only. The future genuine stopped issuer owns files/locks/journals."""
+    from .command_store import _insert_bootstrap
+    from .migrations import (
+        FRESH_V2_CHECKSUMS,
+        FRESH_V2_REGISTRY,
+        FRESH_V2_REGISTRY_DIGEST,
+    )
+
+    begin_attempted = commit_attempted = attach_started = False
+    owned = False
+    try:
+        if (
+            type(connection) is not sqlite3.Connection
+            or type(bootstrap) is not BootstrapInitContext
+            or type(initial_projection) is not ProjectionRow
+            or type(source_binding) is not BindingRow
+            or type(target_binding) is not BindingRow
+            or type(initial_ruleset) is not RulesetRow
+            or type(commands) is not FreshCommandBootstrap
+        ):
+            raise StorageFailure(ErrorCode.INVALID_INPUT)
+        for row in (
+            bootstrap,
+            bootstrap.owner,
+            initial_projection,
+            source_binding,
+            target_binding,
+            initial_ruleset,
+        ):
+            type(row).__post_init__(row)
+        FreshCommandBootstrap.__post_init__(commands)
+        p, owner = initial_projection, bootstrap.owner
+        bindings = source_binding, target_binding
+        if (
+            p.state_instance_id != owner.state_instance_id
+            or p.request_namespace != owner.request_namespace
+            or p.last_owner_run_id != owner.owner_run_id
+            or p.singleton.value != 1
+            or not p.daemon_paused
+            or p.binding_state is not BindingState.VERIFICATION_PENDING
+            or p.restore_state is not RestoreState.NORMAL
+            or p.ruleset_revision.value != 0
+            or p.config_revision.value != 0
+            or initial_ruleset.projection_id != p.projection_id
+            or initial_ruleset.revision.value != 0
+            or not initial_ruleset.sealed
+            or tuple(b.role for b in bindings) != (Role.SOURCE, Role.TARGET)
+            or source_binding.declared_address == target_binding.declared_address
+            or any(
+                b.projection_id != p.projection_id
+                or b.verified_address is not None
+                or b.verified_at is not None
+                or b.credential_revision.value != 0
+                or b.binding_revision.value != 1
+                or b.state is not BindingState.VERIFICATION_PENDING
+                for b in bindings
+            )
+            or commands.current.namespace != owner.request_namespace
+            or commands.current.nonce != bootstrap.bootstrap_nonce
+            or connection.autocommit is not True
+            or connection.in_transaction
+        ):
+            raise StorageFailure(ErrorCode.INVALID_INPUT)
+        _pristine(connection)
+        owned = True
+        _configure_writer(connection, creating=True)
+        begin_attempted = True
+        connection.execute("BEGIN IMMEDIATE")
+        for _, _, statements in FRESH_V2_REGISTRY:
+            for statement in statements:
+                connection.execute(statement)
+        created = timestamp_to_sql(p.created_at)
+        connection.execute(
+            "INSERT INTO schema_metadata VALUES(1,2,?,?)",
+            (FRESH_V2_REGISTRY_DIGEST, created),
+        )
+        for (version, name, _), checksum in zip(
+            FRESH_V2_REGISTRY, FRESH_V2_CHECKSUMS, strict=True
+        ):
+            connection.execute(
+                "INSERT INTO schema_migrations VALUES(?,?,?,?)",
+                (version, name, checksum, created),
+            )
+        _initial_insert(connection, "projections", p)
+        _initial_insert(connection, "rulesets", initial_ruleset)
+        for binding in bindings:
+            values = tuple(
+                encode_scalar(getattr(binding, f.name)) for f in fields(binding)
+            )
+            connection.execute(
+                "INSERT INTO binding_revisions VALUES(?,?,?,?,?,?,?)",
+                (
+                    values[0],
+                    values[1],
+                    values[5],
+                    values[2],
+                    values[3],
+                    values[6],
+                    values[7],
+                ),
+            )
+            _initial_insert(connection, "bindings", binding)
+        connection.execute(
+            "INSERT INTO history_checkpoints VALUES(?,NULL,NULL,0,NULL)",
+            (p.projection_id.value,),
+        )
+        connection.execute(
+            "INSERT INTO command_runtime VALUES(?,1,0,?,'idle',NULL,NULL)",
+            (p.projection_id.value, owner.owner_run_id.value),
+        )
+        _insert_bootstrap(connection, p.projection_id, commands)
+        connection.execute(f"PRAGMA application_id={v0001.APPLICATION_ID}")
+        connection.execute("PRAGMA user_version=2")
+        commit_attempted = True
+        connection.execute("COMMIT")
+        attach_started = True
+        return _attach_writer(connection, owner)
+    except BaseException as error:
+        code = _command_code(error)
+        if owned and not attach_started:
+            _v2_rollback_close(connection, begin_attempted, commit_attempted, code)
+        _command_fail(code)
+
+
+def _begin_owner_session_v2(
+    connection: sqlite3.Connection,
+    *,
+    owner: OwnerSessionInfo,
+    expected_previous_run: LocalId | None,
+    now: Timestamp,
+) -> WriterSession:
+    from .migrations import _FRESH_V2_MANIFEST
+    from .schema import _inspect_manifest
+
+    begin_attempted = commit_attempted = attach_started = False
+    owned = False
+    try:
+        if (
+            type(owner) is not OwnerSessionInfo
+            or type(now) is not Timestamp
+            or (
+                expected_previous_run is not None
+                and type(expected_previous_run) is not LocalId
+            )
+        ):
+            raise StorageFailure(ErrorCode.INVALID_INPUT)
+        OwnerSessionInfo.__post_init__(owner)
+        _v2_settings(connection)
+        _inspect_manifest(connection, _FRESH_V2_MANIFEST)
+        row = connection.execute(
+            "SELECT p.projection_id,p.state_instance_id,p.request_namespace,"
+            "p.last_owner_run_id,c.owner_run_id FROM projections p "
+            "JOIN command_runtime c USING(projection_id)"
+        ).fetchall()
+        previous = (
+            None if expected_previous_run is None else expected_previous_run.value
+        )
+        if (
+            len(row) != 1
+            or row[0][1:]
+            != (
+                owner.state_instance_id.value,
+                owner.request_namespace.value,
+                previous,
+                previous,
+            )
+            or owner.owner_run_id.value == previous
+        ):
+            raise StorageFailure(ErrorCode.REQUEST_LINEAGE_MISMATCH)
+        owned = True
+        begin_attempted = True
+        connection.execute("BEGIN IMMEDIATE")
+        if (
+            connection.execute(
+                "UPDATE projections SET last_owner_run_id=? WHERE projection_id=? "
+                "AND state_instance_id=? AND request_namespace=? "
+                "AND last_owner_run_id IS ?",
+                (
+                    owner.owner_run_id.value,
+                    row[0][0],
+                    owner.state_instance_id.value,
+                    owner.request_namespace.value,
+                    previous,
+                ),
+            ).rowcount
+            != 1
+            or connection.execute(
+                "UPDATE command_runtime SET owner_run_id=? "
+                "WHERE projection_id=? AND owner_run_id IS ?",
+                (owner.owner_run_id.value, row[0][0], previous),
+            ).rowcount
+            != 1
+        ):
+            raise StorageFailure(ErrorCode.REQUEST_LINEAGE_MISMATCH)
+        commit_attempted = True
+        connection.execute("COMMIT")
+        attach_started = True
+        return _attach_writer(connection, owner)
+    except BaseException as error:
+        code = _command_code(error)
+        if owned and not attach_started:
+            _v2_rollback_close(connection, begin_attempted, commit_attempted, code)
+        _command_fail(code)
+
+
+def _inspect_bootstrap_v2(
+    connection: sqlite3.Connection,
+    *,
+    projection_id: ProjectionId,
+    namespace: LocalId,
+    nonce: LocalId,
+    prior_config_nonce: LocalId | None,
+) -> BootstrapInspection:
+    from .codecs import SchemaVersion
+    from .command_store import _find_bootstrap
+    from .migrations import _FRESH_V2_MANIFEST
+    from .schema import _inspect_manifest
+
+    owned = begin_attempted = commit_attempted = False
+    try:
+        if (
+            type(projection_id) is not ProjectionId
+            or type(namespace) is not LocalId
+            or type(nonce) is not LocalId
+            or (
+                prior_config_nonce is not None
+                and type(prior_config_nonce) is not LocalId
+            )
+            or prior_config_nonce == nonce
+        ):
+            raise StorageFailure(ErrorCode.INVALID_INPUT)
+        _v2_settings(connection)
+        owned = True
+        begin_attempted = True
+        connection.execute("BEGIN")
+        _inspect_manifest(connection, _FRESH_V2_MANIFEST)
+        rows = connection.execute(
+            "SELECT p.state_instance_id,p.request_namespace,"
+            "p.last_owner_run_id,c.owner_run_id "
+            "FROM projections p JOIN command_runtime c USING(projection_id) "
+            "WHERE p.projection_id=? LIMIT 2",
+            (projection_id.value,),
+        ).fetchall()
+        if (
+            len(rows) != 1
+            or rows[0][1] != namespace.value
+            or (rows[0][2] is None or rows[0][2] != rows[0][3])
+        ):
+            raise StorageFailure(ErrorCode.REQUEST_LINEAGE_MISMATCH)
+        owner = OwnerSessionInfo(
+            LocalId(rows[0][2]), LocalId(rows[0][0]), LocalId(rows[0][1])
+        )
+        current = _find_bootstrap(connection, projection_id, namespace, nonce)
+        prior = (
+            (None, None)
+            if prior_config_nonce is None
+            else _find_bootstrap(
+                connection, projection_id, namespace, prior_config_nonce
+            )
+        )
+        result = BootstrapInspection(SchemaVersion(2), owner, *current, *prior)
+        commit_attempted = True
+        connection.execute("COMMIT")
+        return result
+    except BaseException as error:
+        code = _command_code(error)
+        if owned:
+            _v2_rollback_close(connection, begin_attempted, commit_attempted, code)
+        _command_fail(code)

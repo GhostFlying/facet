@@ -12,7 +12,7 @@ from facet.contracts import ErrorCode, LocalId
 from .codecs import SchemaVersion, StorageFailure, sqlite_failure
 from .connection import WriterSession
 from .models import DatabaseSnapshotInfo
-from .schema import _inspect, _pristine
+from .schema import _inspect_v1, _pristine
 
 
 def _progress(status: int, remaining: int, total: int) -> None:
@@ -33,6 +33,9 @@ def snapshot_database(source_session, destination_connection) -> DatabaseSnapsho
     source = source_session._connection
     destination = destination_connection
     try:
+        # Unsupported v2 is refused before ANY destination PRAGMA/configuration
+        # or native backup; the existing successful receipt truthfully means v1.
+        _inspect_v1(source)
         if (
             source is destination
             or source_session._uow is not None
@@ -44,7 +47,7 @@ def snapshot_database(source_session, destination_connection) -> DatabaseSnapsho
             raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
         source_session._check_lineage()
         source_session._relational_guards()
-        _inspect(source)
+        _inspect_v1(source)
         _pristine(destination)
         destination.row_factory = None
         destination.execute("PRAGMA trusted_schema=OFF")
@@ -55,7 +58,7 @@ def snapshot_database(source_session, destination_connection) -> DatabaseSnapsho
             source.backup(destination, pages=128, progress=_progress, sleep=0.0)
         finally:
             destination.execute(f"PRAGMA busy_timeout={timeout}")
-        _inspect(destination)
+        _inspect_v1(destination)
         if destination.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
             raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
         if destination.execute("PRAGMA foreign_key_check").fetchone() is not None:
@@ -81,3 +84,9 @@ def snapshot_database(source_session, destination_connection) -> DatabaseSnapsho
         )
     except sqlite3.Error as error:
         raise sqlite_failure(error) from None
+    except StorageFailure as error:
+        # The new v1-only consumer barrier retains only the existing fixed code,
+        # including when its caller is already handling private input failure.
+        error.__cause__ = None
+        error.__context__ = None
+        raise
