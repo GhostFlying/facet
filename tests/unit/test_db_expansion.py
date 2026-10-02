@@ -20,6 +20,7 @@ from test_db_schema import NOW, P, lid
 
 from facet.contracts import (
     Count,
+    EpochState,
     ErrorCode,
     Generation,
     InsertState,
@@ -375,6 +376,7 @@ def test_mapping_item_requires_exact_verified_attempt_history_relationship(state
         ProviderId("another-source") if case == "source_mismatch" else message,
         300,
     )
+    child = replace(child, origin_epoch_id=None)
     with session.transaction() as uow:
         jobs.enqueue(uow, P, child)
     acquired, _ = claim(session, info, child)
@@ -427,9 +429,161 @@ def test_mapping_item_requires_exact_verified_attempt_history_relationship(state
             expansion.finish_expansion(
                 uow, P, value.run_id, NOW, RevisionGuard(Revision(1))
             )
+        # Verified mapping references do not manufacture an epoch job. This
+        # fixture's old project job was not itself selected by the snapshot.
+        assert connection.execute(
+            "SELECT COUNT(*) FROM epoch_jobs WHERE job_id=?", (child.job_id.value,)
+        ).fetchone() == (0,)
     else:
         with pytest.raises(StorageFailure):
             ingest(session, value, (member,), ())
         assert connection.execute(
             "SELECT COUNT(*) FROM thread_expansion_items"
         ).fetchone() == (0,)
+
+
+@pytest.mark.parametrize("origin", ["realtime", "other_epoch"])
+@pytest.mark.parametrize("status", ["queued", "failed"])
+def test_existing_items_only_child_joins_selected_epoch_without_changing_first_origin(
+    state, origin, status
+):
+    _, connection, session, _ = state
+    selected_epoch, parent, _, _ = setup(state)
+    message = ProviderId("existing-selected-message")
+    value = run(parent, (message,))
+    begin(session, value)
+    child = replace(work(value, message, 300), origin_epoch_id=None)
+    if origin == "other_epoch":
+        other = replace(
+            epoch(501),
+            decision=EpochDecisionRefScheduledReconcile(
+                "scheduled_reconcile", Revision(1)
+            ),
+        )
+        with session.transaction() as uow:
+            epochs.start_epoch(uow, P, other, ())
+        child = replace(child, origin_epoch_id=other.epoch_id)
+    with session.transaction() as uow:
+        jobs.enqueue(uow, P, child)
+        if status == "failed":
+            # Synthetic prior scheduler outcome, not forced completion of work.
+            uow._execute(
+                "UPDATE sync_jobs SET state='failed' "
+                "WHERE projection_id=? AND job_id=?",
+                (P.value, child.job_id.value),
+            )
+    ingest(session, value, (item(value, message, child),), ())
+    ingest(session, value, (item(value, message, child),), (), revision=1)
+    with view(state) as reader:
+        saved = reads.get_job(reader, P, child.job_id)
+        assert saved.origin_epoch_id == child.origin_epoch_id
+        assert saved.job_id == child.job_id and saved.state.value == status
+    assert connection.execute(
+        "SELECT COUNT(*) FROM epoch_jobs WHERE epoch_id=? AND job_id=?",
+        (value.epoch_id.value, child.job_id.value),
+    ).fetchone() == (1,)
+    with session.transaction() as uow:
+        expansion.finish_expansion(
+            uow, P, value.run_id, NOW, RevisionGuard(Revision(2))
+        )
+        jobs.complete_noninsert_job(uow, P, parent.job_id, RevisionGuard(Revision(1)))
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        epochs.advance_epoch(
+            uow,
+            P,
+            selected_epoch.epoch_id,
+            EpochState.COMPLETED,
+            True,
+            Count(1),
+            RevisionGuard(Revision(0)),
+        )
+    if status == "failed":
+        with session.transaction() as uow:
+            epochs.advance_epoch(
+                uow,
+                P,
+                selected_epoch.epoch_id,
+                EpochState.COMPLETED_WITH_ISSUES,
+                True,
+                Count(1),
+                RevisionGuard(Revision(0)),
+            )
+    else:
+        with pytest.raises(StorageFailure), session.transaction() as uow:
+            epochs.advance_epoch(
+                uow,
+                P,
+                selected_epoch.epoch_id,
+                EpochState.COMPLETED_WITH_ISSUES,
+                True,
+                Count(1),
+                RevisionGuard(Revision(0)),
+            )
+    # A separately opened read view proves the durable relation and unchanged
+    # child's pending/failure, rather than relying on an enqueue receipt.
+    with view(state) as reader:
+        assert reads.get_job(reader, P, child.job_id).state.value == status
+        assert reads.get_epoch(reader, P, selected_epoch.epoch_id).state is (
+            EpochState.COMPLETED_WITH_ISSUES
+            if status == "failed"
+            else EpochState.PREPARED
+        )
+
+
+def test_later_bad_item_rolls_back_existing_child_epoch_join_and_all_membership(state):
+    _, connection, session, _ = state
+    _, parent, _, _ = setup(state)
+    message = ProviderId("existing-selected-message")
+    invalid = ProviderId("invalid-selected-message")
+    value = run(parent, (message, invalid))
+    begin(session, value)
+    child = replace(work(value, message, 300), origin_epoch_id=None)
+    with session.transaction() as uow:
+        jobs.enqueue(uow, P, child)
+    missing = work(value, invalid, 301)
+    with pytest.raises(StorageFailure):
+        ingest(
+            session,
+            value,
+            (item(value, message, child), item(value, invalid, missing)),
+            (),
+        )
+    assert connection.execute(
+        "SELECT COUNT(*) FROM epoch_jobs WHERE job_id=?", (child.job_id.value,)
+    ).fetchone() == (0,)
+    assert connection.execute(
+        "SELECT COUNT(*) FROM thread_expansion_items"
+    ).fetchone() == (0,)
+    assert connection.execute(
+        "SELECT revision FROM thread_expansion_runs"
+    ).fetchone() == (0,)
+    with view(state) as reader:
+        assert reads.get_job(reader, P, child.job_id).origin_epoch_id is None
+        assert reads.get_job(reader, P, missing.job_id) is None
+
+
+def test_finish_revalidates_existing_child_membership_in_this_exact_epoch(state):
+    _, connection, session, _ = state
+    _, parent, _, _ = setup(state)
+    message = ProviderId("existing-selected-message")
+    value = run(parent, (message,))
+    begin(session, value)
+    child = replace(work(value, message, 300), origin_epoch_id=None)
+    with session.transaction() as uow:
+        jobs.enqueue(uow, P, child)
+        # The old items-only bug could persist exactly these facts. A closed
+        # legacy fixture tests final proof validation without deleting immutable
+        # epoch membership or altering trusted schema/trigger definitions.
+        _insert(uow, P, "thread_expansion_items", item(value, message, child))
+        uow._execute(
+            "UPDATE thread_expansion_runs SET revision=1 "
+            "WHERE projection_id=? AND run_id=?",
+            (P.value, value.run_id.value),
+        )
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        expansion.finish_expansion(
+            uow, P, value.run_id, NOW, RevisionGuard(Revision(1))
+        )
+    assert connection.execute("SELECT state FROM thread_expansion_runs").fetchone() == (
+        "scanning",
+    )

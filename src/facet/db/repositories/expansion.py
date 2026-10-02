@@ -26,7 +26,7 @@ from .base import (
     _query,
     _require_row,
 )
-from .jobs import _thread_guard, enqueue
+from .jobs import _join_epoch, _thread_guard, enqueue
 
 
 def _parent(uow, projection_id, job_id):
@@ -67,15 +67,30 @@ def _run(uow, projection_id, run_id, guard):
     return run
 
 
+def _project_reference(uow, projection_id, run, item):
+    job = _get(uow, projection_id, "sync_jobs", (("job_id", item.project_job_id),))
+    if (
+        job is None
+        or job.kind is not JobKind.PROJECT_MESSAGE
+        or job.subject.source_message_id != item.source_message_id
+        or job.subject.source_thread_id != run.source_thread_id
+        or job.subject.generation != run.generation
+    ):
+        _conflict()
+    return job
+
+
 def _item_reference(uow, projection_id, run, item):
     if item.kind is ExpansionItemKind.PROJECT_JOB:
-        job = _get(uow, projection_id, "sync_jobs", (("job_id", item.project_job_id),))
+        job = _project_reference(uow, projection_id, run, item)
         if (
-            job is None
-            or job.kind is not JobKind.PROJECT_MESSAGE
-            or job.subject.source_message_id != item.source_message_id
-            or job.subject.source_thread_id != run.source_thread_id
-            or job.subject.generation != run.generation
+            _get(
+                uow,
+                projection_id,
+                "epoch_jobs",
+                (("epoch_id", run.epoch_id), ("job_id", job.job_id)),
+            )
+            is None
         ):
             _conflict()
     else:
@@ -193,6 +208,12 @@ def ingest_expansion_items(uow, projection_id, run_id, items, jobs, guard):
     for item in items:
         if item.project_job_id in aliases:
             item = replace(item, project_job_id=aliases[item.project_job_id])
+        if item.kind is ExpansionItemKind.PROJECT_JOB:
+            child = _project_reference(uow, projection_id, run, item)
+            # Existing realtime/another-epoch work retains its first origin and
+            # allocation, but this selected snapshot must also wait for it.
+            _thread_guard(uow, projection_id, child)
+            _join_epoch(uow, projection_id, run.epoch_id, child.job_id)
         _item_reference(uow, projection_id, run, item)
         old = _get(
             uow,
