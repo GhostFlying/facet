@@ -2,7 +2,15 @@
 
 from functools import wraps
 
-from facet.contracts import ErrorCode, LocalId, ProjectionId, ProviderId, Revision, Role
+from facet.contracts import (
+    Count,
+    ErrorCode,
+    LocalId,
+    ProjectionId,
+    ProviderId,
+    Revision,
+    Role,
+)
 
 from ..codecs import KeyBytes, StorageFailure, encode_scalar, invalid
 from ..connection import ReadSession
@@ -16,6 +24,7 @@ _SELECTOR_TYPES = {
     "L": LocalId,
     "V": ProviderId,
     "R": Revision,
+    "N": Count,
     "Role": Role,
     "KeyBytes": KeyBytes,
 }
