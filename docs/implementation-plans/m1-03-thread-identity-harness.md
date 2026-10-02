@@ -132,3 +132,43 @@ Root read the full verdict and explicitly released only the two existing test
 files and this plan. This receipt was saved before any harness implementation.
 Production runtime/OS-plan bytes stay frozen; historical failed main36b CI is not
 relabelled passed. New exact-source nonauthor review/CI remains required.
+
+## Local source handoff, 2026-10-03 PRC
+
+The two allocated test files now observe actual native retirement, hold at most
+64 genuine candidates under shared deadlines, and require original Python-ID
+reuse by a different strong Thread before all four fixed refusal calls succeed.
+Primitive creator/phase/enrollment/descriptor snapshots remain unchanged. Every
+started candidate is released and joined in finally, with native retirement
+checked before the handshake. Worker exceptions are captured, not Thread warnings.
+
+Five detecting controls cover a genuinely still-live native task, exhausted
+allocation for its still-live identifier, and fixed start/check/readiness-timeout
+faults. Real started workers are required in the fault cleanup paths. Parent
+processes additionally verify native task counts, original kernel contention,
+post-exit acquisition, and unchanged filesystem bytes/metadata and parent FDs.
+The two original positive tests and all 40 original OS test-function ASTs are
+retained unchanged; no skip, xfail, generic-foreign fallback or CI change exists.
+
+Actual local evidence on CPython 3.12.13, Linux 5.15.120.bsk.3-amd64, eUID1001:
+
+- Seven initial positive/negative/fault cases passed in 2.73 seconds.
+- Twenty fixed complete batches, each containing all seven child scenarios,
+  passed in 55.63 seconds. An earlier focused OS run passed 148 tests in 71.83
+  seconds; its primitive inventory snapshot was subsequently strengthened.
+- The final full suite passed **756 tests in 85.62 seconds**: all 731 retained
+  tests plus five individual detecting cases and twenty seven-scenario batches.
+  It includes every final focused OS and repeated child control.
+- Locked offline sync, Ruff, format check (101 tool-selected files), both CLI
+  helps, actual JSON version, whitespace and repository safety passed.
+- All production source and the complete approved OS/C1 plan match qualified
+  ea80 byte-for-byte. The fresh noneditable wheel excludes tests/helpers/plans;
+  its SHA-256 remains `a09b3bd4f82b3e5ba732bf23554e2ac6af1295eee925e80c765db6108ea5d0d5`.
+  Installed-wheel fixed exports, empty inventories and no Facet import hooks,
+  filesystem/network/SQL/provider/CLI/logging effects passed.
+
+The original 124-line approved plan prefix remains unchanged. This is local
+source evidence, not independent acceptance or a claim that historical failed
+main36b CI passed. Fresh exact-head dual-Python CI and nonauthor source review
+remain required before root-qualified normal integration. No migration, SQL,
+shared-status, production runtime, Gmail or deployment action was taken.
