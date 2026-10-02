@@ -2,7 +2,8 @@
 
 日期：2026-10-02
 
-状态：计划待独立 review；M1-M6 均未实现。GitHub 跟踪入口为
+状态：计划技术预审待复审；整体计划待用户 review/明确批准（G0）；M1-M6 均
+未实现。GitHub 跟踪入口为
 [Phase 1 Epic #1](https://github.com/GhostFlying/facet/issues/1)。
 
 目标：交付单用户、自托管、可恢复的 Gmail projection，包含只读 Dashboard、
@@ -18,6 +19,12 @@ Docker Compose 一键启动、GitHub Actions 发布的镜像、备份恢复和�
 已实现功能；Phase 0 只证明其采样范围内的 Gmail 可行性。
 
 ## 完成定义和调度原则
+
+G0 是顶层启动 gate：用户 review 并明确批准具体 Phase 1 计划版本。当前 pending，
+技术 review 和 CI 不代替该批准；总计划 draft PR 不自主 merge，P1 产品实施/M1
+均不启动。批准后协调 agent 按本计划自主派工，内部普通复杂工作包只需要独立 agent
+plan/code/acceptance review，不逐包再问用户。重要产品、隐私、scope 或 authority
+改变重新提交用户 review。
 
 Phase 1 完成必须满足 G1-G6 全部 gate，完成授权范围内的 Gmail API/UI 实测、
 指定主机部署、备份恢复、restart/re-auth 恢复，以及至少 72 小时 dogfood。
@@ -45,6 +52,9 @@ agent 按风险调整，不要求用户逐包指定。
 ## 依赖图和里程碑门槛
 
 ```text
+整体计划技术 review + 用户明确批准 G0（当前 pending）
+    |
+    v
 P1-00 协作/权限台账 ──┬── P1-01 核心接口/ADR ──┬── M1 基础 ── G1
                      └── P1-02 故障/隐私测试 ─┘       │
                                                        ├── M2 投影 ── G2
@@ -67,6 +77,7 @@ G1→G2→G3→G4→G5→G6 的验收顺序保持不变。后阶段的 ADR、合
 
 | Gate | 最小完成证据 | 不能替代的证据 |
 | --- | --- | --- |
+| G0 | 用户对 reviewable 整体计划版本的明确批准；记录版本/SHA、决定与范围 | 技术 review、CI 或 D1/D2 内部权限不代表整体计划批准 |
 | G1 | 正式包/配置/DB/锁/绑定/私密文件/公共 DTO；认证 ADR 通过设计 review | Spike 能运行不能证明正式身份与隐私边界 |
 | G2 | 串行 thread 投影、保真、intent/recovery、generation、内存预算与 crash tests；限定 live API/UI 保真 | 唯一搜索候选不等于本次 insert 的归属证明 |
 | G3 | 规则、可信 admission、固定六个月边界、H0、可恢复发现和 preview；认证证据启用门槛 | 合成 parser 测试不能独自证明 Gmail-path 信任 |
@@ -78,7 +89,8 @@ G1→G2→G3→G4→G5→G6 的验收顺序保持不变。后阶段的 ADR、合
 
 **P1-00 执行台账和协作基线**
 
-依赖：本计划的独立 review。Owner：文档/协调实施 agent，S；review：独立 A。
+依赖：本轮规划文档可先准备；phase 开工台账/派工等待 G0 和独立技术 review。
+Owner：文档/协调实施 agent，S；review：独立 A。
 文件：本文件、`agent-workflow.md`、`AGENTS.md`、`development-status.md`、
 GitHub Epic/工作包 Issue 和 PR 模板。
 
@@ -232,7 +244,8 @@ claim generation guards、内存 budget 和 target 长期失败释放 raw。验�
 
 **M2-05 手动 thread preview/track 与 G2**
 
-依赖：M2-01 至 M2-04、M1-06；live 依赖 D3。Owner：集成 agent，S；review：A。
+依赖：M2-01 至 M2-04、M1-06 的离线工程输出；G2 最终 live 验收依赖 D3。
+Owner：集成 agent，S；review：A。
 文件：`cli/track.py`、`review.py`、`tests/integration/`、G2 验收记录。
 
 交付：手动选择 thread 的完整披露 preview、明确 start/approve、target 实际 thread
@@ -338,8 +351,12 @@ provider error；无外部 CDN、OAuth UI、邮件链接、content 路由或写�
 
 **M4-06 Runtime 整合、alpha 与 G4**
 
-依赖：M4-01 至 M4-05、G3；真实 bulk 依赖 D3。Owner：集成 agent，S；review：A。
+依赖：M4-01 至 M4-05、M3-04 的离线已验证工程输出。
+Owner：集成 agent，S；review：A。
 文件：`runtime.py`、scheduler/shutdown tests、G4 evidence、runbook。
+
+G4 最终验收另依赖 G3 完整通过与 D3 live 范围；Runtime/Compose 的离线实现不等待
+G3 live gate。真实 bulk 还须持久 H0 消费/gap 能力就绪和明确 D3 授权。
 
 交付：单 sync/HTTP 进程、graceful SIGTERM、实时优先/backfill 公平、snapshot
 刷新和各周期任务集成。验收：初始化/实时/backfill/gap 交错不漏；target 故障/raw budget
@@ -371,7 +388,8 @@ cleanup crash 只重试清理不重复业务；缺少标签时 readonly CLI 可�
 
 **M5-03 BlackList 竞争、停止/恢复和 G5**
 
-依赖：M5-01、M5-02、M2-03/04、M4-02/03。Owner：验收 agent，S；review：A。
+依赖：M5-01、M5-02、M2-03/04、M4-02/03 的离线已验证工程输出。
+Owner：验收 agent，S；review：A。
 文件：generation/cancellation fault tests、CLI stop/track、G5 evidence。
 
 交付：exact sender blacklist + 选定 thread stop、取消 unstarted work、记录 in-flight
@@ -393,7 +411,8 @@ artifact/镜像隔离。迁移使用此机制或已评审的同等 SQLite backup
 
 **M6-02 Restore、迁移和 rollback 状态验证**
 
-依赖：M6-01、M2-04、M4-02、M5-03。Owner：恢复 agent，S；review：A。
+依赖：M6-01、M2-04、M4-02、M5-03 的离线工程输出，不等待 G5 live gate。
+Owner：恢复 agent，S；review：A。
 文件：`cli/restore.py`、`db/migrations/`、restore/restart fault tests、rollback runbook。
 
 交付：停止持锁恢复、schema/账号绑定核验、unknown insert 优先恢复，再恢复写入；
@@ -403,7 +422,8 @@ jobs 和 unknown outcomes 不丢；中断迁移有明确恢复路径；凭据 ow
 
 **M6-03 非 root image、Compose 和 Nginx 示例**
 
-依赖：M1-01、M4-06、M6-01；配置可提前实施。Owner：交付 agent，S；review：A。
+依赖：M1-01、M4-06、M6-01 的离线工程输出，不等待 G4 的 Gmail gate；配置可先设计。
+Owner：交付 agent，S；review：A。
 文件：`Dockerfile`、`.dockerignore`、`compose.yaml`、`config.example.yaml`、
 `deploy/nginx/`、container smoke tests。
 
@@ -447,7 +467,8 @@ runtime smoke evidence。仅 arm64 build/QEMU 检查成功不伪装成真实 arm
 
 **M6-06 双语使用/运维文档与受限 live harness**
 
-依赖：M4-06、M5-03、M6-01 至 M6-04 的工程输出；docs 可随接口更新。
+依赖：M4-06、M5-03、M6-01 至 M6-04 的离线工程输出；docs 可随接口更新，不等待
+G4/G5 最终 live gate。文档对应真实流程的验证保留为 M6 live/deployment 验收。
 Owner：文档/QA agent，S；review：A。
 文件：`README.md`、`README.zh-CN.md`、`docs/deployment.md`、`operations.md`、
 `tests/integration/`、CI 和 release checklist。
@@ -476,8 +497,12 @@ target failure/disk pressure 各有可操作说明。OAuth 不通过聊天传 to
 依赖：M6-07、D3/D4。Owner：运行验收 agent，S；review：A。
 文件：受限私密运行记录、脱敏 dogfood report、指标定义/样本量说明。
 
-交付：至少 72 小时连续使用窗口，覆盖 restart、token refresh、一次受控故障恢复和
-backup/restore；有效 source/target 账号和规则范围保持一致。验收：没有 selected work
+交付：至少 72 小时连续使用窗口，覆盖 restart、token refresh、一次受控故障恢复、
+backup/restore，以及一次真实授权失效→CLI 重新 OAuth→pending jobs 继续的 re-auth
+演练；token refresh 不能替代重新授权。演练的账号、授权失效/撤销操作及故障范围需
+D3/D4 中明确许可，OAuth 需要用户参与，不能擅自 revoke 现有权限。缺许可/用户参与
+时保留 gate pending，不能伪造通过。有效 source/target 绑定和规则范围保持一致。
+验收：没有 selected work
 静默消失；失败/review/取消明确；真实 Gmail API/UI 的日期、thread、附件符合契约；
 队列/资源/Dashboard 与实际状态一致。72 小时到时仍有 gate 失败则继续整改，不能按时
 钟自动通过；如需后台持续观察，应单独取得 automation/跨 turn 唤醒授权。
@@ -504,13 +529,27 @@ Owner：发布验收 agent，S；review：独立 A。
 
 | 波次 | 可调度的包 | 关键约束 |
 | --- | --- | --- |
-| W0 | P1-00、P1-01 设计、P1-02 测试基座设计 | 计划 review 后才写产品实现；先冻结共享接口 |
-| W1 | M1-01 + M1-02，review 槽交替；随后 M1-04 + M1-05 | M1-03 依赖 DB/ADR；M1-06 聚合 G1 |
-| W2 | M2-01 + M2-02；随后 M2-03 + M2-04 设计 | Recovery ADR/反例是 G2 关键路径；M2-05 最后集成 |
-| W3 | M3-01 + M4-01 设计/离线实现；随后 M3-02/03 | 后阶段提前工作不提前过 gate；真实 bulk 等 M4-01/02 |
-| W4 | M4-01/02 + M4-04；M4-03 + M4-05；M4-06 集成 | DTO 与 History 各有 reviewer，alpha 包含 Web 与恢复 |
-| W5 | M5-01/02 + M6-01/03；随后 M5-03 与 M6-04/06 | 使用两个 worker+review 槽，不同时改共享 schema |
-| W6 | M6-02/05/06，随后 M6-07→08→09 | Publish/live/host/license decision 只阻塞对应分支 |
+| W0 当前规划 | 总计划文档/独立技术 review→用户 review/明确批准 G0 | 批准前不 merge 总计划 PR、不开始产品实现 |
+| W0a 开工 | P1-00 派工台账→P1-01 接口/ADR plan-review | G0 后执行；先冻结共享接口 |
+| W0b 基座 | P1-02 测试基座实现 + M1-01 package/config 实现 | 两者均依赖已冻结 P1-01；测试基座不能只停留在设计 |
+| W1a DB | M1-02 实现；并行可做 M1-04 OAuth 设计 | 等 P1-02/M1-01 输出；OAuth 实现仍等 DB |
+| W1b 身份/锁 | M1-03 + M1-04 实现 | M1-01/02 和 writer ADR 就绪；最后接入命令协议 |
+| W1c 基础集成 | M1-05 实现→M1-06 集成；空余槽可做 M6-01 backup 设计 | 先完成 M1-03/04/05 输出再聚合 G1；后阶段设计不宣告通过 |
+| W2a adapters | M2-01 实现；并行 M2-04 recovery ADR 设计 | M2-02 此时只可设计/测试设计，不能提前实现依赖 adapter 的逻辑 |
+| W2b projection | M2-02→M2-03→M2-04 实现→M2-05 离线集成 | 每步等前项输出；空余槽做后项 plan/反例测试设计与 review；G2 live 另等 D3 |
+| W3a admission | M3-01→M3-02 实现；并行 M4-01 History 设计 | History 实现不能早于固定 epoch/H0 工程输出 |
+| W3b discovery/History | M3-03 + M4-01 实现；M3-03 完成后做 M3-04 离线验收 | 两实现都等 M3-02；认证 live gate 不阻塞已有稳定输入的 History 逻辑 |
+| W4a gap/API | M4-02 + M4-04 实现 | 两者等 M4-01 工程输出；尚待 G3 live 不阻塞离线代码 |
+| W4b alpha 工程 | M4-03 + M4-05 实现→M4-06 离线整合 | 两者各自依赖 gap/API；G4 最终验收另等 G3/live |
+| W5a labels/backup | M5-01 + M6-01 实现 | M6-01 等稳定 DB/lock；若提前完成可把槽给 review |
+| W5b modes/Compose | M5-02 + M6-03 实现 | Compose 必须等 M6-01 与 M4-06 离线 runtime，不能与其前置包同时开写 |
+| W5c cancellation/image | M5-03 + M6-04 实现 | 分别等 M5-02/M6-03；G5 live 另等 scope，main 发布遵守已批准 D2 |
+| W6a 完整交付 | M6-02 + M6-05；随后 M6-06 | Restore 等停止/恢复离线输出；镜像验证等实际批准的发布；docs 等工程接口 |
+| W6b 实际验收 | M6-07→M6-08→M6-09 | G5 与所有实测/host/license 所需决定齐备后推进；发布/部署不能虚构 |
+
+表中 `+` 表示依赖已满足时可同时派两个 worker，`→` 表示必须先完成前项工程输出。
+“设计”不包含依赖未满足的产品实现；review 槽始终保留。派工者以工作包卡片和当轮
+就绪记录为准，不能因为同属一个大波次就同时启动存在依赖的实现。
 
 工作量按 gate 和 review-ready 包管理，不在证据不足时承诺日期。关键路径主要是
 AUTH/insert 归属 ADR→M2/G2→admission/H0→History/gap/alpha→action races→真实
@@ -521,8 +560,9 @@ AUTH/insert 归属 ADR→M2/G2→admission/H0→History/gap/alpha→action races
 
 | ID | 状态与责任 | 影响/触发点 | 提交用户的内容或工程处理 |
 | --- | --- | --- | --- |
-| D1 自主合并权限 | 2026-10-02 用户已授权 | 本项目 Plan/工程 PR，经独立 plan/implementation review + CI 门槛 | 协调 agent 核证并调度集成 agent 自主合并；GitHub required approval 仍须满足，不包含 live/deploy/release |
-| D2 镜像位置/触发 | 2026-10-02 用户已授权 | M6-04 publish、M6-05 拉取 | 仅 public `ghcr.io/ghostflying/facet`；main 合并后 full-SHA 自动发布；PR 不 publish；正式版本 tag/GitHub Release 另确认 |
+| D0 整体计划批准/启动 | 当前 pending；用户 review/明确批准具体版本 | 总计划 PR merge、P1 产品实施/M1 开工 | 先提交独立技术 review 后的完整 draft PR、候选 SHA、风险/决定；技术 review/CI 不替代用户批准 |
+| D1 Phase 内自主合并 | 2026-10-02 用户已授权；G0 通过后生效 | Phase 内工程/工作包计划 PR，经独立 plan/implementation review + CI | 协调 agent 核证并调度集成 agent 自主合并；总计划 PR 排除，GitHub required approval 仍须满足，不包含 live/deploy/release |
+| D2 镜像位置/触发 | 2026-10-02 scope 已授权；G0/phase 启动后实施 | M6-04 publish、M6-05 拉取 | 仅 public `ghcr.io/ghostflying/facet`；main 合并后 full-SHA 自动发布；PR 不 publish；正式版本 tag/GitHub Release 另确认 |
 | D3 Live Gmail/规则范围 | 生产 live 未授权，spike 授权不沿用 | G2/G3/G4/G5 live、bulk、M6 dogfood | 私下配置 source/target、限定 thread/rules/test scope、允许操作、OAuth mode 与退出策略；不把账号放 GitHub |
 | D4 Dogfood host/volume/Nginx | 待用户选定 | M6-07/08 | 推荐部署形态、确切 host 与 local FS 检查、backup/digest/rollback；部署前呈现可 review 的交付物 |
 | D5 License/版本 release | 待用户决定 | 首次 v0.1 release；不阻塞普通实现 | 给具体 license 选项和 version/artifact 清单；不凭公开仓库推断许可 |
@@ -548,12 +588,14 @@ DTO 技术等契约内工程决定由 agent 通过 ADR/review 作出。遇到 bl
 
 ## 本轮与首次实施 handoff
 
-本轮交付是完整计划、独立 review 结果、文档一致性检查及计划 PR。满足 D1 门槛后
-计划 PR 可以自主合并；本轮不会启动产品 daemon、重新 OAuth、调用 Gmail、发布
+本轮交付是完整计划、独立 review 结果、文档一致性检查及 draft 总计划 PR，供用户
+review。总计划 PR 等用户明确批准 G0 后才能 merge，不能靠 D1 自主合并。本轮不会
+启动产品 daemon、重新 OAuth、调用 Gmail、发布
 镜像或部署。用户此前允许多 worktree、
 subagents、Issue/PR 和原子提交，当前 planning worktree 只承载这个文档单元。
 
-首次实施 dispatch 从 P1-01 接口/ADR 与 P1-02 测试设计开始，再派 M1-01/M1-02；
+G0 通过后首次实施 dispatch 从 P1-01 接口/ADR plan-review 开始，再并行完成 P1-02
+测试基座实现与 M1-01，之后派 M1-02；
 每包 Issue 写入当轮实际 branch/base/owner/reviewer 和计划链接。协调 agent 的正常
 汇报说明“已完成且有证据 / 进行中 / 下一依赖 / 需用户决定”；生产能力继续用
 implemented、offline-verified、Gmail-verified、deployment-verified 区分，不以 Issue

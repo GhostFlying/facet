@@ -300,3 +300,7 @@ CLI 的实际 writer 协作遵守已评审 command ADR，mutation 的 crash/repl
 ## 交付和实施顺序
 
 按项目计划 M1 至 M6 实施，每阶段先更新具体改动记录再编码。当前阶段仅完成计划和规格，不启动生产 backfill、不切换 OAuth scopes、不修改 Gmail 内容。发布验证使用明确选定的 sandbox 数据，真实账号长期使用安排在基础恢复能力完成之后。
+
+整体 Phase 1 计划需用户 review/明确批准 G0 才开始产品实施；总计划技术 review 不
+替代该批准。Phase 内独立 agent plan/code review 和已批准的 merge/image scope
+在 G0 后执行，真实 Gmail/deployment gate 仍需各自范围决定。

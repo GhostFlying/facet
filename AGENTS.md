@@ -30,6 +30,13 @@ accidentally behaving differently is not authority to change the contract.
 
 ## Autonomous implementation workflow
 
+- The overall Phase 1 plan requires the user's explicit review and approval of
+  the reviewable plan version. That top-level gate is currently pending. Do not
+  merge the overall planning PR or start P1 product implementation/M1 based only
+  on independent technical review or CI. Autonomy applies inside the phase after
+  that user approval; material product, privacy, scope, or authority changes
+  return to the user. Ordinary complex packages use independent agent plan and
+  implementation reviews without per-package user approval.
 - Once implementation is requested, advance through the authorized milestones
   without asking permission for each ordinary edit, test, or local diagnostic.
   Finish coherent units, including tests and documentation; do not stop after
@@ -81,15 +88,19 @@ accidentally behaving differently is not authority to change the contract.
   permission to merge, release, deploy, or change other repository settings from
   permission to implement. Public repository visibility is already decided;
   license selection and version release are separate decisions. On 2026-10-02
-  the user explicitly authorized autonomous merges of this project's plan and
-  engineering PRs after independent plan/implementation review and CI gates.
+  the user explicitly authorized autonomous merges of engineering/work-package
+  plan PRs inside the approved Phase 1 after independent plan/implementation
+  review and CI gates. The overall Phase 1 planning PR is excluded until the
+  user explicitly approves that plan; technical review cannot replace approval.
   The coordinator verifies evidence and delegates merge/conflict work to an
   integration agent. Real Gmail operations, host deployment, version tags, and
   GitHub Releases are not covered by merge authority.
 - Compose and Actions image publication are required deliverables. The user
   explicitly authorized public `ghcr.io/ghostflying/facet` and main-merge-triggered
   full-commit-SHA image publication; PRs build without publishing. Formal version
-  tags need a separate decision. This authority does not cover other packages
+  tags need a separate decision. Its implementation and publication triggers
+  apply after overall Phase 1 approval/start, not during this planning turn.
+  This authority does not cover other packages
   or registries. Verify actual package visibility and anonymous pull access.
 - Independent agent review produces engineering evidence, not a fabricated
   approval by another GitHub account. Meet actual branch-protection requirements;
@@ -295,5 +306,6 @@ accidentally behaving differently is not authority to change the contract.
 - Leave unverified behavior and external limits plainly documented. License,
   version release, dogfood host, live Gmail scope, and unconfirmed bank domains
   are unresolved until explicitly decided; do not fill them in by assumption.
+  Overall Phase 1 user plan approval is currently pending.
   The approved merge and GHCR/main-SHA publication scope is recorded above and
   in the execution-plan decision ledger.

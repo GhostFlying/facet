@@ -29,21 +29,24 @@ schema 或同一 review 槽。已有任务阻塞时释放执行槽，安排独�
 
 2026-10-02 用户授权了 Phase 1 的 agent 推进方式、多 worktree、按需子 agent、
 上述模型、依赖图并行、GitHub Issue/PR 和原子提交，并要求 Compose 和 Actions
-image 发布。当前轮任务是完整计划与 review-ready 规划 PR；实施在计划评审和启动
-指令后进行。详细状态记录在执行计划的 D1-D8 台账中。
+image 发布。当前轮任务是完整计划与 draft 规划 PR，供用户 review。整体计划需要
+用户明确批准（G0/D0，当前 pending）；技术 review/CI 不能替代，不能在批准前 merge
+总计划 PR 或开始产品实施。详细状态记录在执行计划的 D0-D8 台账中。
 
 同日用户明确授权：满足独立 plan review、implementation review 和 CI 门槛后，自主
-合并本项目工程/计划 PR；采用 public `ghcr.io/ghostflying/facet`，main 合并后 Actions
+合并用户批准的 Phase 1 内工程/工作包计划 PR；总计划 PR 不属于这项自主合并权限。
+采用 public `ghcr.io/ghostflying/facet`，phase 启动后 main 合并触发 Actions
 自动发布 full commit-SHA image，PR 只构建。正式版本 tag、GitHub Release、真实
 Gmail 操作和未指定主机部署不包含在这两项授权中。
 
 | 操作 | 当前边界 |
 | --- | --- |
 | Plan、read-only 检查、review、文档修改 | 本轮已授权 |
-| 本轮 worktree、Issue、计划 PR、原子提交 | 已授权；提交/推送由工程 agent 执行 |
-| 产品实现、synthetic tests、依赖锁定与 CI 修复 | 后续实施启动后按 reviewed plan 自主推进 |
-| 工程/计划 PR 合并 | D1 已授权；独立 plan/implementation review + CI，通过实际 GitHub rules 后由集成 agent 执行 |
-| Actions image 发布 | D2 已授权；仅 public `ghcr.io/ghostflying/facet` 的 main full-SHA 自动发布；PR 不 publish，正式版本 tag 另确认 |
+| 本轮 worktree、Issue、draft 计划 PR、原子提交 | 已授权；提交/推送由工程 agent 执行；总计划 PR 等用户明确批准再 merge |
+| 整体 Phase 1 计划 approval/start | G0/D0 当前 pending；用户 review/明确批准具体版本，agent 技术 review 不能代替 |
+| 产品实现、synthetic tests、依赖锁定与 CI 修复 | G0 通过后按 reviewed 工作包 plan 自主推进 |
+| Phase 内工程/工作包计划 PR 合并 | D1 已授权，G0 后生效；独立 plan/implementation review + CI，通过实际 GitHub rules 后由集成 agent 执行 |
+| Actions image 发布 | D2 scope 已授权，G0/phase 启动后实施；仅 public `ghcr.io/ghostflying/facet` main full-SHA；PR 不 publish，正式版本 tag 另确认 |
 | Live Gmail、真实 bulk、便利 scope、repair | 仅明确授权的账号/thread/rules/test scope；D3 |
 | 部署、dogfood host、真实 upgrade/rollback | 指定目标和范围获授权后；D4 |
 | License、版本 tag、正式 release | D5 单独决定 |
@@ -52,6 +55,9 @@ Gmail 操作和未指定主机部署不包含在这两项授权中。
 允许范围内的普通编辑、诊断、review 和测试持续推进，不每步向用户请求确认。需要
 权限/产品选择时，先把方案做到可 review，再提交具体 decision packet。授权等待只
 阻塞有关分支；没有回复不视为同意。私密授权信息在受控本地状态中保留，不写公开 Issue。
+整体计划批准前允许本轮规划、检查与 review，所有产品实施分支均等待 G0；phase 内
+普通复杂包由独立 agent review，不重复要求用户逐包批准。重要产品/隐私/权限改变
+需重新提交用户 review，不能用 routine ADR 消化。
 
 ## 工作包生命周期
 
@@ -96,8 +102,11 @@ base SHA、文件 scope、接口版本、worktree/branch、owner/reviewer、模�
    Reviewer 必须不是该包 ADR 的作者；协调 agent可核验 gate，但不替代独立 review。
 5. 修正后产生新候选 SHA。Review 的 findings 与证据应说明哪些保留、哪些已失效；
    影响代码或契约的改动必须重新 review，不能仅依据前一个 commit 的结论。
-6. 在 CI、review、隐私扫描和所需 live gate 通过后标 `ready_to_integrate`。Merge
-   由获授权的集成 agent 执行，遵守 D1 门槛与实际 GitHub rules。合并后基于实际
+6. 在 G0 已通过的 phase 内，当前 PR 的 CI、review、隐私和针对性验收通过后标
+   `ready_to_integrate`。只实现离线逻辑的 PR 可以保留不属于该 PR 的 milestone live
+   gate 为 pending，不必等待它才整合工程输出；真正执行 Gmail/部署或声称 gate
+   完成的 PR 必须有相应 authority/实测证据。总计划 PR 另须用户明确批准，不能自主
+   merge。Merge 由集成 agent 执行，遵守 D1 与实际 GitHub rules。合并后基于实际
    main 做必要集成检查，更新 Epic/development-status 和下一就绪任务。
 
 GitHub 上由同一用户账号运行的 agent review 是工程审查证据，不自动等于 required

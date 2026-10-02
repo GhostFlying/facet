@@ -17,8 +17,11 @@ production daemon, issue Gmail calls, copy mail, deploy a host, or publish an
 image. The user subsequently authorized autonomous project PR merges after
 independent plan/implementation reviews and CI, and public
 `ghcr.io/ghostflying/facet` main full-SHA image publication. The current planning
-PR may merge after those gates; formal version tags/GitHub Releases, live Gmail,
-and host deployment remain separate decisions.
+PR requires the user's explicit overall Phase 1 plan approval and cannot merge
+autonomously beforehand. Engineering PR merge authority takes effect inside the
+phase only after that approval; formal version tags/GitHub Releases, live Gmail,
+and host deployment remain separate decisions. GHCR publication scope is
+approved, but implementation and its triggers begin only after the phase starts.
 
 Baseline: clean `main` and `origin/main` both resolved to `9d8595d`. The isolated
 planning worktree is the repository's sibling `../facet-worktrees/phase1-plan`,
@@ -63,6 +66,22 @@ overwritten.
    and provide the candidate SHA before pushing or creating the planning PR.
    No product source, dependency, or runtime state changes are in this unit.
 
+## Scope clarification before the next revision
+
+The user clarified that they review and explicitly approve the overall Phase 1
+plan; autonomy applies to work inside the approved phase. Add a top-level user
+approval gate, currently pending, consistently to the execution plan, workflow,
+AGENTS, project plan, development status and README. The overall planning PR is
+reviewable but must not merge before that user approval. Ordinary complex work
+packages retain independent agent plan/code reviews without per-package user
+approval; material product/privacy/authority changes return to the user.
+
+Combine this clarification with the independent technical review of candidate
+`a8e87de8e02469f018a317efeea1be6493dafdc2`, correct dispatch-wave dependency
+issues, and commit a new local candidate for re-review. Do not push or create a
+PR until the coordinator directs it, and do not implement product code or run
+Gmail/publication/deployment actions.
+
 ## Acceptance and checks
 
 - Every implementation package has a stable ID, dependency, worker/model route,
@@ -93,17 +112,24 @@ milestone evidence.
 
 ## Verification record
 
-- Integrated draft contains 36 unique work-package cards. Mechanical checks of
-  the cards' implementation dependency references/ranges found no nonexistent
-  package or cycle (116 extracted implementation edges); milestone/live gates
-  remain separately reviewed acceptance conditions.
+- Revised draft contains 36 unique work-package cards. Mechanical checks of the
+  cards' implementation dependency references/ranges found no nonexistent
+  package or cycle (117 extracted implementation edges); milestone/live gates
+  remain separately reviewed acceptance conditions. The initial candidate had
+  116 extracted edges; runtime now explicitly references M3 offline evidence.
 - Local links, balanced fences, heading separation, and absence of private host
-  paths passed for all eight changed documentation files. Whitespace checks
+  paths passed for all nine changed documentation files. Whitespace checks
   passed. No production test is claimed from these documentation checks.
-- D1 autonomous project merges and D2 public GHCR/main full-SHA publication were
-  explicitly approved by the user on 2026-10-02 and synchronized across documents.
+- D1 phase-internal merges and D2 public GHCR/main full-SHA publication scope were
+  explicitly approved by the user on 2026-10-02, conditional on overall plan
+  approval/start G0. G0 is pending; the overall planning PR cannot merge or start
+  implementation based on independent technical review/CI.
 - Staged-index repository safety passed and the existing configured user/noreply
   identity matched the authorized identity; saved Git configuration was not
   changed. Candidate author/committer will also be inspected after committing.
-- Pending: independent review at the candidate SHA, corrections if needed, final
-  PR/CI and integration handoff. Production M1-M6 remain unimplemented.
+- Initial independent review at `a8e87de8e02469f018a317efeea1be6493dafdc2`
+  returned changes_requested. R1-R3 and optional C1 were corrected and preserved
+  in the [review record](../reviews/phase-1-plan-review.md).
+- Pending: independent technical re-review at the revised candidate SHA, draft
+  PR/CI, then explicit user overall-plan review/approval. Production M1-M6 remain
+  unimplemented; the overall planning PR stays unmerged while G0 is pending.

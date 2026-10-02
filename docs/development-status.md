@@ -12,7 +12,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | --- | --- | --- |
 | Phase 0 Gmail spike | Complete within its scope | See [redacted results](phase-0-gmail-spike-results.md); production behavior not implied |
 | Repository bootstrap | Complete | Public `main` published with account noreply identity; Python 3.11/3.12 offline CI passed |
-| Phase 1 execution planning | Draft; independent review pending | 36 stable work packages, dependency/gate separation, delegated workflow and approved merge/GHCR scope; no product implementation |
+| Phase 1 execution planning | Draft revision; technical re-review and user G0 approval pending | 36 work packages, corrected dispatch dependencies, internal merge/GHCR scope approved conditionally; no product implementation |
 | M1 foundation | Not implemented | Config, bindings, schema/migrations, locks, rule storage, public status models |
 | M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
 | M3 admission/backfill | Not implemented | Rules/authenticity, preview, fixed six-month discovery, durable backfill |
@@ -34,16 +34,24 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
   tracks this planning unit and later ready work-package Issues. The planning
   worktree is isolated. Local document links/fences/headings, whitespace, private
   host-path checks, 36-package dependency references/acyclicity and staged-index
-  repository safety passed; independent review and PR CI remain pending. No
+  repository safety passed for the initial candidate. Independent review of
+  `a8e87de` requested changes; the revised draft passed document/117-edge DAG
+  checks. Technical re-review and PR CI remain pending; overall user approval G0
+  is separately pending. The [review record](reviews/phase-1-plan-review.md)
+  preserves findings and responses. No
   production package, daemon, Gmail request, deployment, or image is
   introduced by this unit.
 - On 2026-10-02 the user authorized delegated Phase 1 work, multiple worktrees,
   Issue/PR tracking, atomic commits, Astra high / 6.1 Sol xhigh as needed, and
   root coordination/reporting only. Complex plans need independent review before
   implementation, then independent implementation and acceptance review.
-- The user also authorized autonomous merges of this project's PRs after those
-  review and CI gates, and public `ghcr.io/ghostflying/facet` main full-SHA image
-  publication through Actions. PRs only build; formal version tags/GitHub
+- The user also authorized autonomous merges of engineering/work-package plan
+  PRs inside the approved phase after those review and CI gates, and public
+  `ghcr.io/ghostflying/facet` main full-SHA image publication through Actions once
+  the phase starts. They clarified that the overall Phase 1 plan itself needs
+  their review and explicit approval; the draft planning PR must not merge
+  beforehand, and technical review/CI cannot start implementation. PRs only
+  build; formal version tags/GitHub
   Releases, live Gmail operations and host deployment are not included. No
   image has been built or published yet.
 - Repository: [GhostFlying/facet](https://github.com/GhostFlying/facet), verified
@@ -68,9 +76,12 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 
 ## Next authorized development unit
 
-Finish independent review and consistency/safety checks for the current planning
-PR, then integrate it under the approved merge gates. This turn is a planning
-request, not a production implementation request. When implementation starts,
+Finish independent technical re-review and consistency/safety checks for the
+draft planning PR, then present the complete plan for the user's review and
+explicit G0 approval. Do not merge the overall plan or start product code before
+that decision. Ordinary phase-internal plans/engineering PRs can advance under
+the approved autonomous gates after G0; material product/privacy/authority
+changes return to the user. When implementation starts,
 dispatch P1-01/P1-02 interface/ADR/test work, then the M1 packages from the
 [execution plan](phase-1-execution-plan.md). Write and review a concrete package
 implementation record before coding. M1's minimum scope is:
@@ -109,3 +120,6 @@ actual verification scope instead of marking a partial gate complete.
 - Authentication trust, unknown-insert attribution (excluding old unmanaged/spike
   copies), and daemon/CLI single-writer coordination are required early ADRs.
   Unique fingerprint matches alone do not establish this insert's provenance.
+- Overall Phase 1 plan approval/start is pending. Internal engineering merge and
+  GHCR scope approvals do not substitute for that decision. Final milestone live
+  gates remain separate from dependency-ready offline engineering outputs.

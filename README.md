@@ -15,6 +15,12 @@ The redacted live findings are documented in
 Phase 0 is complete: Gmail API behavior and target Gmail conversation/PDF access
 were verified. Production implementation is planned, not yet available.
 
+The complete Phase 1 plan is a draft for the user's review and explicit approval.
+That top-level gate is pending; independent technical review and CI do not start
+product implementation or authorize merging the overall planning PR. After plan
+approval, agents advance internal work packages and qualified PR merges
+autonomously. Material product, privacy or authority changes return to the user.
+
 ## Development plan
 
 - [Agent instructions](AGENTS.md): mandatory project boundaries, autonomous
@@ -29,6 +35,8 @@ were verified. Production implementation is planned, not yet available.
 - [Agent workflow](docs/agent-workflow.md): coordinator-only root role,
   delegated engineering, independent plan/code/acceptance review, model routing,
   worktree ownership, GitHub Issues/PRs, and evidence-bound handoffs.
+- [Plan technical review](docs/reviews/phase-1-plan-review.md): reviewed candidate
+  SHA, independent findings and corrections; separate from user plan approval.
 - [Phase 1 Epic](https://github.com/GhostFlying/facet/issues/1): durable progress
   and the ready-work-package queue.
 - [Product contract](docs/product-contract.md): thread disclosure, permission
@@ -52,6 +60,8 @@ will publish main full-commit-SHA images to the user-approved public package
 `ghcr.io/ghostflying/facet`; PRs build without publishing. Explicit image
 versions/digests, backup/restore, upgrade/rollback, and anonymous pull verification
 are delivery gates. Compose files and images are planned, not available yet.
+Image workflow implementation and publication triggers begin after Phase 1 plan
+approval/start; the approved package scope does not start that work now.
 Formal version tags/releases, live mailbox scope and deployment host remain
 separate decisions.
 
