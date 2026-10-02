@@ -12,8 +12,10 @@ import os
 import sys
 import threading
 import warnings
+import weakref
 from dataclasses import dataclass
 from enum import StrEnum
+from types import ModuleType
 
 from facet.contracts import ErrorCode, Role, Timestamp
 
@@ -157,8 +159,22 @@ def _discard_handlers() -> bool:
     External custom atexit code is outside the supported process contract.
     """
     supported = True
-    loggers = [logging.root]
-    for logger in tuple(logging.Logger.manager.loggerDict.values()):
+    loggers = []
+    if type(logging.root) is logging.RootLogger:
+        loggers.append(logging.root)
+    else:
+        supported = False
+    manager = logging.Logger.manager
+    if type(manager) is logging.Manager and type(manager.loggerDict) is dict:
+        candidates = tuple(manager.loggerDict.values())
+        # logging.disable calls Manager._clear_cache and traverses custom Logger
+        # attributes before it returns. Set only the exact stdlib manager's
+        # threshold here; clear only exact known logger caches below.
+        manager.disable = sys.maxsize
+    else:
+        candidates = ()
+        supported = False
+    for logger in candidates:
         if type(logger) is logging.PlaceHolder:
             continue
         if type(logger) is not logging.Logger:
@@ -167,14 +183,28 @@ def _discard_handlers() -> bool:
             loggers.append(logger)
     handlers = []
     for ref in tuple(logging._handlerList):
+        if type(ref) is not weakref.ReferenceType:
+            supported = False
+            continue
         handler = ref()
         if handler is not None:
             handlers.append(handler)
     for logger in loggers:
-        handlers.extend(logger.handlers)
+        if type(logger.handlers) is list:
+            handlers.extend(logger.handlers)
+        else:
+            supported = False
         logger.handlers = []
+        if type(logger._cache) is dict:
+            logger._cache.clear()
+        else:
+            supported = False
     if logging.lastResort is not None:
         handlers.append(logging.lastResort)
+    # Retire shutdown references before examining supported instances. Unknown
+    # implementations are not inspected, formatted, flushed or closed at all.
+    logging._handlerList.clear()
+    logging._handlers.clear()
     for handler in handlers:
         cls = type(handler)
         if (
@@ -182,39 +212,57 @@ def _discard_handlers() -> bool:
             and cls is not logging._StderrHandler
         ):
             supported = False
+            continue
         # Do not invoke a custom method/property, even on a rejected handler.
         try:
             state = object.__getattribute__(handler, "__dict__")
         except AttributeError:
             supported = False
             continue
+        formatter = state.get("formatter")
+        if formatter is not None and type(formatter) is not logging.Formatter:
+            supported = False
         if "buffer" in state:
             state["buffer"] = []
         if "target" in state:
             state["target"] = None
-    logging._handlerList.clear()
-    logging._handlers.clear()
     return supported
 
 
 def _debug_disabled() -> bool:
-    if http.client.HTTPConnection.debuglevel != 0:
+    level = http.client.HTTPConnection.debuglevel
+    if type(level) is not int or level != 0:
         return False
     module = sys.modules.get("httplib2")
-    if module is not None and vars(module).get("debuglevel", 0) != 0:
-        return False
+    if module is not None:
+        if type(module) is not ModuleType:
+            return False
+        level = vars(module).get("debuglevel", 0)
+        if type(level) is not int or level != 0:
+            return False
     return not (sys.flags.dev_mode or sys.flags.verbose)
 
 
 def _policy_intact() -> bool:
+    # Type checks must precede property/attribute access and equality. Even
+    # object.__getattribute__ executes a descriptor on an unsupported subclass.
+    manager = logging.Logger.manager
+    if (
+        type(logging.root) is not logging.RootLogger
+        or type(manager) is not logging.Manager
+    ):
+        return False
+    if type(manager.loggerDict) is not dict or type(manager.disable) is not int:
+        return False
+    if type(logging.root.handlers) is not list:
+        return False
     if (
         _FAILED
         or _LOGGING_UNAVAILABLE
-        or logging.root.manager.disable != sys.maxsize
+        or manager.disable != sys.maxsize
         or logging.raiseExceptions is not False
         or logging.getLoggerClass() is not logging.Logger
         or logging.getLogRecordFactory() is not logging.LogRecord
-        or type(logging.root) is not logging.RootLogger
         or len(logging.root.handlers) != 1
         or logging.root.handlers[0] is not _DROP
         or logging.lastResort is not _DROP
@@ -225,24 +273,42 @@ def _policy_intact() -> bool:
         or not _debug_disabled()
     ):
         return False
-    for logger in tuple(logging.Logger.manager.loggerDict.values()):
+    for logger in tuple(manager.loggerDict.values()):
         if type(logger) is logging.PlaceHolder:
             continue
-        if type(logger) is not logging.Logger or logger.handlers:
+        if type(logger) is not logging.Logger:
             return False
-    return all(ref() is None or ref() is _DROP for ref in logging._handlerList)
+        if type(logger.handlers) is not list or logger.handlers:
+            return False
+    for ref in logging._handlerList:
+        if type(ref) is not weakref.ReferenceType:
+            return False
+        if ref() is not None and ref() is not _DROP:
+            return False
+    return True
 
 
 def configure_production_logging() -> None:
     global _CONFIGURED, _FAILED, _DROP
+    hooks_intact = (
+        warnings.showwarning is _warning
+        and sys.excepthook is _uncaught
+        and threading.excepthook is _thread_failure
+        and sys.unraisablehook is _unraisable
+    )
+    # Install sealed failure hooks BEFORE any logging operation. They are not
+    # permission to inspect a foreign object; such objects are rejected untouched.
+    warnings.showwarning = _warning
+    sys.excepthook = _uncaught
+    threading.excepthook = _thread_failure
+    sys.unraisablehook = _unraisable
     if _CONFIGURED:
-        if _policy_intact():
+        if hooks_intact and _policy_intact():
             return
         _FAILED = True
         _discard_handlers()
         raise OutputBoundaryError()
     # Even refusal must discard a previously buffered record before atexit.
-    logging.disable(sys.maxsize)
     logging.raiseExceptions = False
     supported = _discard_handlers()
     supported = supported and (
@@ -252,12 +318,9 @@ def configure_production_logging() -> None:
         and _debug_disabled()
     )
     _DROP = logging.NullHandler()
-    logging.root.handlers = [_DROP]
+    if type(logging.root) is logging.RootLogger:
+        logging.root.handlers = [_DROP]
     logging.lastResort = _DROP
-    warnings.showwarning = _warning
-    sys.excepthook = _uncaught
-    threading.excepthook = _thread_failure
-    sys.unraisablehook = _unraisable
     if not supported or _FAILED:
         _FAILED = True
         raise OutputBoundaryError()

@@ -327,3 +327,115 @@ print('{"terminal_channel_preserved":true}')
         MarkerKind.CREDENTIAL, "https://example.invalid/synthetic-authorization-only"
     )
     assert_private_boundary(result.stdout + result.stderr, (marker,), Profile.PUBLIC)
+
+
+HOSTILE_CONFIGURATIONS = [
+    """
+class Custom(logging.Handler):
+    @property
+    def __dict__(self):
+        print('SYNTHETIC_HANDLER_PROPERTY_CALLED')
+        raise RuntimeError('SYNTHETIC_PRIVATE_HANDLER_VALUE')
+handler = Custom()
+logging.getLogger('google.auth').addHandler(handler)
+""",
+    """
+class Custom(logging.Logger):
+    def __getattribute__(self, name):
+        if name == '_cache':
+            print('SYNTHETIC_LOGGER_PROPERTY_CALLED')
+            raise RuntimeError('SYNTHETIC_PRIVATE_LOGGER_CACHE')
+        return super().__getattribute__(name)
+logging.setLoggerClass(Custom)
+logger = logging.getLogger('synthetic.custom.new.logger')
+""",
+    """
+class Custom(logging.RootLogger):
+    def __getattribute__(self, name):
+        if name in ('handlers', 'manager', '_cache'):
+            print('SYNTHETIC_ROOT_PROPERTY_CALLED')
+            raise RuntimeError('SYNTHETIC_PRIVATE_ROOT_VALUE')
+        return super().__getattribute__(name)
+logging.root = Custom(30)
+""",
+    """
+class Custom(logging.Handler):
+    __hash__ = object.__hash__
+    def __eq__(self, other):
+        print('SYNTHETIC_EQ_CALLED')
+        raise RuntimeError('SYNTHETIC_PRIVATE_EQ_VALUE')
+handler = Custom()
+# Populate the pre-existing unsupported state without addHandler invoking __eq__
+# during fixture construction, before the boundary under test has been called.
+logging.getLogger('google.auth').handlers.append(handler)
+""",
+    """
+class Custom(logging.Formatter):
+    def format(self, record):
+        print('SYNTHETIC_FORMATTER_CALLED')
+        raise RuntimeError('SYNTHETIC_PRIVATE_FORMATTER_VALUE')
+target.setFormatter(Custom())
+""",
+    """
+class CustomFactory:
+    def __call__(self, *args, **kwargs):
+        print('SYNTHETIC_FACTORY_CALLED')
+        raise RuntimeError('SYNTHETIC_PRIVATE_FACTORY_VALUE')
+logging.setLogRecordFactory(CustomFactory())
+""",
+]
+
+
+@pytest.mark.parametrize("configuration", HOSTILE_CONFIGURATIONS)
+@pytest.mark.parametrize("after_initial_setup", [False, True])
+def test_hostile_config_refuses_without_descriptor_eq_or_formatter_calls(
+    configuration, after_initial_setup
+):
+    begin = "from facet.status import configure_production_logging\n"
+    if after_initial_setup:
+        begin += "configure_production_logging()\n"
+    result = run_code(
+        begin
+        + BUFFER
+        + configuration
+        + """
+from facet.status.errors import OutputBoundaryError
+try:
+    configure_production_logging()
+except OutputBoundaryError:
+    print('controlled_refusal')
+else:
+    raise AssertionError('hostile configuration accepted')
+assert buffer.buffer == [] and buffer.target is None
+logging.shutdown()
+"""
+    )
+    assert result.returncode == 0
+    assert result.stdout == b"controlled_refusal\n"
+    assert result.stderr == b""
+
+
+def test_handler_descriptor_negative_control_really_executes():
+    result = run_code(
+        BUFFER
+        + HOSTILE_CONFIGURATIONS[0]
+        + """
+object.__getattribute__(handler, '__dict__')
+"""
+    )
+    assert result.returncode != 0
+    assert b"SYNTHETIC_HANDLER_PROPERTY_CALLED" in result.stdout
+    assert b"SYNTHETIC_PRIVATE_HANDLER_VALUE" in result.stderr
+
+
+def test_disable_negative_control_really_traverses_custom_logger():
+    result = run_code(
+        BUFFER
+        + HOSTILE_CONFIGURATIONS[1]
+        + """
+logging.disable(50)
+"""
+    )
+    assert result.returncode != 0
+    assert b"SYNTHETIC_LOGGER_PROPERTY_CALLED" in result.stdout
+    assert b"SYNTHETIC_PRIVATE_LOGGER_CACHE" in result.stderr

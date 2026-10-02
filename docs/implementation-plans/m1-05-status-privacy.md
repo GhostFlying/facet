@@ -404,3 +404,21 @@ No DB, owner, Auth adapter, shared CLI, cache producer, HTTP, dependency, CI or
 container file changed. No real account/credential/mail data was accessed. The
 first 274-line plan prefix and closed ADR remain unchanged. Issue14, complete
 M105, ST-03/13/16, OA-16/17, G1 and future runtime/HTTP/container gates remain open.
+
+### Independent review correction: unsupported logging configurations
+
+Independent review rejected the first whole-early candidate's logging setup:
+object.__getattribute__ can still execute a custom __dict__ descriptor, and
+logging.disable traverses custom Logger cache attributes. CI success did not
+supersede those real subprocess privacy failures. The correction installs sealed
+failure hooks first, avoids that disable/cache traversal, retires shutdown handler
+references, and inspects mutable state only on exact supported stdlib classes.
+Unsupported objects are rejected without descriptor/equality/formatter/close calls.
+
+Both original leak paths have detecting negative controls. Initial and repeated
+setup test hostile Handler, Logger, root, equality, formatter and factory cases,
+while preserving all previous MemoryHandler/exit/refusal/file controls. Actual
+corrected checks: 33 logging subprocess cases, 488 full offline tests, Ruff/format
+81 files passed. This supersedes the earlier source candidate, not the accepted
+design. New exact candidate independent review and CI remain required; all actual
+consumer and complete-package gates above stay pending.
