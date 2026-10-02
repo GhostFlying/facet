@@ -229,3 +229,26 @@ source-released to `phase1_sol_policy_review`. These are finite dispatches,
 not implemented or accepted migration/bootstrap/provider consumers. Restore
 remains independently approved plan-only without source release. New docs-source
 acceptance/CI and root-qualified integration are still required.
+
+## Oct3 measured source handoff
+
+The truthful snapshot records actually merged PR22/befe and successful main CI,
+historical main36b failure/a410 H1 HOLD/SQL62 and246 HOLDs, independently accepted
+but unmerged combined SQL a9c, and actual finite migration/bootstrap dispatches
+without claiming their source/provider or full-package acceptance. Only the two
+allocated status documents and this plan differ from main befe. All production,
+tests, accepted OS/harness plans, contracts, canonical cards/DAG and authority
+are unchanged; all 36 ledger IDs/states/waves are mechanically preserved.
+
+Actual main-based verification passed 758 full offline tests in103.04 seconds,
+locked offline dev sync, Ruff/format (101 tool-selected files), both source and
+installed CLI helps, JSON version, links/fences/history/limits/authority and
+private-literal checks, diff whitespace and repository safety. A fresh isolated
+noneditable wheel has SHA-256
+`a09b3bd4f82b3e5ba732bf23554e2ac6af1295eee925e80c765db6108ea5d0d5`;
+all shipped source/archive/install bytes match, no tests/plans/unmerged SQL ship,
+and 22 production-library imports preserve empty OS inventories without DB,
+FD/file/fork-hook/network/process/log effects. Executable entry modules were
+checked through separate CLI smoke. The original 206/118/84 prefixes remain
+exact. New nonauthor docs-source acceptance and fresh actual-checkout CI are
+pending; no readiness/main merge or additional source authority is inferred.
