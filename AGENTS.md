@@ -72,8 +72,12 @@ accidentally behaving differently is not authority to change the contract.
 - For Phase 1 the root agent only decomposes work, dispatches agents, schedules
   reviews, evaluates acceptance evidence, and reports progress or blockers.
   Engineering, tests, documentation, commits, and conflict integration belong
-  to delegated worker/QA/integration agents. The user authorized
-  `gpt-6-astra` high and `gpt-6.1-sol` xhigh as needed. Use independent plan review
+  to delegated worker/QA/integration agents. The user's latest prospective model
+  policy permits only `gpt-6.1-sol` high/xhigh or `gpt-6-luna` according to task
+  complexity. Complex design and high-risk independent review use Sol xhigh;
+  simple bounded low-risk work may use Luna. Do not assign new work to or
+  reactivate Astra. Historical reviews retain their actual authorized model,
+  reviewer and candidate attribution. Use independent plan review
   before complex implementation and independent implementation/acceptance review
   afterward; reviewers must not approve their own design or implementation.
   Bind review evidence to the actual plan revision and candidate commit SHA.

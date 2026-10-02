@@ -14,8 +14,9 @@ PR merge、offline、Gmail 或 deployment 证据混为完成。Package 状态沿
 [candidate CI](https://github.com/GhostFlying/facet/actions/runs/36968387054) 与
 [main CI](https://github.com/GhostFlying/facet/actions/runs/36969107636) 成功。
 G1-G6 均未通过；package/config/CLI foundation、P1-02 和 M1-05 pure/logging early
-unit 已实际集成，SQL 仍是未合入的已审部分切片。本候选交付 M1-04 pure values/
-in-memory codec/client parser；full OAuth/binding 仍未完成。真实 DB/auth/runtime consumers、
+unit 已实际集成，SQL 仍是未合入的已审有限 library。M1-04 pure values/in-memory
+codec/client parser 已由 PR18 实际集成 exact `ff77e63`，main CI 37001014793 成功；
+full OAuth/binding 仍未完成。真实 DB/auth/runtime consumers、
 Gmail/Compose/Dashboard 和完整维护 CLI 均未完成。
 
 D1 phase 内合格工程 PR 集成与 D2 限定 GHCR/main-SHA scope 已随 phase 启动生效，
@@ -25,11 +26,15 @@ D1 phase 内合格工程 PR 集成与 D2 限定 GHCR/main-SHA scope 已随 phase
 
 ## Ownership、派工与证据
 
-Root 只调度/review 核证/汇报；shared current-state/coordination 文档由 P1-00 的
-delegated `phase1_plan_author` integration/docs owner 单独维护，直到 root 显式转交。
-当前 SQL owner 的 worktree/branch 为 sibling `m1-02-persistence` /
-`feat/m1-02-persistence`；本次独占 M1-04 分支的两份 shared docs 作 coherent handoff。
-M1-01/P1-00 已集成，旧 worktrees 保留。其他 workers
+Root 只调度/review 核证/汇报。原 shared docs worker 结束后，root 显式将本次
+prospective policy/status unit 的唯一文档 ownership 转给 `m103_os_source`，位于
+sibling `phase1-model-policy` / `docs/phase1-model-policy`，base `ff77e63`；
+独立非作者 reviewer 为 `phase1_sol_policy_review`（Sol xhigh）。这次转交仅限
+受审 plan 的六份文档；SQL `m1-02-persistence` / `feat/m1-02-persistence` source
+保持冻结，不转交 SQL 文件。OS source 保存在单独 owned worktree，暂停且未验证。
+后续模型仅 Sol high/xhigh 或 Luna；复杂设计/高风险独立 review 使用 Sol xhigh，
+不再新派工或 reactivate Astra。历史合法 A 审查/作者记录保留，表中 A 是历史角色
+标记，不授予新的 Astra 派工权限。M1-01/P1-00 已集成，旧 worktrees 保留。其他 workers
 维护自己的 plan/ADR/source，通过 Issue/handoff 提交共享文档建议，不并行覆写
 AGENTS/README/status/workflow/全局计划/本台账。GitHub 不自动 assign/mention 外人。
 
@@ -45,13 +50,20 @@ exact `1b7cd58`，92 CT/379 full tests、独立 review、candidate/main CI 通�
 M1-02 r3/r4 和有限 result supplement 独立 approved 后已有实际 SQL；PR #15 已审
 values/schema、finite repos、epoch/History/event/expansion、intent/result/recovery、
 WAL snapshot、own-child SIGKILL、target audit 和 DB17 row-stepping rollback 切片。
-最新 `c03e62f` 879 full offline tests、独立 slice review 和 exact 3.12/3.13 CI passed；
-mapping/action/migration/restore/整包 DB-01..28 未完成。实际 DB21 clean-stopped probe
-发现现 view adapter 创建 WAL/SHM，whole no-create gate 明确 HOLD，待受审 provider/
-library closure，不用 immutable-live 或建 sidecar 捷径。
-M1-03 r3 wire extension design approved、无 source；M1-04 full credential design
-approved，实际 owner/schema publication 仍 pending；early pure source `b94b610` 独审/
-120OP/608full/wheel/3.12+3.13 CI passed，本交付 docs/head gates 与集成 receipt 在 PR18。
+早期 `c03e62f` 的 879 full/独审/exact CI 资格保留；当时 DB21 clean-stopped adapter
+建 WAL/SHM 的反例及后续 d6 single-owner HOLD 保留为历史失败。新的有限 DB21 library
+`16bcd0b99bf1118924b214bf9ded3976813f5e1a` 在模型变更前获得独立接受：R1 由实际
+source 修正，1188 full offline tests、8 ownership controls、exact dual-Python
+[CI 37014341329](https://github.com/GhostFlying/facet/actions/runs/37014341329) 成功。
+PR15 仍 Draft/open、未 merged；production provider/runtime registry 为空，真实 managed
+reads/RV11、action/migration/restore 与整包 DB01–28 尚未完成。Action185 和 migration/
+restore design 只是准备；不用 immutable-live 或建 sidecar 捷径。
+M1-03 r3 writer/OS design approved；read-runtime integration 另行准备。root 已派有限
+OS foundation source，保存但
+未验证，当前为 policy handoff 暂停；真实 lock/provider/actor/receipt/credential pending。
+M1-04 full credential design approved，实际 owner/schema publication 仍 pending；
+early pure `b94b610` 的独审/120OP/608full/wheel/CI 资格保留，docs/head 独审后 PR18
+实际 merged exact `ff77e63`，main CI 37001014793 成功，仅 pure slice 集成。
 M1-05 early library source `c455f71` 后两-doc head `f209fbe` 独审并实际集成 PR16，
 [main CI](https://github.com/GhostFlying/facet/actions/runs/36989986570) SUCCESS；
 488full/33 loggingproc/wheel 保留资格。Issue14/17 保持 open，真实 auth/DB/runtime/
@@ -77,9 +89,9 @@ milestone/live verified。按现有 workflow 记录 blocker 原因/下游/解除
 | [P1-01](phase-1-execution-plan.md) | W0a | integrated | PR #8 exact09031；core/writer freeze+review/CI passed，非 runtime | 架构设计 A / 独立 A | [#4](https://github.com/GhostFlying/facet/issues/4) |
 | [P1-02](phase-1-execution-plan.md) | W0b | integrated | PR #12 exact1b7 mandatory CT/379 full/review/candidate+main CI passed；后续 feature consumers 另验 | 测试 worker / 独立 reviewer | [#5](https://github.com/GhostFlying/facet/issues/5) closed |
 | [M1-01](phase-1-execution-plan.md) | W0b | integrated | PR #11 exactb1e revised whole/closure review、287 full/candidate+main CI passed；仅 foundation，非完整 CLI/G1 | package/config S / 独立 reviewer | [#7](https://github.com/GhostFlying/facet/issues/7) closed |
-| [M1-02](phase-1-execution-plan.md) | W1a | implementing | PR15 accepted finite slices to exactc03/879full/CI；whole DB01–28 未齐，DB21 sidecar-create actual反例 HOLD；mapping/action/migrate/restore pending | SQL/shared docs S / 非作者独立 A | [#9](https://github.com/GhostFlying/facet/issues/9), [PR15](https://github.com/GhostFlying/facet/pull/15) |
-| [M1-03](phase-1-execution-plan.md) | W1b | ready | plan + r3 wire/storage design approved；无 source，实际 owner/view/storage/credential participants pending，未派实施 | writer design A / 非作者独立 A | [#13](https://github.com/GhostFlying/facet/issues/13) |
-| [M1-04](phase-1-execution-plan.md) | W1b | implementation_review | early pure b94 独审/120OP/608full/wheel/CI pass；本交付 docs/head gates 待验；full OAuth/profile/files/publication 未实现，actual writer/storage 未齐 | credential source A + shared docs S / 非作者独立 A | [#17](https://github.com/GhostFlying/facet/issues/17), [PR18](https://github.com/GhostFlying/facet/pull/18) |
+| [M1-02](phase-1-execution-plan.md) | W1a | implementing | PR15 Draft/open exact16bcd0b finite library/1188full/8controls/独审/exactCI pass；旧 R1 HOLD 已修，实际 provider/RV11/action/migrate/restore/whole DB01–28 pending | SQL 历史 owner S / 历史独立 A；后续独立 Sol | [#9](https://github.com/GhostFlying/facet/issues/9), [PR15](https://github.com/GhostFlying/facet/pull/15) |
+| [M1-03](phase-1-execution-plan.md) | W1b | implementing | writer/OS designs approved；read-runtime 另行准备；有限 OS source 已派、保存未验且暂停；实际 locks/provider/actor/storage/credential participants pending | writer 历史 design A；OS source Sol xhigh / 后续独立 Sol | [#13](https://github.com/GhostFlying/facet/issues/13) |
+| [M1-04](phase-1-execution-plan.md) | W1b | implementing | early pure PR18 actual integrated exactff77 + mainCI success；120OP/608full/独审/wheel/CI 资格；full OAuth/profile/files/publication 未实现，actual writer/storage 未齐 | credential 历史 source A + shared docs S / 历史独立 A；后续独立 Sol | [#17](https://github.com/GhostFlying/facet/issues/17), [PR18](https://github.com/GhostFlying/facet/pull/18) |
 | [M1-05](phase-1-execution-plan.md) | W1c | implementing | early pure/logging PR16 actual integrated exactf209 + mainCI success；488full/33 loggingproc/wheel资格；真实 consumers/完整包 pending | models/logging A + shared docs S / 非作者独立 reviewer | [#14](https://github.com/GhostFlying/facet/issues/14), [PR16](https://github.com/GhostFlying/facet/pull/16) |
 | [M1-06](phase-1-execution-plan.md) | W1c | ready | r2 plan/ADR 独审 approved；actual M1 inputs/可信 source-path 证据和注册表 pending，无 source/G1/G3 验收 | auth design A / 非作者独立 A | 未物化 |
 | [M2-01](phase-1-execution-plan.md) | W2a | ready | r2 adapter design 独审 approved；actual dependencies/consumer integration pending，无 source | adapter design A / 非作者独立 A | 未物化 |

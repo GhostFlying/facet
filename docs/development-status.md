@@ -17,9 +17,9 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | P1-01 core/writer ADRs | Reviewed and integrated design freeze | PR #8 exact `09031e7`; core-v1/writer-v1, independent review and candidate/main CI passed; no runtime/G1 claim |
 | P1-02 test foundations | Reviewed and integrated, including mandatory CT | PR #12 exact `1b7cd58`; independent review, candidate/main CI and 92 core-compatibility cases passed; Issue #5 closed, later feature-consumer tests remain |
 | M1-01 package/config/CLI foundation | Reviewed and integrated | PR #11 exact `b1e4ae0`; 287 offline tests, independent whole/closure reviews, 3.12/3.13 candidate/main CI and installed-wheel checks passed; not complete init/CLI/G1 |
-| M1-02 persistence | Implementing; multiple finite SQL slices accepted, whole gate open | Draft PR #15 exact `c03e62f`: 879 offline tests and independent slice/3.12+3.13 CI passed; mapping/action/migration/restore and whole DB-01..28 remain; actual DB-21 sidecar-creation counterexample unresolved |
-| M1-03 writer/runtime/CLI | Plan and wire/storage r3 design approved; no runtime source | Actual owner/view/receipt/credential participants and reviewed storage integration pending; design approval is not a running daemon |
-| M1-04 OAuth/binding | Early pure values/codec/client parser accepted; this delivery candidate | PR #18 source exact `b94b610`: 120 OP cases/608 full tests, independent source review, wheel and 3.12+3.13 CI passed; this docs/head review and actual integration remain tracked in PR #18; full OAuth/binding open |
+| M1-02 persistence | Finite SQL/DB21 library accepted; whole gate open, PR unmerged | Draft PR #15 exact `16bcd0b`: 1188 full offline tests, 8 ownership controls, independent acceptance and 3.12/3.13 CI passed; prior single-owner finding corrected; actual runtime provider/RV11, action/migration/restore and whole DB-01..28 remain |
+| M1-03 writer/runtime/CLI | Design approved; bounded OS foundation dispatched, source unverified | OS source is saved separately and paused for this policy handoff; no qualified locks/provider, actor, receipt, credential integration or running daemon |
+| M1-04 OAuth/binding | Early pure values/codec/client parser integrated; full package open | PR #18 actually merged exact `ff77e63`; 120 OP/608 full tests, independent source/head review, wheel and candidate/main 3.12/3.13 CI passed; actual OAuth/profile/files/publication remain |
 | M1-05 public status/privacy | Early pure/logging library integrated; full consumer gate open | PR #16 actually merged exact `f209fbe`, independent review and candidate/main CI passed with 488 offline tests; actual DB/auth/runtime/HTTP/DOM/Compose consumers still pending |
 | M1-06 authentication/initialization | r2 design approved; not implemented | Trusted production source-path evidence/registry, actual dependencies and complete init/doctor/G1 remain; all-unknown is not final acceptance |
 | M1 foundation as a whole | Incomplete | Full persistence, process/view/credential ownership, init/doctor/config apply, authenticated bindings and real status consumers remain; G1 has not passed |
@@ -43,7 +43,12 @@ Issue #14 stays open. M1-04's current pure slice contains closed credential valu
 models, an in-memory byte envelope codec and a strict Desktop-client parser. It
 does not open private files, create capabilities, invoke OAuth/Gmail, fetch profiles,
 refresh or publish credentials, or make a production binding ready. Issue #17 stays
-open. This snapshot does not predict PR #18 integration or its post-merge main CI.
+open. PR #18's actual integration and successful main CI are recorded below.
+
+The user's latest model policy on 2026-10-02 permits only Sol high/xhigh or Luna
+for prospective tasks. Complex design and high-risk independent review use Sol
+xhigh; Astra receives no new work or reactivation. Earlier authorized reviews
+retain their actual model/reviewer/SHA attribution. G1-G6 remain incomplete.
 
 ## Active implementation record
 
@@ -132,21 +137,31 @@ open. This snapshot does not predict PR #18 integration or its post-merge main C
   SQLite WAL snapshot `c589b4c`, own-child SIGKILL tests `bb27213`, actual result/
   recovery-work recording `d1a89d8`, fact-only target audit `d2fb6a1`, and SQLite
   row-stepping/caught-failure rollback `c03e62f` also received independent slice
-  acceptance and exact Python 3.12/3.13 CI. The latest submitted SQL snapshot passed
+  acceptance and exact Python 3.12/3.13 CI. That earlier SQL snapshot passed
   879 full offline tests; [exact CI](https://github.com/GhostFlying/facet/actions/runs/37000255749)
   succeeded. These are storage-library facts, not Gmail invocation/fidelity or
   scheduler acceptance. SIGKILL is not physical power loss; a DB snapshot is not
   a complete credential/config bundle or migration receipt. Typed sessions are not
   real process locks; fresh-owner publication belongs to M1-03's reviewed extension.
   A real DB-21 probe found that `mode=ro` followed by the current supplied-connection
-  view adapter creates WAL/SHM for a clean stopped database. Full no-create acceptance
-  is held pending a reviewed view/provider closure; no immutable-live shortcut or
-  automatic sidecar repair is enabled. Mapping confirmation, actions, migration/
-  restore and complete DB-01..28 evidence remain incomplete. PR #15 remains Draft.
+  view adapter created WAL/SHM for a clean stopped database. This is a retained
+  historical failure, superseded for the finite library by independently accepted
+  exact `16bcd0b99bf1118924b214bf9ded3976813f5e1a`: 1188 full offline tests and
+  8 ownership controls passed; the prior d6 single-owner finding was closed by
+  reviewed source before the model-policy change.
+  [Exact CI](https://github.com/GhostFlying/facet/actions/runs/37014341329) passed
+  Python 3.12/3.13. Production provider/runtime registries remain empty: actual
+  managed-read/RV11, actions, migration/restore and whole DB-01..28 are incomplete.
+  No immutable-live shortcut or sidecar repair is enabled. PR #15 stays Draft/open
+  and unmerged. Action185 and migration/restore designs remain preparation only.
 - M1-03 [Issue #13](https://github.com/GhostFlying/facet/issues/13) has an approved
   implementation plan and independently approved r3 wire/command-storage design,
-  but no runtime source. Actual owner/view/bootstrap/receipts and storage/credential
-  participant integration remain pending. M1-06 r2, M2-01 r2 and M6-01 r2 designs
+  and a separately independently approved bounded OS root/lock plan. Root released
+  that finite source slice against main `ff77e63` after the qualified SQL library
+  and exact CI above. Its source is saved but unverified and paused while its
+  delegated worker completes this model-policy handoff. Actual lock acceptance,
+  managed provider, actor, bootstrap/receipts and storage/credential integration
+  remain pending. M1-06 r2, M2-01 r2 and M6-01 r2 designs
   are also independently approved preparation only, not implemented consumers or
   permission to skip their dependencies. Production authentication remains
   unknown/review until the declared trusted source-path evidence gate closes.
@@ -160,15 +175,16 @@ open. This snapshot does not predict PR #18 integration or its post-merge main C
   normal fast-forward. [Main CI](https://github.com/GhostFlying/facet/actions/runs/36989986570)
   succeeded at the same SHA. The full package stays open for actual consumers.
 - M1-04 [Issue #17](https://github.com/GhostFlying/facet/issues/17) /
-  [Draft PR #18](https://github.com/GhostFlying/facet/pull/18) early pure source
+  [PR #18](https://github.com/GhostFlying/facet/pull/18) early pure source
   `b94b610aec070617a4bd3c1249b58437cc9bfbae` received independent implementation/
   acceptance review; 120 OP cases/608 full tests, Ruff, both CLI help entries,
   installed-wheel privacy/export checks and
   [exact CI](https://github.com/GhostFlying/facet/actions/runs/37000045729) passed.
-  This delivery adds only a coherent update of these two current-state documents;
-  its exact-head affected review/CI and eventual integration receipt belong to
-  PR #18. No file/network/OAuth/profile/token publication or full binding gate
-  was exercised. SQL's unmerged state is not silently imported into this branch.
+  Its coherent docs/head candidate received independent review and actually merged
+  exact `ff77e63a823dc8bcb130836243746c067778b94f`;
+  [main CI](https://github.com/GhostFlying/facet/actions/runs/37001014793) succeeded
+  on Python 3.12/3.13. No file/network/OAuth/profile/token publication or full
+  binding gate was exercised. Issue #17 stays open; SQL remains unmerged.
 
 ## Historical planning and bootstrap record
 
@@ -270,12 +286,12 @@ engineering integration and remaining gates are in the sections above.
 
 ## Next authorized development unit
 
-Continue M1-02's reviewed finite repository and real-file fault/privacy work;
-its value/schema slices do not close whole persistence or G1. Close the M1-05
-early delivery's exact-head docs/CI gates before coordinator-authorized integration,
-then retain its actual DB/auth/runtime consumer gates. Resolve the M1-03 wire
-design findings before any writer implementation; M1-04 actual ownership/schema
-integration remains pending. M1-01 and P1-02 are actually integrated. Ordinary
+Complete this prospective policy handoff's independent source/CI gates, then resume
+the dispatched bounded M1-03 OS foundation and its real process/fault tests. The
+qualified finite M1-02 library does not close whole persistence, RV11 or G1;
+remaining action/migration/restore work needs its reviewed source dispatch. M1-05
+and M1-04 early pure deliveries are actually integrated; their real DB/auth/runtime
+consumer gates remain open. M1-01 and P1-02 are actually integrated. Ordinary
 phase-internal plans/engineering PRs advance under the approved autonomous gates;
 material product/privacy/authority changes return to the user. Continue with the
 P1 interface/ADR/test work, then dependency-ready M1 packages from the
