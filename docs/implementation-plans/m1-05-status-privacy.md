@@ -360,3 +360,15 @@ to the preceding early-slice file scope; every deferred consumer gate remains
 pending. SQL review takes priority, without editing its author's worktree.
 Normal focused commits, push and a draft PR are authorized; integration requires
 independent exact-candidate review and CI. No live/provider authority is added.
+
+### First source slice: models, catalog and explicit serializers
+
+The first source candidate implements the closed model families, local-only
+doctor/AuthRoleFact values, exact fixed 32-code catalog, separate private renderer
+and field-by-field public serialization. It supplies no producer or DB adapter.
+Actual checks on task-local CPython 3.12.13: 70 focused status tests and 449 full
+offline tests passed; lint, format, whitespace and repository safety passed.
+The original 379-test baseline remains present. These checks cover pure model
+portions only; full sink/subprocess privacy, logging containment and the final
+package export inventory are still being implemented separately. This is an early
+reviewable source slice, not full M105 acceptance or an Issue14 closure.

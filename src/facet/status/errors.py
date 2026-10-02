@@ -42,47 +42,38 @@ _SUGGESTIONS = MappingProxyType(
     {
         Suggestion.CORRECT_INPUT: "Correct the local input and run validation.",
         Suggestion.INSPECT_REQUEST: (
-            "Inspect the existing request before submitting "
-            "work."
+            "Inspect the existing request before submitting work."
         ),
         Suggestion.REPEAT_SAME_REQUEST: (
             "Resubmit only the confirmed unaccepted request with its "
             "original key and payload."
         ),
         Suggestion.CONFIRM_SCOPE: (
-            "Review the selected scope and provide the required "
-            "confirmation."
+            "Review the selected scope and provide the required confirmation."
         ),
         Suggestion.VERIFY_BINDING: (
-            "Verify the configured account roles without changing "
-            "the binding."
+            "Verify the configured account roles without changing the binding."
         ),
         Suggestion.REFRESH_PREVIEW: "Create a fresh scoped preview before continuing.",
         Suggestion.INSPECT_OWNER: (
-            "Inspect the owner state; do not start a second "
-            "writer."
+            "Inspect the owner state; do not start a second writer."
         ),
         Suggestion.WAIT_RECEIPT: (
-            "Look up the retained request receipt before taking "
-            "further action."
+            "Look up the retained request receipt before taking further action."
         ),
         Suggestion.AUTHORIZE_SOURCE: "Reauthorize Source on the deployment host.",
         Suggestion.AUTHORIZE_TARGET: "Reauthorize Target on the deployment host.",
         Suggestion.WAIT_DEPENDENCY: (
-            "Retain queued work and wait for the dependency to "
-            "recover."
+            "Retain queued work and wait for the dependency to recover."
         ),
         Suggestion.INSPECT_TARGET_STORAGE: (
-            "Inspect Target storage without deleting mailbox "
-            "data."
+            "Inspect Target storage without deleting mailbox data."
         ),
         Suggestion.INSPECT_RECOVERY: (
-            "Inspect recovery evidence; do not blindly repeat an "
-            "insert."
+            "Inspect recovery evidence; do not blindly repeat an insert."
         ),
         Suggestion.INSPECT_WORK: (
-            "Inspect the selected work through the scoped local "
-            "CLI."
+            "Inspect the selected work through the scoped local CLI."
         ),
         Suggestion.INSPECT_MAINTENANCE: (
             "Stop affected writes and use offline maintenance; do "
