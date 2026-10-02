@@ -372,3 +372,35 @@ The original 379-test baseline remains present. These checks cover pure model
 portions only; full sink/subprocess privacy, logging containment and the final
 package export inventory are still being implemented separately. This is an early
 reviewable source slice, not full M105 acceptance or an Issue14 closure.
+
+### Early pure/logging unit evidence
+
+The model/catalog/serialization slice received independent approval at
+608022a236c03c10c330ff6ab9fb7d5f223310e8. The subsequent logging slice adds the
+exact 22 package exports, explicit production bootstrap, typed stderr events,
+sealed warning/exception hooks and subprocess regressions. Import has no policy
+side effect. Setup retires stdlib's shutdown handler registry after discarding
+pending buffers/targets; merely detaching handlers was insufficient. Unsupported
+custom handlers/factories or changed policy refuse without invoking close/format
+hooks. Runtime thread admission/notification and actual transport checks still
+need their consumer integration; this is not a general Python sandbox.
+
+| Gate | Actual early evidence and remaining boundary |
+| --- | --- |
+| ST-01 | Fixed golden field inventory, exact 22 exports, all-family/type/null/count/version guards; no generic model dumping |
+| ST-02 | 32 actual error-code entries, fixed exits/retry classification, hostile object and unknown-code fallback |
+| ST-03 | Pending actual accepted-and-integrated M102 aggregate adapter; no duplicate-count query claim |
+| ST-04/05/06 | Pure exclusive nine-category values, absent-source/null/discovery and unit/sample-count guards; actual counts/metrics producers pending |
+| ST-07 | Fresh/stale/unavailable and healthy prerequisites; serialization preserves timestamps; runtime/cache policy pending |
+| ST-08/09/10 | Pure wrong-field/private-value rejection and synthetic content/credential/metadata/output sentinels across JSON/error/stdout/stderr/file sinks, detecting negative controls |
+| ST-11/12 | Real subprocess MemoryHandler normal exit, explicit shutdown, setup refusal/custom close, policy change, all sensitive logger prefixes/DEBUG, warning/main/thread/unraisable/async hooks, fixed sink failure; actual entrypoints/transport/callback consumers pending |
+| ST-13 | Pending actual accepted DB/audit/adapter/WAL evidence; output tests do not inspect or certify a fake DB |
+| ST-14 | Separate local doctor private opt-in positive and default/public negative controls; no public inheritance |
+| ST-15 | Pure serializers and separately installed child-process network guard, including an actual denied-connect control; not an OS sandbox |
+| ST-16 | Pending actual AUTH/owner integration. Synthetic PTY proves logging leaves an explicit terminal channel intact, not OAuth/Compose/TTY consumer acceptance |
+| ST-17 | Task-local Python 3.12.13/SQLite 3.53.1: 95 focused and 474 full offline tests passed; Ruff check/format (81 files), both CLI help probes, safety and whitespace passed. Built wheel imported under isolated interpreter with exact status modules/exports and no runtime artifacts. New candidate independent review and 3.12/3.13 CI still required |
+
+No DB, owner, Auth adapter, shared CLI, cache producer, HTTP, dependency, CI or
+container file changed. No real account/credential/mail data was accessed. The
+first 274-line plan prefix and closed ADR remain unchanged. Issue14, complete
+M105, ST-03/13/16, OA-16/17, G1 and future runtime/HTTP/container gates remain open.
