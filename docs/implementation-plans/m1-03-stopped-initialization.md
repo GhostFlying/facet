@@ -495,3 +495,39 @@ All original seven DB/four NEW test paths and exact approved APIs/37-table/v1
 barrier/CAS/stable-key/native-fault/privacy/full1810/wheel/nine-helper/CI gates
 remain. This is not source acceptance, Source B authority, provider registration,
 existing-state upgrade, complete CLI/G1 or merge permission.
+
+## Prospective ordinary correction: all owned exit classes
+
+Date: 2026-10-03 PRC. The preceding 497-line plan remains exact at SHA-256
+8dc96118f80dc4439b3a2bd2cff356a377e6015316e56b24a13982b970e58b6c;
+all approved 477/421/390 prefixes and the unchanged 372-line ADR are retained.
+No Source A candidate has been committed, frozen, pushed or independently
+accepted. The final pre-correction author runs (2235 full, 425 focused and
+425 fresh-installed tests) remain historical passing evidence, not acceptance.
+
+An additional read-only synthetic native probe raised KeyboardInterrupt at the
+exact connection.execute BEGIN IMMEDIATE c_return after SQLite succeeded. It
+observed one hit, in_transaction=True and a fresh real mode=rw contender BUSY.
+The Exception-only handler missed that exit class. The probe explicitly rolled
+back and closed only its own fixture afterwards; no production file was opened.
+
+Root released this as an ordinary implementation correction to the already
+reviewed all-exit owned-cleanup contract, not a changed strategy or authority.
+Record and commit this prospective note BEFORE the correction. Only the new
+v2 execution/rollback/close fences and already allocated writer-attachment
+cleanup fence may catch BaseException instead of Exception. The existing typed
+neutral-error/no-cause/no-context contract remains; no interruption result,
+success, retry, replacement handle or false completion is introduced.
+
+Within the existing four test files, extend genuine native fault controls with
+KeyboardInterrupt and SystemExit at BEGIN/COMMIT/attach/ROLLBACK/close call or
+return boundaries. Pair owned cleanup with an unguarded native BEGIN contender
+negative, original-key/37-table reopen truth, single-close/unknown-close facts
+and retained OS holders. Preserve precondition/foreign/external transaction
+ownership and creator/fork barriers, old v1 helper bodies and successful v1
+behavior. Committed unknown outcomes retain the existing close-only disposition.
+No API, file, manifest, consumer, provider, cleanup authority or product change
+is authorized. Remeasure expanded stable focused/full/installed/native/CLI and
+retained controls before one source freeze. Independent exact SOURCE review
+must explicitly assess this defect and correction, with fresh dual-Python CI;
+Source B and all full-package/external/integration gates remain pending.
