@@ -2,7 +2,8 @@
 
 日期：2026-10-02
 
-状态：Phase 0 完成；Phase 1 整体计划待用户 review/明确批准（G0），生产尚未开工
+状态：Phase 0 完成；用户已于 2026-10-02 批准 Phase 1 G0（精确 `caba7c7`），
+总计划 PR #2 已 merged；执行基础开始推进，生产能力与 G1-G6 仍未实现/验收。
 
 目标：交付可自托管的 Gmail 选择性投影服务，并为后续数据源保留清晰的扩展位置。
 
@@ -14,9 +15,9 @@ Facet 为 AI agents 提供经过用户选择的数据视图。第一期以主 Gm
 [Phase 1 执行计划](phase-1-execution-plan.md)，派工、模型、worktree、Issue/PR 和
 独立 review 见 [agent 工作流](agent-workflow.md)。协调 agent 只负责推进和汇报，
 工程由子 agent 完成；复杂包先 plan/review，再 implementation/review/acceptance。
-进度通过 [Epic #1](https://github.com/GhostFlying/facet/issues/1) 跟踪。当前轮只形成
-完整 draft 计划供用户 review；技术 review/CI 不替代用户明确批准，也不能自主 merge
-总计划 PR。G0 通过后内部工作包按 agent review/验收门槛自主推进；重要产品、隐私或
+进度通过 [Epic #1](https://github.com/GhostFlying/facet/issues/1) 和
+[进度台账](phase-1-progress.md) 跟踪。用户已明确批准整体计划，技术 review/CI 没有
+替代该决定；内部工作包按依赖和 agent review/验收门槛自主推进。重要产品、隐私或
 authority 改变重新提交用户 review。
 
 ## 项目边界和已有决定
@@ -233,7 +234,7 @@ Dashboard 至少显示 source/target 角色的授权状态、权限模式、init
 ## 开工前和发布前需要收敛的事项
 
 整体计划获用户明确批准 G0 后可以从 P1/M1 开始，不需要先确定所有后续事项。
-当前任务仍为完整计划与独立技术 review，随后由用户 review/批准；具体权限状态见
+当前任务是 P1-00 开工台账与 P1-01 接口设计的独立 plan/review；具体权限状态见
 执行计划 D0-D8，未答复的决定不得记录为已授权。
 
 - M1 至 M3：验证银行实际 sender domains 和认证样本；未确认项保持关闭或 review。
@@ -245,7 +246,6 @@ Dashboard 至少显示 source/target 角色的授权状态、权限模式、init
   main full-SHA 镜像；总计划 PR 需用户明确批准后才能 merge，PR 不 publish。
   许可证、正式版本 tag/GitHub Release、live Gmail 范围和部署主机分别决定。
 
-下一步先完成执行计划独立技术 review，提交用户 review/明确批准 G0，再按 P1
-接口/测试基础→M1 的就绪图派工。每次后续
+下一步完成 P1-00 review/整合，再按 P1 接口/测试基础→M1 的就绪图派工。每次后续
 实施前写该包的具体文件、验收与风险 plan，通过独立 review 后实现，并再次 review
 验收；协调 agent 不替代工程作者或独立 reviewer。

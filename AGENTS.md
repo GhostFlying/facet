@@ -18,6 +18,7 @@ Before implementing, read these documents in order:
    offline operation, private/public output, and CLI end-to-end gates.
 7. `docs/phase-1-execution-plan.md` and `docs/agent-workflow.md`: work-package
    dependencies, review process, delegated responsibilities, and authority ledger.
+   Current package state/ownership is in `docs/phase-1-progress.md`.
 8. The applicable plan in `docs/implementation-plans/` and any nested `AGENTS.md`.
 
 Read `docs/phase-0-gmail-spike-results.md` when relying on Gmail behavior. The spike
@@ -32,13 +33,12 @@ accidentally behaving differently is not authority to change the contract.
 
 ## Autonomous implementation workflow
 
-- The overall Phase 1 plan requires the user's explicit review and approval of
-  the reviewable plan version. That top-level gate is currently pending. Do not
-  merge the overall planning PR or start P1 product implementation/M1 based only
-  on independent technical review or CI. Autonomy applies inside the phase after
-  that user approval; material product, privacy, scope, or authority changes
-  return to the user. Ordinary complex packages use independent agent plan and
-  implementation reviews without per-package user approval.
+- The user explicitly approved overall Phase 1 gate G0 on 2026-10-02 for
+  `caba7c73895a303d329cf3eba1c89557530c38c5`; PR #2 is merged at that exact SHA.
+  Autonomous phase execution has started under the approved plan. Independent
+  technical review/CI did not replace user approval; material product, privacy,
+  scope or authority changes still return to the user. Ordinary complex packages
+  use independent plan/implementation reviews without per-package user approval.
 - Once implementation is requested, advance through the authorized milestones
   without asking permission for each ordinary edit, test, or local diagnostic.
   Finish coherent units, including tests and documentation; do not stop after
@@ -63,6 +63,9 @@ accidentally behaving differently is not authority to change the contract.
 - Keep `docs/development-status.md` current at each handoff: completed work,
   actual verification, known limits, remaining tasks, and an actionable next step.
   Distinguish implemented, offline-tested, Gmail-verified, and planned behavior.
+  Shared current-state/coordination documents have one delegated integration/docs
+  owner recorded in `docs/phase-1-progress.md`; other workers submit handoff
+  evidence instead of concurrently editing those files.
 - Keep the user informed during ongoing work. Report blockers with evidence and
   the precise missing decision or authority; do not repeatedly retry an unsafe
   action. A plan/review/status request alone is not permission to implement.
@@ -101,7 +104,8 @@ accidentally behaving differently is not authority to change the contract.
   explicitly authorized public `ghcr.io/ghostflying/facet` and main-merge-triggered
   full-commit-SHA image publication; PRs build without publishing. Formal version
   tags need a separate decision. Its implementation and publication triggers
-  apply after overall Phase 1 approval/start, not during this planning turn.
+  apply within the approved phase when their package dependencies/gates are ready,
+  not as blanket permission to implement or publish the image workflow early.
   This authority does not cover other packages
   or registries. Verify actual package visibility and anonymous pull access.
 - Independent agent review produces engineering evidence, not a fabricated
@@ -335,6 +339,7 @@ accidentally behaving differently is not authority to change the contract.
 - Leave unverified behavior and external limits plainly documented. License,
   version release, dogfood host, live Gmail scope, and unconfirmed bank domains
   are unresolved until explicitly decided; do not fill them in by assumption.
-  Overall Phase 1 user plan approval is currently pending.
+  Overall Phase 1 user plan approval G0 is complete at the exact SHA above;
+  production capabilities and final milestone gates remain unverified.
   The approved merge and GHCR/main-SHA publication scope is recorded above and
   in the execution-plan decision ledger.

@@ -12,7 +12,8 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | --- | --- | --- |
 | Phase 0 Gmail spike | Complete within its scope | See [redacted results](phase-0-gmail-spike-results.md); production behavior not implied |
 | Repository bootstrap | Complete | Public `main` published with account noreply identity; Python 3.11/3.12 offline CI passed |
-| Phase 1 execution planning | Product-first reordering draft; user G0 pending | Reordering plan independently approved; candidate review/CI tracked in draft PR #2; previous CLI approval historical; 36 packages unchanged, no product implementation |
+| Phase 1 execution planning | User G0 approved; plan integrated | Exact approved/merged `caba7c7`; independent review/QA and candidate/main CI passed; production capabilities remain unimplemented |
+| P1-00 execution baseline | Implementation/candidate review in progress | Reviewed r2 plan; current-state approval/ownership docs and 36-package ledger; not yet integrated |
 | M1 foundation | Not implemented | Config, bindings, schema/migrations, locks, rule storage, public status models |
 | M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
 | M3 admission/backfill | Not implemented | Rules/authenticity, preview, fixed six-month discovery, durable backfill |
@@ -27,6 +28,32 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 
 ## Active implementation record
 
+- On 2026-10-02 the user explicitly approved G0 at
+  `caba7c73895a303d329cf3eba1c89557530c38c5` and requested multi-agent execution.
+  [PR #2](https://github.com/GhostFlying/facet/pull/2) is actually MERGED at that
+  SHA via normal fast-forward. Independent technical review/QA and
+  [candidate CI](https://github.com/GhostFlying/facet/actions/runs/36968387054)
+  passed; [main push CI](https://github.com/GhostFlying/facet/actions/runs/36969107636)
+  also passed Python 3.11/3.12. No force, platform merge commit or rule change.
+- [P1-00 plan](implementation-plans/p1-00-execution-baseline.md) r2 received
+  independent approval at SHA-256
+  `b77d4f90d44ea61aad286851454e9db7d98cef0e1c703ad5968470e4d7242bae` before
+  implementation. Its current candidate requires independent implementation/
+  acceptance review and fresh CI before integration. The shared current-state
+  docs owner and 36 actual package states are in [the ledger](phase-1-progress.md).
+  Initial Issues: [P1-00 #3](https://github.com/GhostFlying/facet/issues/3),
+  [P1-01 #4](https://github.com/GhostFlying/facet/issues/4),
+  [P1-02 #5](https://github.com/GhostFlying/facet/issues/5).
+- Independent startup baseline QA on main `caba7c7` passed Python 3.11.2,
+  24 offline tests, Ruff lint/format (33 files), spike CLI help and safety.
+  This preserves the spike baseline; it is not production Python 3.12/runtime,
+  Gmail, Compose or maintenance verification. P1-01's plan is separately approved,
+  but ADR implementation waits for integrated P1-00/base update; P1-02 waits for
+  reviewed frozen typed interfaces and its own plan review.
+- Historical planning/normalization records below retain their original SHA/
+  verification scope. Their then-pending G0/Draft states were superseded by the
+  explicit approval and actual integration recorded above, not retroactively
+  relabelled as approval or runtime proof.
 - User authorized product-first reordering of the total plan, not G0 approval:
   goals → operating loop → overall acceptance → scope/non-goals → milestones →
   work packages/execution. Eight acceptance groups summarize existing contracts;
@@ -63,7 +90,7 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
   passed Python 3.11/3.12; it does not cover this new CLI extension. The new
   CLI candidate received separate review and
   [new candidate CI at `5d623f2`](https://github.com/GhostFlying/facet/actions/runs/36965268013)
-  passed Python 3.11/3.12. Overall user approval G0 remains pending. These runs
+  passed Python 3.11/3.12. At that planning handoff G0 remained pending. These runs
   validate their exact candidate SHAs, not a later report-only commit. The
   [review record](reviews/phase-1-plan-review.md) preserves historical and current verdicts and
   responses. No
@@ -107,7 +134,8 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
   the base-to-plan diff is unchanged. Private local rollback refs are retained
   and were not published. [Fresh main CI](https://github.com/GhostFlying/facet/actions/runs/36965264011)
   passed Python 3.11/3.12. [PR #2](https://github.com/GhostFlying/facet/pull/2)
-  remains Draft and unmerged, with G0 pending. Complete mappings and rollback
+  was then Draft/unmerged with G0 pending; the later approval/integration is above.
+  Complete mappings and rollback
   anchors are recorded in the history-normalization execution appendix.
 - Published GitHub tree checked: source/tests/docs/configuration only; no private
   runtime directory or credential files. The baseline scan is not a substitute
@@ -117,13 +145,12 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 
 ## Next authorized development unit
 
-Finish review/publication of the report-only evidence update and its own CI,
-then present the technically approved plan for the user's review and
-explicit G0 approval. Do not merge the overall plan or start product code before
-that decision. Ordinary phase-internal plans/engineering PRs can advance under
-the approved autonomous gates after G0; material product/privacy/authority
-changes return to the user. When implementation starts,
-dispatch P1-01/P1-02 interface/ADR/test work, then the M1 packages from the
+Complete independent implementation/acceptance review and CI for P1-00, then
+integrate its baseline. Dispatch the separately reviewed P1-01 ADR work on that
+updated main; freeze reviewed interfaces before P1-02 implementation. Ordinary
+phase-internal plans/engineering PRs advance under the approved autonomous gates;
+material product/privacy/authority changes return to the user. Continue with the
+P1 interface/ADR/test work, then dependency-ready M1 packages from the
 [execution plan](phase-1-execution-plan.md). Write and review a concrete package
 implementation record before coding. M1's minimum scope is:
 
@@ -161,6 +188,7 @@ actual verification scope instead of marking a partial gate complete.
 - Authentication trust, unknown-insert attribution (excluding old unmanaged/spike
   copies), and daemon/CLI single-writer coordination are required early ADRs.
   Unique fingerprint matches alone do not establish this insert's provenance.
-- Overall Phase 1 plan approval/start is pending. Internal engineering merge and
-  GHCR scope approvals do not substitute for that decision. Final milestone live
+- Overall Phase 1 G0 is approved at the exact reviewed SHA; production milestone
+  completion is not implied. Internal merge/GHCR scope does not authorize new
+  live Gmail or host actions. Final milestone live
   gates remain separate from dependency-ready offline engineering outputs.

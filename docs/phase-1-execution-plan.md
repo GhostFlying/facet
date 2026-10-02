@@ -2,9 +2,11 @@
 
 日期：2026-10-02
 
-状态：总计划草案，用户整体批准 G0 仍 pending；M1-M6 与生产 CLI 均未实现。
+状态：用户于 2026-10-02 批准 G0，绑定
+`caba7c73895a303d329cf3eba1c89557530c38c5`；总计划 PR #2 已 merged，执行基础开始推进。
+M1-M6 与生产 CLI 均未实现；当前工作包状态见 [进度台账](phase-1-progress.md)。
 技术 review 和 CI 见 [review record](reviews/phase-1-plan-review.md) 与
-[draft PR #2](https://github.com/GhostFlying/facet/pull/2)，推进入口为
+[merged PR #2](https://github.com/GhostFlying/facet/pull/2)，推进入口为
 [Phase 1 Epic #1](https://github.com/GhostFlying/facet/issues/1)。
 
 本计划汇总 [产品契约](product-contract.md)、[项目计划](project-plan.md)、
@@ -129,7 +131,7 @@ M1-M6 是验收顺序，不强制所有工程串行；已冻结工程输入齐�
 ### 依赖图和里程碑门槛
 
 ```text
-整体计划技术 review + 用户明确批准 G0（当前 pending）
+整体计划技术 review + 用户明确批准 G0（2026-10-02 已完成）
     |
     v
 P1-00 协作/权限台账 ──┬── P1-01 核心接口/ADR ──┬── M1 基础 ── G1
@@ -166,6 +168,8 @@ G1→G2→G3→G4→G5→G6 的验收顺序保持不变。后阶段的 ADR、合
 
 以下 36 个包保留已审 ID、依赖、交付和验收。先列工作包，再给 CLI 归属、协作规则、
 就绪波次和权限台账；实际派工以 frozen interfaces 与对应 gate/evidence 为准。
+卡片中的规划轮说明属于总计划编制时的范围，不是实时完成状态；当前派工和证据以
+[进度台账](phase-1-progress.md) 为准，不把依赖条件或未来交付描述当成已验收。
 
 ### P1：开工基础和测试基座
 
@@ -626,13 +630,13 @@ owner 管理，各 feature handler 归对应包。以下 CLI acceptance 增加�
 M1-03/M1-04 的 writer/auth ADR 同时定义成套维护与 auth/refresh 的 DB+credential
 ownership/锁层次，防止 backup/restore 跨版本。离线读命令不因 invalid_grant 失效；
 CLI 私密 metadata 与公共 aggregate DTO 分开，所有模式都禁止正文/raw/凭据/原始
-provider errors。实际 Gmail/re-auth/repair 仍须独立范围许可，G0 当前 pending。
+provider errors。实际 Gmail/re-auth/repair 仍须独立范围许可；G0 已批准，不替代这些许可。
 
 ### 完成定义和调度原则
 
-G0 是顶层启动 gate：用户 review 并明确批准具体 Phase 1 计划版本。当前 pending，
-技术 review 和 CI 不代替该批准；总计划 draft PR 不自主 merge，P1 产品实施/M1
-均不启动。批准后协调 agent 按本计划自主派工，内部普通复杂工作包只需要独立 agent
+G0 是顶层启动 gate：用户 review 并明确批准具体 Phase 1 计划版本；本次已明确批准
+精确 `caba7c7`，总计划 PR #2 已合入。技术 review 和 CI 没有替代该批准。
+协调 agent 现在按本计划和实际依赖自主派工，内部普通复杂工作包只需要独立 agent
 plan/code/acceptance review，不逐包再问用户。重要产品、隐私、scope 或 authority
 改变重新提交用户 review。
 
@@ -694,7 +698,7 @@ AUTH/insert 归属 ADR→M2/G2→admission/H0→History/gap/alpha→action races
 
 | ID | 状态与责任 | 影响/触发点 | 提交用户的内容或工程处理 |
 | --- | --- | --- | --- |
-| D0 整体计划批准/启动 | 当前 pending；用户 review/明确批准具体版本 | 总计划 PR merge、P1 产品实施/M1 开工 | 先提交独立技术 review 后的完整 draft PR、候选 SHA、风险/决定；技术 review/CI 不替代用户批准 |
+| D0 整体计划批准/启动 | 2026-10-02 用户已明确批准精确 `caba7c7`，PR #2 已 merged | Phase 执行已开始，依赖与各包 review/gates 保留 | 完整批准 SHA/CI/当前派工见进度台账；技术 review/CI 没有替代用户批准 |
 | D1 Phase 内自主合并 | 2026-10-02 用户已授权；G0 通过后生效 | Phase 内工程/工作包计划 PR，经独立 plan/implementation review + CI | 协调 agent 核证并调度集成 agent 自主合并；总计划 PR 排除，GitHub required approval 仍须满足，不包含 live/deploy/release |
 | D2 镜像位置/触发 | 2026-10-02 scope 已授权；G0/phase 启动后实施 | M6-04 publish、M6-05 拉取 | 仅 public `ghcr.io/ghostflying/facet`；main 合并后 full-SHA 自动发布；PR 不 publish；正式版本 tag/GitHub Release 另确认 |
 | D3 Live Gmail/规则范围 | 生产 live 未授权，spike 授权不沿用 | G2/G3/G4/G5 live、bulk、M6 dogfood | 私下配置 source/target、限定 thread/rules/test scope、允许操作、OAuth mode 与退出策略；不把账号放 GitHub |
@@ -722,11 +726,10 @@ DTO 技术等契约内工程决定由 agent 通过 ADR/review 作出。遇到 bl
 
 ### 本轮与首次实施 handoff
 
-本轮交付是完整计划、独立 review 结果、文档一致性检查及 draft 总计划 PR，供用户
-review。总计划 PR 等用户明确批准 G0 后才能 merge，不能靠 D1 自主合并。本轮不会
-启动产品 daemon、重新 OAuth、调用 Gmail、发布
-镜像或部署。用户此前允许多 worktree、
-subagents、Issue/PR 和原子提交，当前 planning worktree 只承载这个文档单元。
+总计划编制轮交付了完整计划与独立 review/CI；用户随后明确批准精确 `caba7c7`，
+PR #2 正常 fast-forward 合入 main。当前推进 P1-00 执行台账，再按依赖推进 P1-01
+接口/ADR 与 P1-02 测试基础。总计划批准不替代 live Gmail、host、scope、版本发布
+或 automation 决定；当前没有生产 daemon、Gmail 操作、镜像或部署。
 
 G0 通过后首次实施 dispatch 从 P1-01 接口/ADR plan-review 开始，再并行完成 P1-02
 测试基座实现与 M1-01，之后派 M1-02；

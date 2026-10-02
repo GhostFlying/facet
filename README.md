@@ -15,11 +15,11 @@ The redacted live findings are documented in
 Phase 0 is complete: Gmail API behavior and target Gmail conversation/PDF access
 were verified. Production implementation is planned, not yet available.
 
-The complete Phase 1 plan is a draft for the user's review and explicit approval.
-That top-level gate is pending; independent technical review and CI do not start
-product implementation or authorize merging the overall planning PR. After plan
-approval, agents advance internal work packages and qualified PR merges
-autonomously. Material product, privacy or authority changes return to the user.
+The user approved the complete Phase 1 plan on 2026-10-02 at
+`caba7c73895a303d329cf3eba1c89557530c38c5`; [PR #2](https://github.com/GhostFlying/facet/pull/2)
+is merged at that exact SHA. Agents now advance reviewed internal work packages
+and qualified PR merges autonomously. Production capabilities are still
+unimplemented; material product, privacy or authority changes return to the user.
 
 ## Development plan
 
@@ -39,6 +39,8 @@ autonomously. Material product, privacy or authority changes return to the user.
   SHA, independent findings and corrections; separate from user plan approval.
 - [Phase 1 Epic](https://github.com/GhostFlying/facet/issues/1): durable progress
   and the ready-work-package queue.
+- [Phase 1 progress ledger](docs/phase-1-progress.md): the 36 package states,
+  current readiness, shared-document ownership and evidence scope.
 - [Product contract](docs/product-contract.md): thread disclosure, permission
   modes, BlackList, and consistency guarantees.
 - [Gmail implementation specification](docs/gmail-projection-spec.md): planned
@@ -63,8 +65,8 @@ will publish main full-commit-SHA images to the user-approved public package
 `ghcr.io/ghostflying/facet`; PRs build without publishing. Explicit image
 versions/digests, backup/restore, upgrade/rollback, and anonymous pull verification
 are delivery gates. Compose files and images are planned, not available yet.
-Image workflow implementation and publication triggers begin after Phase 1 plan
-approval/start; the approved package scope does not start that work now.
+Image workflow implementation and publication follow the approved package
+dependencies and M6 gates; G0 approval alone does not start image work now.
 Formal version tags/releases, live mailbox scope and deployment host remain
 separate decisions.
 
@@ -72,7 +74,7 @@ The complete CLI is a required Phase 1 deliverable, not help-only scaffolding.
 All maintenance commands will run from the image without host Python. Status,
 doctor and stopped backup/restore/migration/inspection work offline when Gmail
 or OAuth fails; queue retry cannot bypass unknown-insert recovery. This new CLI
-contract requires its own technical review and remains unimplemented.
+contract has independent technical review evidence but remains unimplemented.
 
 Commit subjects use atomic English `type: action summary` form: features use
 `feat: impl ...`, fixes use `fix: fix ...`, and documentation/test/refactor/CI/

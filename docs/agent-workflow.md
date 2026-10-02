@@ -4,9 +4,10 @@
 
 适用：Phase 1，关联 [执行计划](phase-1-execution-plan.md)、
 [Epic #1](https://github.com/GhostFlying/facet/issues/1) 和
-[仓库指令](../AGENTS.md)。当前是规划阶段，没有生产 daemon 或已发布镜像。
+[仓库指令](../AGENTS.md)。G0 已批准，正在推进执行基础；没有生产 daemon 或已发布镜像。
 [完整维护 CLI](cli-spec.md) 是必需交付，按对应工作包逐步实现，不能以 help 骨架
-代替最终维护能力；本轮新增 CLI 规格还需独立技术 review，旧候选的 review 不覆盖它。
+代替最终维护能力；规格有独立技术 review，实际命令仍须逐包实施/验收，不能继承旧
+候选的 review 以替代新实现证据。
 
 ## 职责、模型和并发
 
@@ -31,9 +32,10 @@ schema 或同一 review 槽。已有任务阻塞时释放执行槽，安排独�
 
 2026-10-02 用户授权了 Phase 1 的 agent 推进方式、多 worktree、按需子 agent、
 上述模型、依赖图并行、GitHub Issue/PR 和原子提交，并要求 Compose 和 Actions
-image 发布。当前轮任务是完整计划与 draft 规划 PR，供用户 review。整体计划需要
-用户明确批准（G0/D0，当前 pending）；技术 review/CI 不能替代，不能在批准前 merge
-总计划 PR 或开始产品实施。详细状态记录在执行计划的 D0-D8 台账中。
+image 发布。同日用户明确批准 G0/D0，绑定
+`caba7c73895a303d329cf3eba1c89557530c38c5`；总计划 PR #2 已实际合入 main。
+技术 review/CI 没有替代该用户决定。当前推进 reviewed 工作包，详细状态在执行计划
+D0-D8 与 [进度台账](phase-1-progress.md)；未来重要边界改变仍须用户决定。
 
 同日用户明确授权：满足独立 plan review、implementation review 和 CI 门槛后，自主
 合并用户批准的 Phase 1 内工程/工作包计划 PR；总计划 PR 不属于这项自主合并权限。
@@ -44,8 +46,8 @@ Gmail 操作和未指定主机部署不包含在这两项授权中。
 | 操作 | 当前边界 |
 | --- | --- |
 | Plan、read-only 检查、review、文档修改 | 本轮已授权 |
-| 本轮 worktree、Issue、draft 计划 PR、原子提交 | 已授权；提交/推送由工程 agent 执行；总计划 PR 等用户明确批准再 merge |
-| 整体 Phase 1 计划 approval/start | G0/D0 当前 pending；用户 review/明确批准具体版本，agent 技术 review 不能代替 |
+| Phase worktree、Issue、focused PR、原子提交 | 已授权；提交/推送/集成由工程 agent 执行，仍经过 review/CI |
+| 整体 Phase 1 计划 approval/start | G0/D0 已于 2026-10-02 明确批准精确 `caba7c7`，总计划 PR #2 已 merged；不扩大其他权限 |
 | 产品实现、synthetic tests、依赖锁定与 CI 修复 | G0 通过后按 reviewed 工作包 plan 自主推进 |
 | Phase 内工程/工作包计划 PR 合并 | D1 已授权，G0 后生效；独立 plan/implementation review + CI，通过实际 GitHub rules 后由集成 agent 执行 |
 | Actions image 发布 | D2 scope 已授权，G0/phase 启动后实施；仅 public `ghcr.io/ghostflying/facet` main full-SHA；PR 不 publish，正式版本 tag 另确认 |
@@ -57,8 +59,8 @@ Gmail 操作和未指定主机部署不包含在这两项授权中。
 允许范围内的普通编辑、诊断、review 和测试持续推进，不每步向用户请求确认。需要
 权限/产品选择时，先把方案做到可 review，再提交具体 decision packet。授权等待只
 阻塞有关分支；没有回复不视为同意。私密授权信息在受控本地状态中保留，不写公开 Issue。
-整体计划批准前允许本轮规划、检查与 review，所有产品实施分支均等待 G0；phase 内
-普通复杂包由独立 agent review，不重复要求用户逐包批准。重要产品/隐私/权限改变
+G0 已通过；依赖就绪的 phase 内普通复杂包由独立 agent review，不重复要求用户逐包
+批准。未冻结接口与其他外部 gate 仍按依赖等待。重要产品/隐私/权限改变
 需重新提交用户 review，不能用 routine ADR 消化。
 
 ## 工作包生命周期
@@ -116,6 +118,10 @@ approval。不能冒用他人账号、伪造 reviewer、加 agent co-author 或�
 protection。遇到 GitHub 需要独立账号审批，向用户报告确切 rule 和 PR；不主动联系人。
 
 ## Worktree 和 GitHub 执行
+
+Shared current-state/coordination 文档只有一个集成/docs owner，详见
+[进度台账](phase-1-progress.md)。其他 worker 通过 Issue/handoff 提交证据和修改建议，
+不在各自 worktree 并行重写 status/全局计划；局部 package plan/ADR 由该包 owner 维护。
 
 工作目录建议为 repository 同级的 `../facet-worktrees/<package-id>-<topic>`，
 分支为 `feat/<id>-<topic>`、`fix/<id>-<topic>` 或 `docs/<id>-<topic>`。当前 planning
