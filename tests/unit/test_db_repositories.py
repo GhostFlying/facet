@@ -8,6 +8,7 @@ import sqlite3
 from contextlib import contextmanager, suppress
 from dataclasses import replace
 from datetime import timedelta
+from threading import Thread
 
 import pytest
 from test_db_schema import NOW, P, create_state, lid
@@ -18,6 +19,7 @@ from facet.contracts import (
     ClaimPhase,
     Count,
     DatePolicy,
+    ErrorClass,
     ErrorCode,
     Generation,
     InsertState,
@@ -63,6 +65,7 @@ from facet.db.keys import event_key, job_key
 from facet.db.models import (
     AuditEventRow,
     BindingRevisionRow,
+    ErrorEventRow,
     InsertAttemptRow,
     RevisionGuard,
     RuleRevisionRow,
@@ -75,7 +78,7 @@ from facet.db.models import (
     TrackedThreadRow,
 )
 from facet.db.repositories import jobs, policy, reads
-from facet.db.repositories.audit import append_audit
+from facet.db.repositories.audit import append_audit, append_error
 from facet.db.repositories.base import _insert
 from facet.db.repositories.serialization import _decode_row, _encode_row
 
@@ -657,7 +660,7 @@ def test_exact_audit_enum_branch_and_fixed_failure_no_private_message(state):
         lid(90),
         AuditKind.JOB_STATE_CHANGED,
         AuditObjectKind.JOB,
-        lid(91),
+        lid(100),
         None,
         None,
         Revision(0),
@@ -668,6 +671,8 @@ def test_exact_audit_enum_branch_and_fixed_failure_no_private_message(state):
         NOW,
     )
     assert _decode_row("audit_events", _encode_row("audit_events", value)) == value
+    publish(session)
+    admit(session, batch=(job(100),))
     with pytest.raises(StorageFailure, match="invalid_input"):
         replace(value, after_state=InsertState.NEEDS_ATTENTION)
     with session.transaction() as uow:
@@ -676,4 +681,136 @@ def test_exact_audit_enum_branch_and_fixed_failure_no_private_message(state):
         append_audit(uow, P, value)
     assert str(error.value) == "consistency_failure"
     assert "synthetic@example.invalid" not in repr(error.value)
-    assert connection.execute("SELECT COUNT(*) FROM audit_events").fetchone() == (1,)
+    assert connection.execute(
+        "SELECT COUNT(*) FROM audit_events WHERE audit_id=?", (value.audit_id.value,)
+    ).fetchone() == (1,)
+
+
+def job_audit(n, job_id, *, projection=P):
+    return AuditEventRow(
+        projection,
+        lid(n),
+        AuditKind.JOB_STATE_CHANGED,
+        AuditObjectKind.JOB,
+        job_id,
+        None,
+        None,
+        Revision(0),
+        Revision(1),
+        JobState.QUEUED,
+        JobState.NEEDS_ATTENTION,
+        None,
+        NOW,
+    )
+
+
+@pytest.mark.parametrize("mode", ["missing_object", "cross_projection"])
+def test_audit_selector_failure_rolls_back_prior_work_and_audit(state, mode):
+    _, connection, session, _ = state
+    publish(session)
+    admit(session)
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        jobs.enqueue(uow, P, job(100))
+        append_audit(uow, P, job_audit(900, lid(100)))
+        with suppress(StorageFailure):
+            bad = job_audit(
+                901,
+                lid(999) if mode == "missing_object" else lid(100),
+                projection=P if mode == "missing_object" else ProjectionId("other"),
+            )
+            append_audit(uow, P, bad)
+    assert connection.execute("SELECT COUNT(*) FROM sync_jobs").fetchone() == (0,)
+    assert connection.execute(
+        "SELECT COUNT(*) FROM audit_events WHERE audit_id IN(?,?)",
+        (lid(900).value, lid(901).value),
+    ).fetchone() == (0,)
+
+
+@pytest.mark.parametrize(
+    "mode", ["wrong_job", "missing_attempt", "missing_job", "cross_projection"]
+)
+def test_error_job_attempt_pair_is_exact_same_projection_and_atomic(state, mode):
+    _, connection, session, info = state
+    publish(session)
+    row = job(100)
+    admit(session, batch=(row, job(101)))
+    ready_test_metadata(connection, session)
+    claimed, _ = claim(session, info, row)
+    inserted = attempt(row, claimed, 200, InsertState.PENDING_RECOVERY)
+    valid = ErrorEventRow(
+        P,
+        lid(900),
+        ErrorCode.CONSISTENCY_FAILURE,
+        ErrorClass.PERSISTENCE,
+        None,
+        NOW,
+        row.job_id,
+        inserted.attempt_id,
+        Count(1),
+    )
+    with session.transaction() as uow:
+        _insert(uow, P, "insert_attempts", inserted)
+        append_error(uow, P, valid)
+    changed = {
+        "wrong_job": {"job_id": lid(101)},
+        "missing_attempt": {"attempt_id": lid(999)},
+        "missing_job": {"job_id": lid(999)},
+        "cross_projection": {"projection_id": ProjectionId("other")},
+    }[mode]
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        jobs.enqueue(uow, P, job(102))
+        with suppress(StorageFailure):
+            append_error(uow, P, replace(valid, error_id=lid(901), **changed))
+    assert connection.execute("SELECT COUNT(*) FROM error_events").fetchone() == (1,)
+    assert connection.execute(
+        "SELECT COUNT(*) FROM sync_jobs WHERE job_id=?", (lid(102).value,)
+    ).fetchone() == (0,)
+
+
+@pytest.mark.parametrize("mode", ["raw_string", "foreign_projection"])
+def test_caught_invalid_projection_poison_rolls_back_entire_owned_uow(state, mode):
+    _, connection, session, _ = state
+    publish(session)
+    admit(session)
+
+    class ForeignProjection:
+        @property
+        def value(self):
+            pytest.fail("Foreign property must never execute")
+
+    bad = P.value if mode == "raw_string" else ForeignProjection()
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        jobs.enqueue(uow, P, job(100))
+        append_audit(uow, P, job_audit(900, lid(100)))
+        with suppress(StorageFailure):
+            jobs.enqueue(uow, bad, job(101))
+    assert connection.execute("SELECT COUNT(*) FROM sync_jobs").fetchone() == (0,)
+    assert connection.execute(
+        "SELECT COUNT(*) FROM audit_events WHERE audit_id=?", (lid(900).value,)
+    ).fetchone() == (0,)
+    with session.transaction() as uow:
+        jobs.enqueue(uow, P, job(102))
+
+
+def test_wrong_thread_or_foreign_uow_rejection_cannot_poison_the_owner(state):
+    _, connection, session, _ = state
+    publish(session)
+    admit(session)
+    errors = []
+    with session.transaction() as uow:
+        jobs.enqueue(uow, P, job(100))
+
+        def other_thread():
+            try:
+                jobs.enqueue(uow, P, job(101))
+            except StorageFailure as error:
+                errors.append(error.code)
+
+        child = Thread(target=other_thread)
+        child.start()
+        child.join(timeout=5)
+        assert not child.is_alive() and len(errors) == 1
+        with pytest.raises(StorageFailure):
+            jobs.enqueue(object(), P, job(101))
+        append_audit(uow, P, job_audit(900, lid(100)))
+    assert connection.execute("SELECT COUNT(*) FROM sync_jobs").fetchone() == (1,)

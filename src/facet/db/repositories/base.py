@@ -28,8 +28,13 @@ _SELECTOR_FIELDS = {
 def _mutating(function):
     @wraps(function)
     def call(uow, projection_id, *args, **kwargs):
-        _context(uow, projection_id, writing=True)
+        # Establish an exact, active, current-thread owner before touching its
+        # failure flag. Invalid objects or another thread must not poison it.
+        if type(uow) is not UnitOfWork:
+            invalid()
+        uow._check()
         try:
+            _context(uow, projection_id, writing=True)
             return function(uow, projection_id, *args, **kwargs)
         except StorageFailure:
             uow._failed = True

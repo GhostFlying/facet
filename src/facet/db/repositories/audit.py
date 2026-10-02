@@ -4,18 +4,53 @@ from uuid import uuid4
 
 from facet.contracts import LocalId, Revision
 
+from ..codecs import AuditObjectKind
 from ..models import AuditEventRow, WriteReceipt
-from .base import _insert, _mutating
+from .base import _conflict, _get, _insert, _mutating, _require_row
 
 
 @_mutating
 def append_audit(uow, projection_id, row):
+    _require_row(projection_id, "audit_events", row)
+    table, selector = {
+        AuditObjectKind.PROJECTION: ("projections", ()),
+        AuditObjectKind.RULE: ("rules", (("rule_id", row.local_object_id),)),
+        AuditObjectKind.THREAD: (
+            "tracked_threads",
+            (("source_thread_id", row.source_thread_id),),
+        ),
+        AuditObjectKind.EPOCH: ("epochs", (("epoch_id", row.local_object_id),)),
+        AuditObjectKind.EVENT: ("source_events", (("event_id", row.local_object_id),)),
+        AuditObjectKind.JOB: ("sync_jobs", (("job_id", row.local_object_id),)),
+        AuditObjectKind.ATTEMPT: (
+            "insert_attempts",
+            (("attempt_id", row.local_object_id),),
+        ),
+        AuditObjectKind.MAPPING: (
+            "message_mappings",
+            (("source_message_id", row.source_message_id),),
+        ),
+    }[row.object_kind]
+    if _get(uow, projection_id, table, selector) is None:
+        _conflict()
     _insert(uow, projection_id, "audit_events", row)
     return WriteReceipt("created", row.audit_id, Revision(0))
 
 
 @_mutating
 def append_error(uow, projection_id, row):
+    _require_row(projection_id, "error_events", row)
+    if (
+        row.job_id is not None
+        and _get(uow, projection_id, "sync_jobs", (("job_id", row.job_id),)) is None
+    ):
+        _conflict()
+    if row.attempt_id is not None:
+        attempt = _get(
+            uow, projection_id, "insert_attempts", (("attempt_id", row.attempt_id),)
+        )
+        if attempt is None or row.job_id is not None and attempt.job_id != row.job_id:
+            _conflict()
     _insert(uow, projection_id, "error_events", row)
     return WriteReceipt("created", row.error_id, Revision(0))
 
