@@ -45,6 +45,9 @@ def _mutating(function):
         uow._check()
         try:
             _context(uow, projection_id, writing=True)
+            from .actions import _check_action_mutation
+
+            _check_action_mutation(uow)
             return function(uow, projection_id, *args, **kwargs)
         except StorageFailure:
             uow._failed = True

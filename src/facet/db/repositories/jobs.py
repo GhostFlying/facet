@@ -70,7 +70,10 @@ def _ready(uow, projection_id, *, recovering=False):
 
 @_mutating
 def enqueue(uow, projection_id, row):
+    from .actions import _after_enqueue, _before_enqueue
+
     _require_row(projection_id, "sync_jobs", row)
+    _before_enqueue(uow, projection_id, row)
     old = _get(uow, projection_id, "sync_jobs", (("stable_key", row.stable_key),))
     if old is not None:
         # Local allocation time/UUID are not provider identity. Preserve the
@@ -82,7 +85,9 @@ def enqueue(uow, projection_id, row):
         ):
             _conflict()
         _join_epoch(uow, projection_id, row.origin_epoch_id, old.job_id)
-        return WriteReceipt("replayed", old.job_id, old.revision)
+        return _after_enqueue(
+            uow, projection_id, WriteReceipt("replayed", old.job_id, old.revision)
+        )
     if (
         row.state is not JobState.QUEUED
         or row.revision.value != 0
@@ -132,7 +137,9 @@ def enqueue(uow, projection_id, row):
         event_id = event.event_id
     _insert(uow, projection_id, "sync_jobs", row, event_id=event_id)
     _join_epoch(uow, projection_id, row.origin_epoch_id, row.job_id)
-    return WriteReceipt("created", row.job_id, row.revision)
+    return _after_enqueue(
+        uow, projection_id, WriteReceipt("created", row.job_id, row.revision)
+    )
 
 
 def _join_epoch(uow, projection_id, epoch_id, job_id):

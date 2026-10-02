@@ -43,10 +43,13 @@ from .base import (
 
 @_mutating
 def publish_rules(uow, projection_id, rules, revisions, snapshot, members, guard):
+    from .actions import _after_publish, _before_publish
+
     _batch(rules, RuleRow)
     _batch(revisions, RuleRevisionRow)
     _batch(members, RulesetMemberRow)
     _require_row(projection_id, "rulesets", snapshot)
+    _before_publish(uow, projection_id, rules, revisions, snapshot, members)
     projection = _get(uow, projection_id, "projections", ())
     if projection is None:
         _conflict()
@@ -96,7 +99,9 @@ def publish_rules(uow, projection_id, rules, revisions, snapshot, members, guard
             local_id=row.rule_id,
             after_revision=row.revision,
         )
-    return WriteReceipt("created", projection_id, snapshot.revision)
+    return _after_publish(
+        uow, projection_id, WriteReceipt("created", projection_id, snapshot.revision)
+    )
 
 
 def _validate_admission(uow, projection_id, thread, admission):
@@ -158,9 +163,12 @@ def _validate_admission(uow, projection_id, thread, admission):
 
 @_mutating
 def admit_thread(uow, projection_id, thread, admission, jobs, guard):
+    from .actions import _after_thread, _before_admit
+
     _require_row(projection_id, "tracked_threads", thread)
     _require_row(projection_id, "thread_admissions", admission)
     _batch(jobs, SyncJobRow)
+    _before_admit(uow, projection_id, thread, admission)
     if type(guard) not in get_args(ThreadGenerationGuard):
         _conflict()
     if (
@@ -209,8 +217,10 @@ def admit_thread(uow, projection_id, thread, admission, jobs, guard):
 
             for job in jobs:
                 enqueue(uow, projection_id, job)
-            return WriteReceipt(
-                "replayed", old.source_thread_id, old.admission_revision
+            return _after_thread(
+                uow,
+                projection_id,
+                WriteReceipt("replayed", old.source_thread_id, old.admission_revision),
             )
         if thread.generation.value != next_revision(
             Revision(old.generation.value)
@@ -245,7 +255,11 @@ def admit_thread(uow, projection_id, thread, admission, jobs, guard):
         before_revision=None if old is None else old.admission_revision,
         after_revision=thread.admission_revision,
     )
-    return WriteReceipt(disposition, thread.source_thread_id, thread.admission_revision)
+    return _after_thread(
+        uow,
+        projection_id,
+        WriteReceipt(disposition, thread.source_thread_id, thread.admission_revision),
+    )
 
 
 _STOP_TARGETS = (
@@ -261,6 +275,9 @@ _STOP_TARGETS = (
 
 @_mutating
 def stop_thread(uow, projection_id, thread_id, expected_generation, stopped_at, reason):
+    from .actions import _after_thread, _before_stop
+
+    _before_stop(uow, projection_id, thread_id, expected_generation, stopped_at, reason)
     if (
         type(expected_generation) is not Generation
         or type(reason) is not ThreadStopReason
@@ -332,4 +349,8 @@ def stop_thread(uow, projection_id, thread_id, expected_generation, stopped_at, 
         before_revision=Revision(thread.generation.value),
         after_revision=new_generation,
     )
-    return WriteReceipt("updated", thread_id, Revision(new_generation.value))
+    return _after_thread(
+        uow,
+        projection_id,
+        WriteReceipt("updated", thread_id, Revision(new_generation.value)),
+    )

@@ -211,3 +211,41 @@ Shared current-state documents and root integration remain the separate
 `m103_os_source` worker's responsibility. This dispatch grants only the original
 finite source/test/plan scope above. Any material interface or guard change needs
 a written amendment and independent review before implementation.
+
+## Finite library source handoff
+
+Implemented on pre-code documentation commit
+`4e0ffd3233e0c1440207f072d0883da9d7624459`, retaining the original plan and
+329-line supplement hashes above. The source adds only the three finite action
+methods, an identity-enrolled same-UoW scope, fixed policy/enqueue receipt hooks,
+full bidirectional nonselected-membership SQL checks, and OPEN/CONSUMED lifecycle
+guards. A consumed scope remains attached until exit and rejects every later
+repository mutation before SQL, including exact no-op/replay calls. The immutable
+scope cannot accept caller-assigned receipt fields. No schema, migration, core
+enum, read bridge, provider, dependency, CI, CLI or shared-status source changed.
+
+Actual offline verification on Python 3.12.13 / SQLite 3.53.1:
+
+- Locked offline dev sync, Ruff check and format check (151 files) passed.
+- Full pytest passed: **1352 tests in 217.40 seconds**, consisting of the
+  unchanged original 1188 tests and 164 new AP01-12 real-file cases.
+- AP cases exercise actual WAL transactions, typed policy/enqueue producers,
+  registration and job aliases, original provenance/origin preservation, all
+  three kinds, current guards/historical replay, attention and cleanup matrices,
+  selected-thread blacklist cancellation with prepared/dispatched/unknown/known
+  insert facts and mappings, complete membership comparison including 501 prior
+  members, and AFTER-SQL faults with caught rollback/reopen checks. Durable action
+  reads use the already-qualified isolated synthetic snapshot reader, not a
+  parent proxy presented as a genuine production read provider.
+- Both CLI helps, `facet --json --version`, whitespace and repository safety
+  checks passed. A fresh noneditable wheel build/install/import smoke passed:
+  action producer and read-provider registries remain empty, the three finite
+  methods import, and no test producer, test assets, private runtime artifacts or
+  runtime/provider import side effects are packaged. No live provider was used.
+
+This is an implementation handoff, not independent acceptance. A different Sol
+xhigh worker must review the exact candidate and its new CI. PR15 remains Draft;
+Issue9, whole M1-02, genuine M1-03 producer/RV11, G1 and all M5 learning, resolved
+label binding, epoch/admission integration, source cleanup and mode-switch gates
+remain pending. No real Gmail/OAuth, deployment, image, license or release claim
+is made by these synthetic storage tests.

@@ -12,13 +12,22 @@ if TYPE_CHECKING:
 
 
 class UnitOfWork:
-    __slots__ = ("_session", "_entered", "_active", "_failed")
+    __slots__ = (
+        "_session",
+        "_entered",
+        "_active",
+        "_failed",
+        "_action_scope",
+        "_action_business_touched",
+    )
 
     def __init__(self, session: "WriterSession"):
         self._session = session
         self._entered = False
         self._active = False
         self._failed = False
+        self._action_scope = None
+        self._action_business_touched = False
 
     def __enter__(self) -> "UnitOfWork":
         session = self._session
@@ -35,6 +44,8 @@ class UnitOfWork:
         except sqlite3.Error as error:
             raise sqlite_failure(error) from None
         self._active = True
+        self._action_scope = None
+        self._action_business_touched = False
         session._uow = self
         try:
             session._check_lineage()
@@ -67,12 +78,21 @@ class UnitOfWork:
             session._invalidate()
             raise StorageFailure(ErrorCode.PERSISTENCE_FAILURE) from None
         finally:
+            from .repositories.actions import _invalidate_action_scope
+
+            _invalidate_action_scope(self)
             self._active = False
             session._uow = None
 
     def __exit__(self, exc_type, exc, traceback) -> bool:
         session = self._session
-        session._check()
+        try:
+            session._check()
+        except StorageFailure:
+            from .repositories.actions import _invalidate_action_scope
+
+            _invalidate_action_scope(self)
+            raise
         if not self._active:
             raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
         if exc_type is not None or self._failed:
@@ -83,6 +103,9 @@ class UnitOfWork:
                 raise sqlite_failure(exc) from None
             raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE) from None
         try:
+            from .repositories.actions import _validate_action_commit
+
+            _validate_action_commit(self)
             session._relational_guards()
         except (StorageFailure, sqlite3.Error) as error:
             self._rollback()
@@ -97,6 +120,9 @@ class UnitOfWork:
             session._invalidate()
             raise sqlite_failure(error) from None
         finally:
+            from .repositories.actions import _invalidate_action_scope
+
+            _invalidate_action_scope(self)
             self._active = False
             session._uow = None
         return False
