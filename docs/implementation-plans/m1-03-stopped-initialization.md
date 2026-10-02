@@ -531,3 +531,70 @@ is authorized. Remeasure expanded stable focused/full/installed/native/CLI and
 retained controls before one source freeze. Independent exact SOURCE review
 must explicitly assess this defect and correction, with fresh dual-Python CI;
 Source B and all full-package/external/integration gates remain pending.
+
+## Source A factual author handoff
+
+Date: 2026-10-03 PRC. AUTHOR EVIDENCE ONLY, not independent SOURCE approval,
+root qualification or integration. The preceding 533-line prospective plan is
+unchanged at SHA-256
+895758c9a1c82c3be3177383ef738696c2acdefee049aa3949336c567c248e25.
+Its ordinary correction was recorded before code in plan-only commit
+8e69a3d08fa5a39f1bc63210f0e510b0263676c1. Original 497/477/421/390
+prefixes and the 372-line ADR remain exact.
+
+The implementation changes only seven allocated DB paths and adds exactly four
+allocated tests. Closed passive records keep the exact six-field inspection and
+A1 dependencies. Separate fresh-only v2 manifests install 37 tables/receipts in
+one transaction; existing v1 registry/checksums/migration targets remain unchanged.
+Bounded original-key lookup and fresh-run CAS implement the reviewed storage
+surface. CAS changes only the two owner-run columns and preserves nonempty claims,
+unknown insert intent, stopped/paused/restore/namespace and shutdown facts.
+Supplied native handles and passive values are not an opener or issuer.
+
+BEGIN/COMMIT attempt fences are set before native calls. Actual native
+MemoryError/KeyboardInterrupt/SystemExit exits use owned rollback/one-close or
+committed-unknown close-only disposition, without retry, result or false success.
+The all-exit correction changes only new v2 execution/rollback/close and the
+allocated writer-attachment cleanup fences. Precondition/external/foreign
+ownership is preserved. All six original v1 initializer/settings/session/insert
+ASTs and old v1 inspector body (under its reviewed rename) remain exact.
+V2 read/snapshot/migration consumers refuse before the reviewed forbidden effects;
+no read graph, provider, existing-state upgrade or credential authority is added.
+
+Final stable-byte author measurements on CPython 3.12.13/SQLite 3.53.1:
+
+- Actual collection 2269: retained 1810 plus 459 new Source A cases.
+- Full 2269 PASS in 444.80 seconds; focused 459 PASS in 10.91 seconds.
+- Individual records/schema/bootstrap/owner files: 134/23/235/67 PASS.
+- Native exit-class matrix 51 PASS in 2.75 seconds, including the actual unguarded
+  BEGIN/real-contender BUSY detecting negative and original-key reopen controls.
+- Retained R3 73 PASS/16.86 seconds; OS 150 PASS/88.76 seconds;
+  read foundation 71 PASS/13.79 seconds; migration 114 PASS/51.88 seconds.
+- Fresh noneditable installed Source A 459 PASS/11.00 seconds;
+  installed real WAL lifecycle probes 8 PASS/1.50 seconds and all nine fixed
+  accepted read-foundation child scenarios PASS.
+- CLI subprocess 40 PASS/4.71 seconds; both source/installed help and JSON
+  version PASS. Locked offline dev sync, Ruff and format (184 files) PASS.
+- Fresh wheel SHA-256
+  645296132f3850f73cefed2ff7d9fa8efa4cd1f37bf1c237f934d70e4bcaabc3:
+  69 source/archive/installed file-byte proofs and 54 fresh guarded library
+  imports PASS, with no SQL/network/process/write/hook/thread/log effects.
+- All 125 unallocated retained source/test blobs, including all 63 old tests,
+  remain d688-exact. Original migration prefix/58 ASTs, v0001, literal read graph,
+  empty production action/read/migration/predecessor registries remain exact.
+
+Every 179 compiled DDL boundary and 17 initial row/ledger/binding/receipt/version
+cuts use actual native fault/reopen controls. Native COMMIT denial, rollback/close
+uncertainty, caller-already-except privacy, actual two-process CAS/SIGKILL,
+foreign-thread/UoW/fork refusal and v1-positive/v2-before-effects consumer tests
+are included. These qualify synthetic local storage tests only, not power-loss,
+arbitrary filesystem, native provenance or production capability.
+
+Earlier diagnostic failures and full 2204/2235/wheel passes remain historical.
+The concrete prefreeze KeyboardInterrupt acknowledgement-loss finding above was
+not waived by them; the final correction is still subject to independent exact
+SOURCE review and fresh dual-Python CI checkout/tree qualification. No candidate
+is self-approved. Source B, native file/fork issuer, config/artifact publication,
+complete credential/bundle/restore providers, existing-state upgrade, public init,
+daemon/full CLI, whole M1-02/M1-03/RV11/G1-G6 and live/deployment/release gates
+remain pending. Frozen inputs/main/shared current-state documents are untouched.

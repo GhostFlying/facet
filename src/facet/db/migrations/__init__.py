@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from facet.contracts import Sha256Hex
 
 from ..codecs import SchemaVersion, invalid
-from . import v0001
+from . import v0001, v0002
 
 # Only an explicit pristine bootstrap can create v1. There is no production v0.
 REGISTRY = ((1, "v0001", v0001.STATEMENTS),)
@@ -119,3 +119,41 @@ _CURRENT_MANIFEST = _SchemaManifest(
 )
 # Existing-state migration is deliberately unavailable in the shipping registry.
 _EXISTING_STEPS: tuple[_ExistingStep, ...] = ()
+
+# These separately named constants ONLY describe pristine fresh-v2 creation.
+# The accepted v1 constants/current migration target above remain unchanged.
+FRESH_V2_REGISTRY = REGISTRY + ((2, "v0002", v0002.STATEMENTS),)
+FRESH_V2_CHECKSUMS = CHECKSUMS + (
+    hashlib.sha256("\n".join(v0002.STATEMENTS).encode("utf-8")).hexdigest(),
+)
+FRESH_V2_REGISTRY_DIGEST = hashlib.sha256(
+    "\n".join(
+        f"{version}:{name}:{checksum}"
+        for (version, name, _), checksum in zip(
+            FRESH_V2_REGISTRY, FRESH_V2_CHECKSUMS, strict=True
+        )
+    ).encode("ascii")
+).hexdigest()
+
+
+def _fresh_v2_catalogue():
+    rows = list(_CURRENT_MANIFEST.catalogue)
+    for sql in v0002.STATEMENTS:
+        match = re.match(r"CREATE (?:UNIQUE )?(TABLE|INDEX|TRIGGER) (\w+)", sql)
+        assert match is not None
+        kind, name = match.groups()
+        rows.append((kind.lower(), name, sql))
+    return tuple(rows)
+
+
+_FRESH_V2_MANIFEST = _SchemaManifest(
+    SchemaVersion(v0002.VERSION),
+    _fresh_v2_catalogue(),
+    tuple(
+        (version, name, checksum)
+        for (version, name, _), checksum in zip(
+            FRESH_V2_REGISTRY, FRESH_V2_CHECKSUMS, strict=True
+        )
+    ),
+    Sha256Hex(FRESH_V2_REGISTRY_DIGEST),
+)
