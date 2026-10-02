@@ -16,6 +16,7 @@ from facet.contracts import (
     PartitionState,
     ProviderId,
     Revision,
+    Sha256Hex,
     Timestamp,
 )
 from facet.contracts.records import (
@@ -27,16 +28,17 @@ from facet.contracts.records import (
     PartitionRefSourceWindow,
     PartitionRefTargetCatalog,
 )
-from facet.db.codecs import PollOrigin, PollState, StorageFailure
+from facet.db.codecs import PollOrigin, PollState, StorageFailure, ThreadStopReason
 from facet.db.keys import partition_key
 from facet.db.models import (
     EpochPartitionRow,
     EpochRow,
     HistoryGapRow,
+    HistoryPageRow,
     HistoryPollRow,
     RevisionGuard,
 )
-from facet.db.repositories import epochs, reads
+from facet.db.repositories import epochs, policy, reads
 from facet.db.repositories.base import _insert
 
 
@@ -280,6 +282,271 @@ def failed_poll_and_gap(session, *, known=True):
     )
 
 
+def recovery_epoch(gap, n):
+    # Typed fixture for a completed scan/decision consumer not yet delivered.
+    # Unknown-range authorization remains unavailable in production v1.
+    known = gap.reliable_coverage_at is not None
+    return replace(
+        epoch(n, kind=EpochKind.HISTORY_GAP),
+        state=EpochState.SCANNING,
+        gap_id=gap.gap_id,
+        window_start=Timestamp(
+            (gap.reliable_coverage_at or Timestamp(NOW.value - timedelta(days=1))).value
+            - (timedelta(minutes=5) if known else timedelta(0))
+        ),
+        window_end=gap.h1_recorded_at,
+        recovery_margin_us=Count(300000000) if known else None,
+        fence_history_id=gap.h1,
+        fence_recorded_at=gap.h1_recorded_at,
+        discovery_complete=True,
+        known_message_total=Count(0),
+        decision=(
+            EpochDecisionRefScheduledReconcile("scheduled_reconcile", Revision(0))
+            if known
+            else EpochDecisionRefGapApproval(
+                "gap_approval", lid(n + 1), lid(n + 2), Revision(0)
+            )
+        ),
+    )
+
+
+def seed_scan(session, value):
+    part = partition(value)
+    with session.transaction() as uow:
+        _insert(uow, P, "epochs", value)
+        _insert(
+            uow,
+            P,
+            "epoch_partitions",
+            replace(
+                part, progress=replace(part.progress, state=PartitionState.COMPLETE)
+            ),
+        )
+
+
+def seed_completed_recovery(session, value, gap, *, poll_id=800):
+    from facet.db.codecs import timestamp_to_sql
+
+    final = ProviderId("final-B-not-numerically-ordered")
+    started = Timestamp(NOW.value + timedelta(minutes=3))
+    poll = HistoryPollRow(
+        P,
+        lid(poll_id),
+        PollOrigin.RECOVERY_EPOCH,
+        value.epoch_id,
+        gap.h1,
+        gap.checkpoint_revision,
+        started,
+        PollState.COMPLETED,
+        Count(1),
+        None,
+        final,
+        started,
+        Revision(1),
+    )
+    page = HistoryPageRow(
+        P,
+        poll.poll_id,
+        Count(1),
+        final,
+        None,
+        None,
+        started,
+        Sha256Hex("0" * 64),
+        Count(0),
+        True,
+    )
+    with session.transaction() as uow:
+        _insert(uow, P, "history_polls", poll)
+        _insert(uow, P, "history_pages", page)
+        uow._execute(
+            "UPDATE epochs SET catchup_history_id=? "
+            "WHERE projection_id=? AND epoch_id=?",
+            (final.value, P.value, value.epoch_id.value),
+        )
+        uow._execute(
+            "UPDATE history_checkpoints SET cursor=?,reliable_coverage_at=?,revision=? "
+            "WHERE projection_id=?",
+            (
+                final.value,
+                timestamp_to_sql(started),
+                gap.checkpoint_revision.value + 1,
+                P.value,
+            ),
+        )
+
+
+def gap_lineage(session, *, known=True, broken=None, complete=True):
+    from facet.db.codecs import timestamp_to_sql
+
+    first = failed_poll_and_gap(session, known=known)
+    with session.transaction() as uow:
+        epochs.record_gap(uow, P, first)
+    prior = recovery_epoch(first, 750)
+    seed_scan(session, prior)
+    # A's committed H1 expires without moving its saved old/null checkpoint.
+    failed = HistoryPollRow(
+        P,
+        lid(760),
+        PollOrigin.RECOVERY_EPOCH,
+        prior.epoch_id,
+        ProviderId("unrelated-H1") if broken == "fence" else first.h1,
+        Revision(0 if broken == "revision" else 1),
+        NOW,
+        PollState.ABANDONED,
+        Count(0),
+        None,
+        None,
+        NOW,
+        Revision(1),
+    )
+    saved_cursor, saved_coverage = first.checkpoint_cursor, first.reliable_coverage_at
+    if broken == "saved_checkpoint":
+        saved_cursor, saved_coverage = ProviderId("unrelated-saved"), NOW
+    elif broken == "coverage":
+        saved_coverage = Timestamp(saved_coverage.value + timedelta(microseconds=1))
+    next_revision = Revision(failed.start_checkpoint_revision.value + 1)
+    with session.transaction() as uow:
+        _insert(uow, P, "history_polls", failed)
+        uow._execute(
+            "UPDATE history_checkpoints SET cursor=?,reliable_coverage_at=?,revision=? "
+            "WHERE projection_id=?",
+            (
+                None if saved_cursor is None else saved_cursor.value,
+                None if saved_coverage is None else timestamp_to_sql(saved_coverage),
+                next_revision.value,
+                P.value,
+            ),
+        )
+    second = HistoryGapRow(
+        P,
+        lid(761),
+        failed.poll_id,
+        failed.start_cursor,
+        saved_cursor,
+        next_revision,
+        NOW,
+        saved_coverage,
+        ProviderId("H1-B"),
+        NOW,
+    )
+    with session.transaction() as uow:
+        epochs.record_gap(uow, P, second)
+    current = recovery_epoch(second, 770)
+    seed_scan(session, current)
+    if complete:
+        seed_completed_recovery(session, current, second)
+    return first, second, current
+
+
+@pytest.mark.parametrize("known", [True, False])
+def test_completed_descendant_recovery_does_not_reactivate_ancestor_gap(state, known):
+    _, connection, session, _ = state
+    first, second, _ = gap_lineage(session, known=known)
+    with session.transaction() as uow:
+        assert epochs._latest_unresolved_gap(uow, P) is None
+    assert connection.execute("SELECT COUNT(*) FROM history_gaps").fetchone() == (2,)
+    assert connection.execute(
+        "SELECT revision FROM history_checkpoints"
+    ).fetchone() == (3,)
+    # A new epoch cannot claim the old A merely because B has completed.
+    if known:
+        with pytest.raises(StorageFailure), session.transaction() as uow:
+            epochs.start_epoch(
+                uow,
+                P,
+                replace(
+                    recovery_epoch(first, 900),
+                    state=EpochState.PREPARED,
+                    discovery_complete=False,
+                    known_message_total=None,
+                ),
+                (),
+            )
+    assert first.gap_id != second.gap_id
+
+
+@pytest.mark.parametrize("known", [True, False])
+def test_incomplete_descendant_and_unrelated_completed_poll_keep_gate(state, known):
+    _, _, session, _ = state
+    _, second, _ = gap_lineage(session, known=known, complete=False)
+    with session.transaction() as uow:
+        assert epochs._latest_unresolved_gap(uow, P) == second
+    unrelated = replace(
+        epoch(850, kind=EpochKind.TARGET_AUDIT),
+        state=EpochState.SCANNING,
+        discovery_complete=True,
+        known_message_total=Count(0),
+    )
+    with session.transaction() as uow:
+        _insert(uow, P, "epochs", unrelated)
+    # Even a completed poll referencing another epoch cannot clear this gap.
+    seed_completed_recovery(session, unrelated, second, poll_id=860)
+    with session.transaction() as uow:
+        assert epochs._latest_unresolved_gap(uow, P) == second
+
+
+@pytest.mark.parametrize(
+    "broken,known",
+    [
+        (case, known)
+        for case in ["fence", "revision", "saved_checkpoint"]
+        for known in [True, False]
+    ]
+    + [("coverage", True)],
+)
+def test_completed_child_cannot_clear_broken_ancestor_lineage(state, broken, known):
+    _, _, session, _ = state
+    first, _, _ = gap_lineage(session, broken=broken, known=known)
+    with session.transaction() as uow:
+        assert epochs._latest_unresolved_gap(uow, P) == first
+
+
+@pytest.mark.parametrize("known", [True, False])
+def test_new_failed_checkpoint_after_descendant_completion_remains_unresolved(
+    state, known
+):
+    _, _, session, _ = state
+    _, _, _ = gap_lineage(session, known=known)
+    started = Timestamp(NOW.value + timedelta(minutes=4))
+    failed = HistoryPollRow(
+        P,
+        lid(880),
+        PollOrigin.CHECKPOINT,
+        None,
+        ProviderId("final-B-not-numerically-ordered"),
+        Revision(3),
+        started,
+        PollState.ABANDONED,
+        Count(0),
+        None,
+        None,
+        started,
+        Revision(1),
+    )
+    with session.transaction() as uow:
+        _insert(uow, P, "history_polls", failed)
+        uow._execute(
+            "UPDATE history_checkpoints SET revision=4 WHERE projection_id=?",
+            (P.value,),
+        )
+    third = HistoryGapRow(
+        P,
+        lid(881),
+        failed.poll_id,
+        failed.start_cursor,
+        failed.start_cursor,
+        Revision(4),
+        started,
+        Timestamp(NOW.value + timedelta(minutes=3)),
+        ProviderId("new-H1-C"),
+        started,
+    )
+    with session.transaction() as uow:
+        epochs.record_gap(uow, P, third)
+        assert epochs._latest_unresolved_gap(uow, P) == third
+
+
 def test_known_gap_observation_and_exact_overlap_scope(state):
     _, connection, session, _ = state
     gap = failed_poll_and_gap(session)
@@ -381,6 +648,79 @@ def test_start_epoch_with_bare_preview_ids_is_not_start_authority(state):
     ):
         epochs.start_epoch(uow, P, value, ())
     assert connection.execute("SELECT COUNT(*) FROM epochs").fetchone() == (0,)
+
+
+@pytest.mark.parametrize(
+    "terminal", [PartitionState.COMPLETE, PartitionState.NEEDS_ATTENTION]
+)
+def test_stopped_historical_partition_accepts_no_new_work_terminal_state(
+    state, terminal
+):
+    _, connection, session, _ = state
+    publish(session)
+    tracked, _ = admit(session)
+    value = replace(
+        epoch(),
+        decision=EpochDecisionRefScheduledReconcile("scheduled_reconcile", Revision(1)),
+    )
+    part = partition(
+        value, PartitionRefSourceThread("source_thread", tracked.source_thread_id)
+    )
+    with session.transaction() as uow:
+        epochs.start_epoch(uow, P, value, (part,))
+        policy.stop_thread(
+            uow,
+            P,
+            tracked.source_thread_id,
+            tracked.generation,
+            NOW,
+            ThreadStopReason.MANUAL_STOP,
+        )
+    complete = replace(
+        part, revision=Revision(1), progress=replace(part.progress, state=terminal)
+    )
+    with session.transaction() as uow:
+        epochs.advance_partition(uow, P, complete, (), RevisionGuard(Revision(0)))
+    assert connection.execute("SELECT state FROM epoch_partitions").fetchone() == (
+        terminal.value,
+    )
+    assert connection.execute("SELECT COUNT(*) FROM sync_jobs").fetchone() == (0,)
+
+
+@pytest.mark.parametrize("case", ["stopped", "untracked"])
+def test_historical_partition_cannot_authorize_new_projection_job(state, case):
+    _, connection, session, _ = state
+    publish(session)
+    selector = ProviderId("synthetic-thread")
+    if case == "stopped":
+        tracked, _ = admit(session)
+        with session.transaction() as uow:
+            policy.stop_thread(
+                uow, P, selector, tracked.generation, NOW, ThreadStopReason.MANUAL_STOP
+            )
+    value = replace(
+        epoch(),
+        decision=EpochDecisionRefScheduledReconcile("scheduled_reconcile", Revision(1)),
+    )
+    part = partition(value, PartitionRefSourceThread("source_thread", selector))
+    with session.transaction() as uow:
+        epochs.start_epoch(uow, P, value, (part,))
+    complete = replace(
+        part,
+        revision=Revision(1),
+        progress=replace(part.progress, state=PartitionState.COMPLETE),
+    )
+    with (
+        pytest.raises(StorageFailure, match="generation_stale"),
+        session.transaction() as uow,
+    ):
+        epochs.advance_partition(
+            uow, P, complete, (job(100),), RevisionGuard(Revision(0))
+        )
+    assert connection.execute("SELECT state FROM epoch_partitions").fetchone() == (
+        "not_started",
+    )
+    assert connection.execute("SELECT COUNT(*) FROM sync_jobs").fetchone() == (0,)
 
 
 def test_gap_catchup_is_required_even_after_partitions_and_jobs_complete(state):

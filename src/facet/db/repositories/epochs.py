@@ -44,18 +44,43 @@ _TERMINAL = {
 def _latest_unresolved_gap(uow, projection_id):
     from .serialization import COLUMNS
 
+    # A later H1 may itself expire before recovery. Completion of its exact
+    # descendant lineage closes ancestor polling gates, not their factual rows.
+    # UNION deduplicates and strictly increasing checkpoint revisions exclude
+    # cycles. Provider History IDs are only compared for identity, never ordered.
     rows = _query(
         uow,
-        "SELECT "
-        + ",".join("g." + c for c in COLUMNS["history_gaps"])
-        + " FROM history_gaps g WHERE g.projection_id=? AND NOT EXISTS("
-        "SELECT 1 FROM epochs e JOIN history_polls p "
-        "ON p.projection_id=e.projection_id AND p.origin_epoch_id=e.epoch_id "
-        "WHERE e.projection_id=g.projection_id AND e.gap_id=g.gap_id "
+        "WITH RECURSIVE resolved(gap_id) AS ("
+        "SELECT g.gap_id FROM history_gaps g JOIN epochs e "
+        "ON e.projection_id=g.projection_id AND e.gap_id=g.gap_id "
+        "JOIN history_polls p ON p.projection_id=e.projection_id "
+        "AND p.origin_epoch_id=e.epoch_id "
+        "WHERE g.projection_id=? AND e.kind='history_gap' "
+        "AND e.fence_history_id=g.h1 AND e.fence_recorded_at=g.h1_recorded_at "
         "AND p.origin='recovery_epoch' AND p.state='completed' "
-        "AND p.final_history_id=e.catchup_history_id) "
+        "AND p.start_cursor=g.h1 AND p.final_history_id=e.catchup_history_id "
+        "AND p.start_checkpoint_revision>=g.checkpoint_revision "
+        "UNION SELECT parent.gap_id FROM resolved r "
+        "JOIN history_gaps child ON child.projection_id=? AND child.gap_id=r.gap_id "
+        "JOIN history_polls failed ON failed.projection_id=child.projection_id "
+        "AND failed.poll_id=child.failed_poll_id "
+        "JOIN epochs prior ON prior.projection_id=failed.projection_id "
+        "AND prior.epoch_id=failed.origin_epoch_id "
+        "JOIN history_gaps parent ON parent.projection_id=prior.projection_id "
+        "AND parent.gap_id=prior.gap_id "
+        "WHERE failed.origin='recovery_epoch' AND failed.state='abandoned' "
+        "AND prior.kind='history_gap' AND failed.start_cursor=parent.h1 "
+        "AND prior.fence_history_id=parent.h1 "
+        "AND prior.fence_recorded_at=parent.h1_recorded_at "
+        "AND child.checkpoint_cursor IS parent.checkpoint_cursor "
+        "AND child.reliable_coverage_at IS parent.reliable_coverage_at "
+        "AND child.checkpoint_revision=failed.start_checkpoint_revision+1 "
+        "AND child.checkpoint_revision>parent.checkpoint_revision) SELECT "
+        + ",".join("g." + c for c in COLUMNS["history_gaps"])
+        + " FROM history_gaps g WHERE g.projection_id=? "
+        "AND NOT EXISTS(SELECT 1 FROM resolved r WHERE r.gap_id=g.gap_id) "
         "ORDER BY g.checkpoint_revision DESC LIMIT 1",
-        (projection_id.value,),
+        (projection_id.value, projection_id.value, projection_id.value),
         maximum=1,
     )
     return None if not rows else _decode(uow, projection_id, "history_gaps", rows[0])
@@ -167,15 +192,9 @@ def _partition(uow, projection_id, epoch, row):
     ref = row.progress.partition
     if ref.tag not in allowed or row.partition_key != partition_key(projection_id, ref):
         _conflict()
-    if ref.tag == "source_thread":
-        thread = _get(
-            uow,
-            projection_id,
-            "tracked_threads",
-            (("source_thread_id", ref.source_thread_id),),
-        )
-        if thread is None or not thread.active:
-            raise StorageFailure(ErrorCode.GENERATION_STALE)
+    # Historical selectors may name stopped/deleted/not-yet-admitted threads.
+    # A selector itself grants no disclosure. Derived jobs independently require
+    # current tracked admission/generation in enqueue, below.
 
 
 @_mutating
