@@ -5,6 +5,7 @@ import fcntl
 import os
 import select
 import signal
+import stat
 import sys
 import threading
 import time
@@ -97,10 +98,21 @@ def inventories(roots):
             ),
             tuple((key, id(state)) for key, state in roots._INODES.items()),
             tuple(
-                (number, id(descriptor), descriptor.identity, os.fstat(number))
+                (number, id(descriptor), descriptor.identity, descriptor_facts(number))
                 for number, descriptor in roots._DESCRIPTORS.items()
             ),
         )
+
+
+def descriptor_facts(number):
+    current = os.fstat(number)
+    identity = (current.st_dev, current.st_ino, current.st_uid, current.st_mode)
+    # Traversal ancestors are shared with legitimate sibling activity. Their
+    # nlink/size/timestamps are not descriptor or ownership identity. Regular
+    # lock files still retain the actual one-link/zero-byte policy comparison.
+    if stat.S_ISREG(current.st_mode):
+        return (*identity, current.st_nlink, current.st_size)
+    return identity
 
 
 def held_candidates(ident, original, check, *, limit=64, timeout=4, fault=None):
@@ -195,7 +207,9 @@ def thread_scenario(scenario, path, roots, locks):
         "thread_allocation_live",
         "thread_start_fault",
         "thread_timeout_fault",
+        "thread_timeout_sibling",
     )
+    sibling = None
 
     def creator():
         try:
@@ -245,6 +259,10 @@ def thread_scenario(scenario, path, roots, locks):
             assert not original.is_alive(), "test_creator_join_timeout"
             native_retired(native_id, time.monotonic() + 2)
         before = inventories(roots)
+        if scenario == "thread_timeout_sibling":
+            owned = Path(path).parent / "test-owned-sibling"
+            owned.mkdir(mode=0o700)
+            sibling = owned
 
         def refused():
             for operation, resource in (
@@ -277,6 +295,10 @@ def thread_scenario(scenario, path, roots, locks):
                 "timeout_fault_cleaned",
             ),
             "thread_check_fault": ("test_candidate_check_fault", "check_fault_cleaned"),
+            "thread_timeout_sibling": (
+                "test_candidate_readiness_timeout",
+                "timeout_sibling_cleaned",
+            ),
         }
         if scenario in controls:
             expected, handshake = controls[scenario]
@@ -285,12 +307,16 @@ def thread_scenario(scenario, path, roots, locks):
                     native_retired(native_id, time.monotonic() + 0.03)
                 else:
                     fault = scenario.removeprefix("thread_").removesuffix("_fault")
+                    if scenario == "thread_timeout_sibling":
+                        fault = "timeout"
                     count = held_candidates(
                         ident,
                         thread,
                         refused,
                         limit=4 if live_control else 64,
-                        fault=fault if scenario.endswith("_fault") else None,
+                        fault=fault
+                        if scenario.endswith(("_fault", "_sibling"))
+                        else None,
                     )
                     raise AssertionError("test_negative_control_accepted")
             except AssertionError as error:
@@ -311,15 +337,70 @@ def thread_scenario(scenario, path, roots, locks):
         wait()
     finally:
         finish.set()
-        if original.ident is not None:
-            original.join(2)
-        assert not original.is_alive(), "test_creator_cleanup_timeout"
-        if stored:
-            native_retired(stored[0][4], time.monotonic() + 2)
-        if failures:
-            raise failures[0]
+        try:
+            if original.ident is not None:
+                original.join(2)
+            assert not original.is_alive(), "test_creator_cleanup_timeout"
+            if stored:
+                native_retired(stored[0][4], time.monotonic() + 2)
+            if failures:
+                raise failures[0]
+        finally:
+            if sibling is not None:
+                # Only this helper's freshly created empty sibling is removed.
+                sibling.rmdir()
     # Live retired-owner and check-fault resources stay strongly enrolled until
     # this fresh process exits: no transfer or GC unlock is a cleanup shortcut.
+
+
+def thread_oracle_negative(path, roots, locks):
+    owned_file = Path(path) / "locks/owner.lock"
+    changed_mode = False
+    with roots.open_existing_root(path) as root, locks.acquire_owner(root) as lease:
+        before = inventories(roots)
+        before_phases = roots._ROOTS[root].phase, roots._LEASES[lease].phase
+        assert before_phases == ("open", "held")
+        try:
+            os.chmod(owned_file, 0o640)
+            changed_mode = True
+            drift = inventories(roots)
+            assert drift[:5] == before[:5] and drift[5] != before[5]
+            observed = 0
+            for first, last in zip(before[5], drift[5], strict=True):
+                assert first[:3] == last[:3]
+                if first[3] != last[3]:
+                    # Actual retained FD mode differs; no object/number/inode/
+                    # UID/regular-file link/size or phase was substituted.
+                    assert first[3][:3] == last[3][:3]
+                    assert first[3][4:] == last[3][4:] == (1, 0)
+                    assert stat.S_IMODE(first[3][3]) == 0o600
+                    assert stat.S_IMODE(last[3][3]) == 0o640
+                    observed += 1
+            assert observed > 0
+            try:
+                locks.check_lock(lease)
+            except roots.LockFailure as error:
+                assert error.code.value == "scope_required"
+                assert error.__context__ is None and error.__cause__ is None
+            else:
+                raise AssertionError("test_unsafe_file_policy_accepted")
+            os.chmod(owned_file, 0o600)
+            changed_mode = False
+            restored = inventories(roots)
+            # Prove the actual primitive phases independently AFTER mode is
+            # restored, so mode inequality cannot make the phase oracle pass.
+            after_phases = roots._ROOTS[root].phase, roots._LEASES[lease].phase
+            assert after_phases == ("invalid", "invalid") != before_phases
+            assert restored[5] == before[5]
+            assert restored[0] != before[0] and restored[1] != before[1]
+            assert restored[2:5] == before[2:5]
+            say("oracle_changes_detected")
+            wait()
+        finally:
+            if changed_mode:
+                os.chmod(owned_file, 0o600)
+    # Both creator-owned context exits perform explicit terminal cleanup, even
+    # for the actual invalid phases. No fake state or foreign FD close is used.
 
 
 def run():
@@ -348,6 +429,9 @@ def run():
             say("created")
         return
 
+    if scenario == "thread_oracle_negative":
+        thread_oracle_negative(path, private_root, locks)
+        return
     if scenario.startswith("thread_"):
         thread_scenario(scenario, path, private_root, locks)
         return

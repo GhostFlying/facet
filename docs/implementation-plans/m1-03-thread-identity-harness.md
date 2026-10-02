@@ -262,3 +262,42 @@ receipt in an atomic user/noreply commit before either test edit. Require a
 separate actual primitive root/lease phase difference after restoring0600, not
 whole-inventory inequality explained only by mode. New source acceptance/CI and
 separate root integration release remain required; a410 HOLD/main36b FAIL persist.
+
+## Corrected H1 local source handoff, 2026-10-03 PRC
+
+Pre-code approval/release was atomically saved before either test edit. Every
+descriptor now retains its enrolled integer/object/saved identity plus actual
+device/inode/UID/mode; regular locks also retain nlink/size. Only mutable directory
+metadata and clock fields are excluded. All primitive authority/phase fields,
+private-root bytes/tree/mtime, parent FDs and actual kernel controls remain.
+
+The deterministic sibling case retains its one own empty sibling through actual
+timeout cleanup, inventory comparison and genuine creator checks; finally removes
+only that sibling. The parent explicitly requires absence before and after the
+child. The negative detects actual retained lock mode0600->0640 before any phase
+change, requires fixed scope_required without cause/context, then restores0600.
+After restoration it independently observes actual root and lease phases both
+invalid, while descriptor facts equal their original values. Real external
+owner_busy remains until explicit genuine creator release/close; post-exit held
+and unchanged final private tree/FDs pass. No private phase/registry injection or
+foreign descriptor manipulation is used.
+
+Actual CPython3.12.13/Linux5.15/eUID1001 evidence:
+
+- Seven individual detecting cases passed in 3.00 seconds.
+- Concurrent focused **150 passed in 88.81 seconds** and full **758 passed in
+  102.94 seconds**, both with twenty complete nine-scenario batches, passed under
+  legitimate sibling fixture activity. No failure was retried to hide a gate.
+- After adding the explicit parent sibling-absence assertion, the final exact
+  full snapshot passed **758 tests in 102.88 seconds**: retained756 plus two.
+- Locked offline sync, Ruff/format101, both CLI helps/JSON version, whitespace
+  and repository safety passed. All40 original OS test ASTs, approved124/174/252
+  prefixes and all production/complete OS-C1-plan bytes remain unchanged.
+- A fresh noneditable wheel remains SHA-256
+  `a09b3bd4f82b3e5ba732bf23554e2ac6af1295eee925e80c765db6108ea5d0d5`.
+  No helpers/tests/plans ship; installed fixed exports, empty inventories and
+  no Facet filesystem/FD/hook/network/SQL/provider/CLI/logging import effects pass.
+
+New exact-head CI and nonauthor source acceptance remain pending. Preserve a410's
+formal HOLD and main36b's failed run; these local successes do not qualify main
+or any migration/provider/whole-package/live/deployment gate by themselves.

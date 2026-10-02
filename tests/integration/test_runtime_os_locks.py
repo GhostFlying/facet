@@ -1144,10 +1144,14 @@ THREAD_CONTROLS = (
     ("thread_start_fault", "start_fault_cleaned", "owner_busy", 2),
     ("thread_timeout_fault", "timeout_fault_cleaned", "owner_busy", 2),
     ("thread_check_fault", "check_fault_cleaned", "owner_busy", 1),
+    ("thread_timeout_sibling", "timeout_sibling_cleaned", "owner_busy", 2),
+    ("thread_oracle_negative", "oracle_changes_detected", "owner_busy", 1),
 )
 
 
 def thread_control(path, scenario, handshake, kernel, task_count):
+    sibling = path.parent / "test-owned-sibling"
+    assert not sibling.exists()
     before = tree(path), live_fds()
     with child(scenario, path) as participant:
         assert participant.line() == handshake
@@ -1160,6 +1164,7 @@ def thread_control(path, scenario, handshake, kernel, task_count):
         assert probe("try_owner", path) == kernel
         assert tree(path) == before[0]
     assert participant.process.returncode == 0
+    assert not sibling.exists(), "test_owned_sibling_cleanup_missing"
     assert probe("try_owner", path) == "held"
     assert (tree(path), live_fds()) == before
 
