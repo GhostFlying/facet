@@ -499,3 +499,86 @@ every new inspection strategy edit. Native bounds, real progress/authorizer faul
 source no-delta/original-ro paired controls and genuine complete-bundle publication
 remain required. Historical80/1705/wheel7053796 precede this counterexample; new
 exact source/CI and independent third SOURCE acceptance remain outstanding.
+
+## Oct3 finite migration source handoff (author verification only)
+
+The owned branch remains p/luchengxuan/m1-02-migration-entry, exact qualified
+unmerged base a9c4e36de6ad70294002a83e678a2a7cf1b012d6. Pre-code commits bc4b634,
+5af1095 and fa8859d record the original release and both independently accepted
+corrective strategies before their code. Original217/257/323/338/484 prefixes
+and exact232 design are mechanically preserved; no accepted v0001/OS/action/
+read-view/transaction/snapshot/CLI source, dependency or CI file was changed.
+
+Implemented only the four allocated storage modules, three fixed MG test paths,
+own plan and exact design copy. The entry accepts only an exact supplied native
+Connection, OwnerSessionInfo and fixed compiled-provider gate. Shipping current
+schema is still v1; predecessor/provider inventories are empty. MigrationState/
+Result have only the approved eight/five fields; constructible records never
+prove owner/freeze/bundle authority. No path opener or production producer ships.
+
+The actual test participant retains genuine creator PID/strong Thread, root,
+ownerEX/viewEX and ordered source/target credential flock descriptors. It checks
+real private configuration/account/binding/revision facts and complete published
+SQLite-backup-API bundle files/hashes before supplying an upgrade writer.
+The synthetic9001 fixture is freshly compiled from actual accepted typed-seeded
+32-table data, never a fake current WriterSession or mutated immutable v1 ledger.
+One fixed9001->9002 step adds only its test index. Transactional singleton
+DELETE/INSERT preserves created_at; old ledger/business/prior-owner rows survive.
+
+Native fault gates include six actual intermediate publication cuts, original
+immutable UPDATE/DELETE refusal, real deferred FK failure, state/context drift,
+actual COMMIT/ROLLBACK/final-inspection denial and one native uncertain-close
+attempt. Actual old/target safe reopen distinguishes uncertainty, never blind
+retry/empty initialization. Four fixed subprocess cases pair SIGKILL before and
+after COMMIT with genuine unsignalled completion; only fresh owned children are
+signalled/reaped, and parent actually reacquires owner/view/both credential locks.
+
+MG02 correction uses bounded detached test-only DB+WAL recognition under the same
+continuous freeze; source SHM is neither copied nor opened by SQLite preflight.
+All nine committed refused WAL states preserve the entire original fixture tree,
+including bytes/mtime/physical identity/names and no original SQLite connection.
+Original-ro detecting control proves the actual SHM write. Current/predecessor/
+target positives observe real committed facts absent from main; rejecting all
+WAL or reading immutable main cannot pass. Missing sidecars/non-private/aliased
+files and size limits reject before copying/inspection. The64MiB tree admission
+control verifies no byte-read allocation; oversized trees are not silently
+captured into an oversized oracle. Supported fixtures retain full byte oracles.
+
+Real disposable-Connection authorizer denial and actual8-second recursive-query
+progress interruption separately prove cleanup/retained kernel ownership. On
+deadline expiry, cleanup still closes/removes owned output; the independent
+post-disposition full source oracle uses a fresh bounded observation interval,
+not a renewed execution budget, fake clock or ignored original-SHM change.
+No hard stalled-kernel, RSS, NFS/SMB or power-loss guarantee is claimed.
+
+Historical initial18fail/sixpass, later partial controls, and80focused/1705full/
+wheel7053796 passes before the WAL counterexample remain historical. The first
+new22-control batch reported10passes/12failures during fixture setup: descriptive
+strings violated actual LocalId constraints and the ledger column is applied_at,
+not created_at. Those ordinary test mistakes were corrected against actual
+compiled schema with existing lid values, without any production/strategy change.
+Then22 new controls passed15.93s; after final exact-Scope/private-output/admission
+guards, fresh102 focused tests passed43.74s while the full suite ran concurrently.
+The complete new run passed1727 tests in392.13s:1625 retained plus102 actual MG
+cases (98 unit plus four process); collection independently confirmed1727.
+
+Locked dev sync passed on CPython3.12.13/SQLite3.53.1, uv0.12.2 and the qualified
+local trusted fixture mount. Ruff/format166 files, source/installed both CLI
+helps and JSON version, whitespace/staged repository safety passed. Fresh rebuilt
+noneditable wheel SHA-256
+`7053796b092e982e6473049fd16085abd9191a1041865f32cf3c9806046e73d6`
+has identical production bytes to the earlier wheel, now reverified after the
+correction. All63 Python files match source/archive/fresh installed bytes; no
+test/helper/9001/9002/private sentinel is included. Fresh isolated installed
+imports of48 production library modules made zero guarded filesystem/SQLite/
+network/process/Thread/log/atfork effects with unchanged actual FD identities,
+empty live OS inventories and empty migration/action/read shipping registries.
+All unallocated source bytes and original schema/registry ASTs remain exact a9c.
+
+This is measured author evidence, not independent source acceptance. Next gates
+are immutable candidate, dependent Draft PR against feat/m1-02-persistence,
+actual dual-Python CI checkout/tree provenance, independent third SOURCE review
+and separate root integration dispatch. PR15 is unmerged; foundation/source
+HOLDs are separate and unchanged. Actual production preflight/native provenance,
+complete coordinated bundle/provider, initializer/restore/read/daemon/CLI/live
+and whole M1-02/M1-03/RV11/G1 gates remain open. No shared documents are changed.
