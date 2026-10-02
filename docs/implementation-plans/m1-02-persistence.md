@@ -630,3 +630,21 @@ tests. Unknown attribution, repair, missing fidelity facts, actual M2 readback
 authority and runtime attention scheduling remain separate gates. Independent
 exact-source acceptance plus CI is required; this document dispatch is not source,
 Gmail, process-owner or whole M1-02 evidence. DB-21 no-create closure stays held.
+
+## Independently approved guarded read-view library extension
+
+The coordinator dispatched the finite DB-21 bridge on 2026-10-02 after
+independent `phase1_architecture_plan` approval of the
+[589-line design r4](adrs/read-view-no-create-amendment.md), SHA-256
+`4f12b845e8fdd6662079a5df84a4da83e64a338f6f38143a615119f8b480a780`,
+and [215-line implementation plan](m1-02-read-view-bridge.md), SHA-256
+`17dfde9535d3fa4c9925eaa8970386bf928c04140cfa49de682bedf4d2cc6094`.
+The source owner is `phase1_plan_author`; exact base is
+`422ba9b8a845db60a587bda9e1946fd77269674f`. Preserve earlier frozen prefixes.
+
+Implement only the private opaque bridge, guarded ReadSession and real isolated
+test consumers/paired RV-01..10 controls. Production provider and qualified
+runtime inventories remain empty; actual M1-03 bootstrap/OS lifecycle, RV-11,
+managed CLI reads and G1 remain unavailable/pending. This library dispatch does
+not certify source acceptance or complete M1-02; independent exact-source review
+and both CI lanes remain required. No action/migration/restore policy is added.
