@@ -384,3 +384,115 @@ def test_all_foreign_key_lookup_columns_have_nonpartial_prefix_indexes(state):
                 table.name,
                 columns,
             )
+
+
+def test_sealed_ruleset_members_check_old_and_new_parent_for_every_mutation(state):
+    connection, _, _ = state
+    connection.execute("BEGIN IMMEDIATE")
+    connection.execute(
+        "INSERT INTO rules VALUES(?,?,?,?,?)",
+        (P.value, lid(10).value, "allow_sender", "synthetic@example.invalid", 1),
+    )
+    connection.execute(
+        "INSERT INTO rule_revisions VALUES(?,?,?,?,?,?,?)",
+        (P.value, lid(10).value, 1, 1, 0, "cli", "synthetic-v1"),
+    )
+    connection.execute("INSERT INTO rulesets VALUES(?,1,0,0)", (P.value,))
+    connection.execute("INSERT INTO rulesets VALUES(?,2,0,0)", (P.value,))
+    connection.execute(
+        "INSERT INTO ruleset_members VALUES(?,1,?,1)", (P.value, lid(10).value)
+    )
+    connection.execute(
+        "UPDATE ruleset_members SET ruleset_revision=2 WHERE ruleset_revision=1"
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="^consistency_failure$"):
+        connection.execute(
+            "UPDATE ruleset_members SET ruleset_revision=0 WHERE ruleset_revision=2"
+        )
+    with pytest.raises(sqlite3.IntegrityError, match="^consistency_failure$"):
+        connection.execute(
+            "INSERT INTO ruleset_members VALUES(?,0,?,1)", (P.value, lid(10).value)
+        )
+    connection.execute("UPDATE rulesets SET sealed=1 WHERE revision=2")
+    for sql in (
+        "UPDATE ruleset_members SET ruleset_revision=1 WHERE ruleset_revision=2",
+        "UPDATE ruleset_members SET rule_revision=rule_revision "
+        "WHERE ruleset_revision=2",
+        "DELETE FROM ruleset_members WHERE ruleset_revision=2",
+    ):
+        with pytest.raises(sqlite3.IntegrityError, match="^consistency_failure$"):
+            connection.execute(sql)
+    assert connection.execute(
+        "SELECT COUNT(*) FROM ruleset_members WHERE ruleset_revision=0"
+    ).fetchone() == (0,)
+    connection.execute("COMMIT")
+
+
+@pytest.mark.parametrize(
+    "kind,legal",
+    [
+        ("L", lid(55).value),
+        ("H", "a" * 64),
+        ("P", "synthetic-projection"),
+        ("K", "synthetic-policy.v1"),
+        ("MigrationName", "v0001"),
+    ],
+)
+def test_full_sql_text_scalar_rejects_nul_suffix_and_interior(
+    kind, legal, state, tmp_path
+):
+    connection, _, _ = state
+    sqltype, predicate = v0001._scalar("value", kind)
+    connection.execute(
+        f"CREATE TABLE test_scalar(value {sqltype} NOT NULL CHECK({predicate})) STRICT"
+    )
+    connection.execute("INSERT INTO test_scalar VALUES(?)", (legal,))
+    sentinel = "PRIVATE_CONTENT_SENTINEL"
+    for illegal in (
+        legal + "\x00" + sentinel,
+        legal[:1] + "\x00" + legal[2:],
+        legal + "é",
+    ):
+        assert connection.execute(
+            f"SELECT ({predicate}) FROM (SELECT ? AS value)", (illegal,)
+        ).fetchone() == (0,)
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+            connection.execute("INSERT INTO test_scalar VALUES(?)", (illegal,))
+    audit = (
+        P.value,
+        lid(55).value + "\x00" + sentinel,
+        "initialized",
+        "projection",
+        *([None] * 8),
+        0,
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+        connection.execute(
+            "INSERT INTO audit_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", audit
+        )
+    assert connection.execute("SELECT COUNT(*) FROM audit_events").fetchone() == (0,)
+    assert connection.execute("SELECT value FROM test_scalar").fetchall() == [(legal,)]
+    for artifact in tmp_path.iterdir():
+        if artifact.is_file():
+            assert sentinel.encode() not in artifact.read_bytes()
+
+
+@pytest.mark.parametrize(
+    "kind,legal,bad",
+    [
+        ("L", lid(8).value, "f" * 32),
+        ("H", "a" * 64, "A" * 64),
+        ("P", "p" * 64, "p" * 65),
+        ("K", "k" * 64, "k" * 65),
+        ("MigrationName", "v9999", "v99999"),
+    ],
+)
+def test_sql_scalar_legal_boundaries_and_precise_invalid_forms(state, kind, legal, bad):
+    connection, _, _ = state
+    _, predicate = v0001._scalar("value", kind)
+    assert connection.execute(
+        f"SELECT ({predicate}) FROM (SELECT ? AS value)", (legal,)
+    ).fetchone() == (1,)
+    assert connection.execute(
+        f"SELECT ({predicate}) FROM (SELECT ? AS value)", (bad,)
+    ).fetchone() == (0,)

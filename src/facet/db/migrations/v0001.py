@@ -574,7 +574,10 @@ def _scalar(name, kind):
         return "BLOB", f"length({name}) BETWEEN 1 AND 8192"
     if kind in {"L", "H"}:
         n = 32 if kind == "L" else 64
-        check = f"length({name})={n} AND {name} NOT GLOB '*[^0-9a-f]*'"
+        check = (
+            f"length(CAST({name} AS BLOB))={n} AND instr({name},char(0))=0 "
+            f"AND {name} NOT GLOB '*[^0-9a-f]*'"
+        )
         if kind == "L":
             check += (
                 f" AND substr({name},13,1)='4'"
@@ -585,17 +588,22 @@ def _scalar(name, kind):
         return (
             "TEXT",
             f"length(CAST({name} AS BLOB)) BETWEEN 1 AND 64 "
+            f"AND instr({name},char(0))=0 "
             f"AND {name} NOT GLOB '*[^A-Za-z0-9_-]*'",
         )
     if kind == "K":
         return (
             "TEXT",
             f"length(CAST({name} AS BLOB)) BETWEEN 1 AND 64 "
+            f"AND instr({name},char(0))=0 "
             f"AND substr({name},1,1) GLOB '[a-z0-9]' "
             f"AND {name} NOT GLOB '*[^a-z0-9_.-]*'",
         )
     if kind == "MigrationName":
-        return "TEXT", (f"length({name})=5 AND {name} GLOB 'v[0-9][0-9][0-9][0-9]'")
+        return "TEXT", (
+            f"length(CAST({name} AS BLOB))=5 AND instr({name},char(0))=0 "
+            f"AND {name} GLOB 'v[0-9][0-9][0-9][0-9]'"
+        )
     if kind == "ProviderPageToken":
         return (
             "TEXT",
@@ -1156,11 +1164,14 @@ def _triggers():
             _trigger(table.name + "_immutable_columns", table.name, "UPDATE", when)
         )
     for event in ("INSERT", "UPDATE", "DELETE"):
-        parent = "NEW" if event == "INSERT" else "OLD"
-        when = (
+        parents = {"INSERT": ("NEW",), "DELETE": ("OLD",), "UPDATE": ("OLD", "NEW")}[
+            event
+        ]
+        when = " OR ".join(
             "(SELECT sealed FROM rulesets WHERE "
             f"projection_id={parent}.projection_id AND "
             f"revision={parent}.ruleset_revision)=1"
+            for parent in parents
         )
         result.append(
             _trigger(
