@@ -1,5 +1,6 @@
 """Private fixed repository building blocks; no arbitrary-row public operation."""
 
+import sqlite3
 from functools import wraps
 
 from facet.contracts import (
@@ -12,7 +13,7 @@ from facet.contracts import (
     Role,
 )
 
-from ..codecs import KeyBytes, StorageFailure, encode_scalar, invalid
+from ..codecs import KeyBytes, StorageFailure, encode_scalar, invalid, sqlite_failure
 from ..connection import ReadSession
 from ..migrations.v0001 import TABLES
 from ..models import RevisionGuard, WriteReceipt
@@ -66,10 +67,21 @@ def _context(context, projection, *, writing=False):
 
 def _query(context, sql, parameters=(), *, maximum=500):
     if type(context) is UnitOfWork:
-        rows = tuple(context._execute(sql, parameters).fetchmany(maximum + 1))
-        if len(rows) > maximum:
-            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
-        return rows
+        # sqlite3.execute steps the first row; subsequent stepping can still
+        # fail inside fetchmany. Establish the actual owned UoW before marking
+        # it failed, including failures caught by a composing caller.
+        context._check()
+        try:
+            rows = tuple(context._execute(sql, parameters).fetchmany(maximum + 1))
+            if len(rows) > maximum:
+                raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+            return rows
+        except sqlite3.Error as error:
+            context._failed = True
+            raise sqlite_failure(error) from None
+        except StorageFailure:
+            context._failed = True
+            raise
     return context._read(sql, parameters, maximum=maximum)
 
 
