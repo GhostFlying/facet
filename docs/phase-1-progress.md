@@ -13,8 +13,9 @@ PR merge、offline、Gmail 或 deployment 证据混为完成。Package 状态沿
 实际 MERGED 在同一 SHA，normal fast-forward 保留原子用户/noreply commits；
 [candidate CI](https://github.com/GhostFlying/facet/actions/runs/36968387054) 与
 [main CI](https://github.com/GhostFlying/facet/actions/runs/36969107636) 成功。
-G1-G6 均未通过；package/config/CLI foundation 和 P1-02 已集成，SQL 仍是部分切片，
-本候选交付 M1-05 pure/logging early unit。真实 DB/auth/runtime consumers、
+G1-G6 均未通过；package/config/CLI foundation、P1-02 和 M1-05 pure/logging early
+unit 已实际集成，SQL 仍是未合入的已审部分切片。本候选交付 M1-04 pure values/
+in-memory codec/client parser；full OAuth/binding 仍未完成。真实 DB/auth/runtime consumers、
 Gmail/Compose/Dashboard 和完整维护 CLI 均未完成。
 
 D1 phase 内合格工程 PR 集成与 D2 限定 GHCR/main-SHA scope 已随 phase 启动生效，
@@ -27,7 +28,7 @@ D1 phase 内合格工程 PR 集成与 D2 限定 GHCR/main-SHA scope 已随 phase
 Root 只调度/review 核证/汇报；shared current-state/coordination 文档由 P1-00 的
 delegated `phase1_plan_author` integration/docs owner 单独维护，直到 root 显式转交。
 当前 SQL owner 的 worktree/branch 为 sibling `m1-02-persistence` /
-`feat/m1-02-persistence`；本次独占 M1-05 分支的两份 shared docs 作 coherent handoff。
+`feat/m1-02-persistence`；本次独占 M1-04 分支的两份 shared docs 作 coherent handoff。
 M1-01/P1-00 已集成，旧 worktrees 保留。其他 workers
 维护自己的 plan/ADR/source，通过 Issue/handoff 提交共享文档建议，不并行覆写
 AGENTS/README/status/workflow/全局计划/本台账。GitHub 不自动 assign/mention 外人。
@@ -41,13 +42,21 @@ core-v1/writer-v1 设计已 freeze，未实现相应 runtime。M1-01 PR #11 实�
 通过。P1-02 provider-slice PR #10 exact `c18bfbe` 后，mandatory CT PR #12 实际集成
 exact `1b7cd58`，92 CT/379 full tests、独立 review、candidate/main CI 通过；Issue5
 关闭，仅满足测试基础工程包及 M1-02 的该项依赖，不证明后续 feature consumers。
-M1-02 r3 design 独立 approved 后已派实际 SQL；PR #15 values/schema exact `56eaac6`
-独审/450 full/CI 通过，new repo slice `bf0bf0b` 504 local tests passed、review/CI 待验，
-整包 DB-01..28 未完成。M1-03 wire extension 设计局部 changes requested、无 source；
-M1-04 credential design approved、实际 owner/schema 仍 pending。M1-05 early library
-source `c455f71` 独立 accepted，488 full/33 logging subprocess/wheel/3.12+3.13 CI
-通过；本候选两份 docs 的 exact-head review/CI、实际 integration receipt 在 PR #16。
-Issue14 保持 open，真实 DB/auth/runtime/HTTP/DOM/Compose 消费验收未完成。
+M1-02 r3/r4 和有限 result supplement 独立 approved 后已有实际 SQL；PR #15 已审
+values/schema、finite repos、epoch/History/event/expansion、intent/result/recovery、
+WAL snapshot、own-child SIGKILL、target audit 和 DB17 row-stepping rollback 切片。
+最新 `c03e62f` 879 full offline tests、独立 slice review 和 exact 3.12/3.13 CI passed；
+mapping/action/migration/restore/整包 DB-01..28 未完成。实际 DB21 clean-stopped probe
+发现现 view adapter 创建 WAL/SHM，whole no-create gate 明确 HOLD，待受审 provider/
+library closure，不用 immutable-live 或建 sidecar 捷径。
+M1-03 r3 wire extension design approved、无 source；M1-04 full credential design
+approved，实际 owner/schema publication 仍 pending；early pure source `b94b610` 独审/
+120OP/608full/wheel/3.12+3.13 CI passed，本交付 docs/head gates 与集成 receipt 在 PR18。
+M1-05 early library source `c455f71` 后两-doc head `f209fbe` 独审并实际集成 PR16，
+[main CI](https://github.com/GhostFlying/facet/actions/runs/36989986570) SUCCESS；
+488full/33 loggingproc/wheel 保留资格。Issue14/17 保持 open，真实 auth/DB/runtime/
+HTTP/DOM/Compose 消费验收未完成。M1-06 r2/M2-01 r2/M6-01 r2 仅独审设计准备，
+实际 consumer 输入和 source dispatch 另 gate；all-unknown 不算认证或 G3 完成。
 未为后续全部工作包建 Issue。
 
 每次 dispatch 仍需 canonical deps、exact base/interface version、owned files、
@@ -68,12 +77,12 @@ milestone/live verified。按现有 workflow 记录 blocker 原因/下游/解除
 | [P1-01](phase-1-execution-plan.md) | W0a | integrated | PR #8 exact09031；core/writer freeze+review/CI passed，非 runtime | 架构设计 A / 独立 A | [#4](https://github.com/GhostFlying/facet/issues/4) |
 | [P1-02](phase-1-execution-plan.md) | W0b | integrated | PR #12 exact1b7 mandatory CT/379 full/review/candidate+main CI passed；后续 feature consumers 另验 | 测试 worker / 独立 reviewer | [#5](https://github.com/GhostFlying/facet/issues/5) closed |
 | [M1-01](phase-1-execution-plan.md) | W0b | integrated | PR #11 exactb1e revised whole/closure review、287 full/candidate+main CI passed；仅 foundation，非完整 CLI/G1 | package/config S / 独立 reviewer | [#7](https://github.com/GhostFlying/facet/issues/7) closed |
-| [M1-02](phase-1-execution-plan.md) | W1a | implementing | r3 design approved；PR15 values/schema exact56eaac 独审+450full+CI pass，repo bf0bf0b 504 local pass 待审；History/insert/backup/crash/whole DB01–28 pending | SQL/shared docs S / 非作者独立 A | [#9](https://github.com/GhostFlying/facet/issues/9), [PR15](https://github.com/GhostFlying/facet/pull/15) |
-| [M1-03](phase-1-execution-plan.md) | W1b | plan_review | plan approved；wire/storage extension 局部 changes requested、无 source，等实际 storage input | writer design A / 非作者独立 A | [#13](https://github.com/GhostFlying/facet/issues/13) |
-| [M1-04](phase-1-execution-plan.md) | W1b | ready_for_implementation | credential design approved；actual writer/schema input 未齐、未派 source，无 live OAuth | credential design A / 非作者独立 A | 未物化 |
-| [M1-05](phase-1-execution-plan.md) | W1c | implementation_review | pure/logging early source c455 独审/488full/33 loggingproc/wheel/CI pass；本交付 docs/head gate 待验，未 merge；真实 consumers/完整包 pending | models/logging A + shared docs S / 非作者独立 reviewer | [#14](https://github.com/GhostFlying/facet/issues/14), [PR16](https://github.com/GhostFlying/facet/pull/16) |
-| [M1-06](phase-1-execution-plan.md) | W1c | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
-| [M2-01](phase-1-execution-plan.md) | W2a | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
+| [M1-02](phase-1-execution-plan.md) | W1a | implementing | PR15 accepted finite slices to exactc03/879full/CI；whole DB01–28 未齐，DB21 sidecar-create actual反例 HOLD；mapping/action/migrate/restore pending | SQL/shared docs S / 非作者独立 A | [#9](https://github.com/GhostFlying/facet/issues/9), [PR15](https://github.com/GhostFlying/facet/pull/15) |
+| [M1-03](phase-1-execution-plan.md) | W1b | ready | plan + r3 wire/storage design approved；无 source，实际 owner/view/storage/credential participants pending，未派实施 | writer design A / 非作者独立 A | [#13](https://github.com/GhostFlying/facet/issues/13) |
+| [M1-04](phase-1-execution-plan.md) | W1b | implementation_review | early pure b94 独审/120OP/608full/wheel/CI pass；本交付 docs/head gates 待验；full OAuth/profile/files/publication 未实现，actual writer/storage 未齐 | credential source A + shared docs S / 非作者独立 A | [#17](https://github.com/GhostFlying/facet/issues/17), [PR18](https://github.com/GhostFlying/facet/pull/18) |
+| [M1-05](phase-1-execution-plan.md) | W1c | implementing | early pure/logging PR16 actual integrated exactf209 + mainCI success；488full/33 loggingproc/wheel资格；真实 consumers/完整包 pending | models/logging A + shared docs S / 非作者独立 reviewer | [#14](https://github.com/GhostFlying/facet/issues/14), [PR16](https://github.com/GhostFlying/facet/pull/16) |
+| [M1-06](phase-1-execution-plan.md) | W1c | ready | r2 plan/ADR 独审 approved；actual M1 inputs/可信 source-path 证据和注册表 pending，无 source/G1/G3 验收 | auth design A / 非作者独立 A | 未物化 |
+| [M2-01](phase-1-execution-plan.md) | W2a | ready | r2 adapter design 独审 approved；actual dependencies/consumer integration pending，无 source | adapter design A / 非作者独立 A | 未物化 |
 | [M2-02](phase-1-execution-plan.md) | W2b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M2-03](phase-1-execution-plan.md) | W2b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M2-04](phase-1-execution-plan.md) | W2b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
@@ -91,7 +100,7 @@ milestone/live verified。按现有 workflow 记录 blocker 原因/下游/解除
 | [M5-01](phase-1-execution-plan.md) | W5a | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M5-02](phase-1-execution-plan.md) | W5b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M5-03](phase-1-execution-plan.md) | W5c | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
-| [M6-01](phase-1-execution-plan.md) | W5a | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
+| [M6-01](phase-1-execution-plan.md) | W5a | ready | r2 maintenance design 独审 approved；有限 pre-v2 receipt/journal/view seam 仍需实际 owned consumer integration，无 backup/restore CLI/source | maintenance design A / 非作者独立 A | 未物化 |
 | [M6-02](phase-1-execution-plan.md) | W6a | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M6-03](phase-1-execution-plan.md) | W5b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M6-04](phase-1-execution-plan.md) | W5c | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
