@@ -116,3 +116,116 @@ passed mechanical checks. The original reviewed 84-line plan prefix retains its
 exact approval hash. Independent nonauthor docs/head acceptance and new exact
 candidate CI remain pending; no main/readiness/merge action follows from these
 local checks. SQL62 HOLD and approved-plan-only migration2116 remain explicit.
+
+## Proposed Oct3 coherent current-state handoff
+
+Status: PLAN-ONLY append; independent exact-plan review and explicit root source
+release precede either status-file edit. Preserve the original 118-line artifact
+SHA-256 `7a98b2990854ead3067aacff9fa39aa48d91283e8a2d64d8dcc0f339a88f4817`
+and its independently approved 84-line prefix unchanged. The two earlier snapshots
+above remain historical, not claims about the newly qualified inputs.
+
+Root assigned this narrow preparation after the normal SQL carry was frozen and
+pushed. Owned `phase1-source-handoff`/`p/luchengxuan/phase1-source-handoff` was clean
+at36b and normally fast-forwarded to accepted main
+`befe278285cfbd77798ffa58e8ef5d35b12e203a` before this append. No status file or
+source/test was edited. Sole shared-status/integration ownership remains here;
+current work uses Sol high/xhigh or Luna, with historical model attribution intact.
+
+### Exactly three future paths
+
+- `docs/development-status.md`: refresh the current-date/evidence/next-action
+  snapshot and affected finite persistence/OS/harness facts only.
+- `docs/phase-1-progress.md`: refresh current source/reviewer/plan/integration
+  ownership and actual dependency evidence/next gates only.
+- This plan: factual pre-code release and measured handoff appendix only.
+
+No AGENTS/README/agent-workflow/execution-plan/cards/DAG/contracts/source/test/
+dependencies/CI/image/license edit. Preserve all 36 canonical package IDs, waves
+and states mechanically; do not promote whole packages merely because finite
+library slices qualify. G0, authority, privacy, historical source/model attributions
+and G1–G6 remain unchanged. No source-SHA header loop or predicted completion.
+
+### Actual input snapshot and later receipt rules
+
+Use a truthful 2026-10-03 PRC current snapshot; retain Oct2 receipts and UTC times:
+
+- PR22 actually merged exactbefe at2026-10-02T16:59:36Z after independent source
+  approval report `d7beef6dcdb62aae32439fad30af255eedc7118058e6f9b1245a91089206a5c1`
+  and exact PR CI37036616826 both-success. Actual main-push CI37037683010 also
+  succeeded on both jobs; real logs show CPython3.12.3/full758 and3.13.16/full758,
+  plus CLI40 on each. Production/complete approved OS-C1 bytes remain ea80-exact.
+  This is a bounded harness/main-health input, not runtime/provider/daemon proof.
+- Preserve failed main36b CI37028856572 and a410 formal HOLD despite its earlier
+  green full/CI. Explain the former sequential-allocation assumption and latter
+  mutable-ancestor-stat oracle separately; neither observed foreign acceptance.
+- Finite SQL `c0bb4b02277942f335ce278d359b60c16a46fd48` is independently approved
+  by nonauthor report `9da748b8170adcd7294a33efd513b3dcff801dcab9f95cc8e2f79fce60185cb4`,
+  with1598 full/73 focused/eight actual WAL controls and CI37032060497 both-success.
+  Preserve prior62 R1/R2 HOLD and246 R3 HOLD as historical exact-source findings.
+  The shipping M5 ACTION and read-provider/runtime registries remain empty.
+- Normal carry candidate `a9c4e36de6ad70294002a83e678a2a7cf1b012d6` has exact parents
+  c0bb thenbefe. All c0bb production/SQL-test/plan blobs and all befe accepted
+  OS/harness inputs are mechanically preserved; six main-input paths changed.
+  Actual collection is1625. Draft PR15/new CI37038807962 and independent third
+  combined acceptance are pending at this PLAN snapshot; do not inherit c0bb CI
+  as combined acceptance or claim a merge. Refresh only actual later frozen
+  review/CI/integration receipts before docs source freeze, never speculation.
+- Migration217/2116d042 and frozen232 design3a9fedfc remain approved plan inputs,
+  not source or a complete-bundle/preflight provider. Root names any exact
+  independently approved restore-plan artifact before recording its approval;
+  neither restoration nor migration implementation is inferred. Read-bootstrap
+  plan preparation is not an implemented managed-read producer, daemon, actor or
+  credential freeze. Record actual ownership transfers only when dispatched.
+
+Keep whole M1-02/DB/RV11, canonical M1-03/WR/RI, actual M5 producer/credential/
+complete-bundle/read bootstrap/daemon, migration/restore/full maintenance CLI,
+G1–G6 and Gmail/Compose/live/host/image/release gates pending. No new authority.
+
+### Source/check sequence and stop gates
+
+Independent exact-plan review -> root source release saved BEFORE the two status
+edits -> verified actual combined result -> coherent factual snapshot/source
+freeze -> independent nonauthor affected-doc review/fresh CI -> separate root
+normal integration release. This PLAN dispatch alone authorizes no status edit.
+
+If actual accepted main advances before docs source, normally carry it first;
+inspect clean heads/identities and stop on conflict or unrelated dirty state.
+Use that actual tree's measured baseline, not imported SQL/harness test counts:
+currentbefe has758; an accepted SQL carry may alter it and must be checked afresh.
+For PR CI retain actual head and actual checkout/merge-tree provenance plus tree
+equality, rather than claiming tested bytes from run headSha alone.
+
+Audit exact three-path diff, all36 ledger IDs/states/waves, canonical/history/
+authority preservation, links/fences/private-literal guards, whitespace and staged
+safety. Run locked offline sync, Ruff/format, full pytest, both CLI helps/JSON and
+fresh installed-wheel/privacy if source base changes. Explicit owned staging,
+atomic English-action existing user/noreply author+committer, normal push/focused
+Draft PR and exact review/CI receipts follow only the later root dispatch.
+Stop for missing/contradictory exact receipts, unqualified required input, failed
+checks, out-of-scope paths/strategy/authority, or an attempted pending-gate closure.
+
+## Oct3 independent approval and pre-edit source release
+
+Independent nonauthor Sol reviewer `phase1_os_acceptance_sol` approved the exact
+206-line plan SHA-256
+`03aabb43a94039db1d848a1b77e0797e61ee4dd9c433ef42d4bcd5f1bc11fb35`.
+The full review report has SHA-256
+`4843ad5df1bcf8741498f920ec0c01356f841118a7bb589cadf4fe1627f077af`;
+root and the source owner read the complete report. Root explicitly released
+only the same two status documents and this plan on qualified main base
+`befe278285cfbd77798ffa58e8ef5d35b12e203a`, not the unmerged SQL branch.
+This receipt is saved and committed before either status document is edited;
+the original 206/118/84-line prefixes remain unchanged.
+
+Exact combined SQL `a9c4e36de6ad70294002a83e678a2a7cf1b012d6` now has independent
+source approval report SHA-256
+`46f66822589ec0d2289534c21c3f886bab766df86e84fccdd75d3f6b381eeff6`
+and fresh CI37038807962 both-success. Its actual CI checkout is `8e703daf` with
+tree equal to the candidate; PR15 remains Draft/open and unmerged. The approved
+migration plan/tree was explicitly transferred and source-released to
+`m103_os_source`; the approved no-state read-bootstrap foundation was separately
+source-released to `phase1_sol_policy_review`. These are finite dispatches,
+not implemented or accepted migration/bootstrap/provider consumers. Restore
+remains independently approved plan-only without source release. New docs-source
+acceptance/CI and root-qualified integration are still required.
