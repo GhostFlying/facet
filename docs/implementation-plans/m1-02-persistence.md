@@ -587,3 +587,13 @@ storage/session extension. Current tests use the same supplied test-owned lineag
 and do not borrow a prior daemon identity or prove restart-owner publication.
 This explicit consumer seam does not add an unreviewed setter/skip flag, block the
 remaining storage-library implementation, or constitute production runtime proof.
+
+The next library slice implements finite policy/job/audit operations and bounded
+private reads, with closed row codecs. Synthetic test-only binding/origin fixtures
+do not enable production OAuth, previews or command registries. Manual admission,
+operation reads and repair enqueueing remain controlled-unavailable until their
+owning reviewed providers exist. Source loss remains a failure category rather
+than completed success; recovery-job retries are checks, not new insert attempts.
+History page/epoch transitions, expansion proof, insert/mapping transactions,
+backup/restore/migration and real process-crash gates remain pending in this
+partial slice. No empty event consumption or caller-provided catch-up ID is enabled.

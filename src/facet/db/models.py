@@ -495,6 +495,17 @@ class AuditEventRow(_Record):
     error_code: ErrorCode | None
     observed_at: Timestamp
 
+    def _validate(self) -> None:
+        family = {
+            AuditObjectKind.PROJECTION: BindingState,
+            AuditObjectKind.EPOCH: EpochState,
+            AuditObjectKind.JOB: JobState,
+            AuditObjectKind.ATTEMPT: InsertState,
+        }.get(self.object_kind)
+        for state in (self.before_state, self.after_state):
+            if state is not None and type(state) is not family:
+                invalid()
+
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ThreadExpansionRunRow(_Record):
