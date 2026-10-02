@@ -24,7 +24,7 @@ from facet.contracts import ErrorCode, InsertState, Revision
 from facet.db.codecs import StorageFailure
 from facet.db.connection import _attach_writer
 from facet.db.models import RevisionGuard
-from facet.db.repositories import intents, jobs, reads
+from facet.db.repositories import intents, jobs
 
 
 def _boundary(name):
@@ -126,15 +126,15 @@ def test_sigkill_insert_boundaries_keep_old_or_complete_factual_group(
     state = path, connection, session, info
     try:
         with view(state) as reader:
-            row = reads.get_attempt(reader, P, lid(200))
-            original = reads.get_job(reader, P, lid(100))
+            row = reader.get_attempt(P, lid(200))
+            original = reader.get_job(P, lid(100))
             assert original.state.value == "claimed" and original.revision.value == 1
             if state_name is None:
                 assert row is None
             else:
                 assert row.state is state_name and row.revision == Revision(revision)
                 assert row.target_message_id is None and row.result_at is None
-                assert reads.counts(reader, P, None).confirmed_mappings.value == 0
+                assert reader.counts(P, None).confirmed_mappings.value == 0
         assert connection.execute(
             "SELECT phase FROM job_claims WHERE job_id=?", (lid(100).value,)
         ).fetchone() == (phase,)

@@ -22,7 +22,7 @@ from facet.contracts import (
 from facet.contracts.records import EpochDecisionRefBackfillStart
 from facet.db.codecs import PollOrigin, PollState, StorageFailure, timestamp_to_sql
 from facet.db.models import HistoryPageRow, HistoryPollRow, RevisionGuard
-from facet.db.repositories import epochs, history, reads
+from facet.db.repositories import epochs, history
 from facet.db.repositories.base import _insert
 
 
@@ -128,10 +128,10 @@ def test_empty_poll_advances_only_after_complete_page_and_uses_request_start(sta
     value = start(session)
     row = page(value)
     with view(state) as reader:
-        before = reads.get_checkpoint(reader, P)
+        before = reader.get_checkpoint(P)
     finished = finish_page(session, value, row)
     with view(state) as reader:
-        assert reads.get_checkpoint(reader, P) == before
+        assert reader.get_checkpoint(P) == before
     with session.transaction() as uow:
         history.finish_history_poll(
             uow,
@@ -141,7 +141,7 @@ def test_empty_poll_advances_only_after_complete_page_and_uses_request_start(sta
             RevisionGuard(finished.revision),
         )
     with view(state) as reader:
-        checkpoint = reads.get_checkpoint(reader, P)
+        checkpoint = reader.get_checkpoint(P)
         assert checkpoint.cursor == row.response_history_id
         assert checkpoint.reliable_coverage_at == value.started_at
         assert checkpoint.revision == Revision(1) and checkpoint.active_poll_id is None
@@ -180,7 +180,7 @@ def test_multi_page_token_chain_durable_before_cursor_and_no_numeric_max(state):
             RevisionGuard(finished.revision),
         )
     with view(state) as reader:
-        assert reads.get_checkpoint(reader, P).cursor == ProviderId("a-1")
+        assert reader.get_checkpoint(P).cursor == ProviderId("a-1")
 
 
 @pytest.mark.parametrize(
@@ -312,7 +312,7 @@ def test_initial_h0_catchup_can_run_before_discovery_but_cannot_finish_epoch(sta
             RevisionGuard(finished.revision),
         )
     with view(state) as reader:
-        saved = reads.get_epoch(reader, P, initial.epoch_id)
+        saved = reader.get_epoch(P, initial.epoch_id)
         assert saved.fence_history_id == initial.fence_history_id
         assert saved.catchup_history_id == row.response_history_id
         assert not saved.discovery_complete
@@ -394,13 +394,10 @@ def test_recovery_requires_actual_window_and_active_thread_scans_then_derives_ca
         assert epochs._latest_unresolved_gap(uow, P) is None
     with view(state) as reader:
         assert (
-            reads.get_epoch(reader, P, value.epoch_id).catchup_history_id
+            reader.get_epoch(P, value.epoch_id).catchup_history_id
             == row.response_history_id
         )
-        assert (
-            reads.get_checkpoint(reader, P).reliable_coverage_at
-            == recovering.started_at
-        )
+        assert reader.get_checkpoint(P).reliable_coverage_at == recovering.started_at
 
 
 @pytest.mark.parametrize(

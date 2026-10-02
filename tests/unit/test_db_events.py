@@ -39,7 +39,7 @@ from facet.db.codecs import (
 )
 from facet.db.keys import event_key
 from facet.db.models import RevisionGuard, SourceEventRow
-from facet.db.repositories import events, history, policy, reads
+from facet.db.repositories import events, history, policy
 from facet.db.repositories import jobs as queue
 from facet.db.repositories.audit import _audit
 
@@ -280,10 +280,10 @@ def test_cross_poll_reobservation_and_late_thread_enrichment_preserve_page_snaps
             RevisionGuard(ingested.revision),
         )
     with view(state) as reader:
-        saved = reads.get_event(reader, P, original.event_id)
+        saved = reader.get_event(P, original.event_id)
         assert saved.event.observed_at == original.event.observed_at
         assert saved.event.source_thread_id == T and saved.revision == Revision(1)
-        assert reads.get_event(reader, P, later.event_id) is None
+        assert reader.get_event(P, later.event_id) is None
     assert connection.execute(
         "SELECT metadata_digest FROM history_pages ORDER BY received_at"
     ).fetchall() == [
@@ -314,7 +314,7 @@ def test_enrich_same_value_replay_and_conflict_durable_attention_no_context_repl
             RevisionGuard(Revision(1)),
         )
     with view(state) as reader:
-        saved = reads.get_event(reader, P, original.event_id)
+        saved = reader.get_event(P, original.event_id)
         assert saved.event.key == original.event.key and saved.event.observed_at == NOW
         assert (
             saved.event.source_thread_id == T
@@ -344,7 +344,7 @@ def test_conflicting_ingest_retains_attention_and_only_resolution_work(
         session, value, response, (conflicting,), revision=ingested.revision
     )
     with view(state) as reader:
-        saved = reads.get_event(reader, P, original.event_id)
+        saved = reader.get_event(P, original.event_id)
         assert (
             saved.event.source_thread_id == T
             and saved.processing is EventProcessing.NEEDS_ATTENTION
@@ -408,10 +408,10 @@ def test_event_consumption_requires_its_exact_durable_effect_not_unrelated_jobs(
         )
     with view(state) as reader:
         assert (
-            reads.get_event(reader, P, original.event_id).processing
+            reader.get_event(P, original.event_id).processing
             is EventProcessing.CONSUMED
         )
-        assert reads.get_job(reader, P, selected.job_id) is not None
+        assert reader.get_job(P, selected.job_id) is not None
     assert connection.execute(
         "SELECT COUNT(*) FROM sync_jobs WHERE kind='project_message'"
     ).fetchone() == (1,)
@@ -480,7 +480,7 @@ def test_explicit_resolved_attention_source_missing_states_are_durable(
             uow, P, original.event_id, processing, error, (), RevisionGuard(Revision(0))
         )
     with view(state) as reader:
-        saved = reads.get_event(reader, P, original.event_id)
+        saved = reader.get_event(P, original.event_id)
         assert saved.processing is processing and saved.error_code is error
 
 
@@ -551,12 +551,12 @@ def test_preexisting_effect_cannot_bypass_new_consumption_authority(state, case)
             RevisionGuard(Revision(0)),
         )
     with view(state) as reader:
-        saved = reads.get_event(reader, P, original.event_id)
+        saved = reader.get_event(P, original.event_id)
         assert (
             saved.processing is EventProcessing.PENDING
             and saved.revision == Revision(0)
         )
-        actual = reads.get_job(reader, P, selected.job_id)
+        actual = reader.get_job(P, selected.job_id)
         if case in {"stop", "stop_retrack", "cancelled"}:
             assert actual.state is JobState.CANCELLED
         elif case == "failed":
@@ -564,7 +564,7 @@ def test_preexisting_effect_cannot_bypass_new_consumption_authority(state, case)
         else:
             assert actual.state is JobState.QUEUED
         if case == "stop_retrack":
-            assert reads.get_thread(reader, P, T).generation == Generation(3)
+            assert reader.get_thread(P, T).generation == Generation(3)
     assert connection.execute(
         "SELECT COUNT(*) FROM sync_jobs WHERE kind='project_message'"
     ).fetchone() == (1,)
@@ -607,11 +607,11 @@ def test_existing_current_effect_and_consumed_post_stop_replay_do_not_enqueue(st
     assert connection.total_changes == before
     with view(state) as reader:
         assert (
-            reads.get_event(reader, P, original.event_id).processing
+            reader.get_event(P, original.event_id).processing
             is EventProcessing.CONSUMED
         )
-        assert reads.get_job(reader, P, selected.job_id).state is JobState.CANCELLED
-        assert not reads.get_thread(reader, P, T).active
+        assert reader.get_job(P, selected.job_id).state is JobState.CANCELLED
+        assert not reader.get_thread(P, T).active
     # Replaying a genuinely recorded event may not allocate a new generation's
     # work, even after explicit retracking. It is receipt lookup, not scheduling.
     retrack(session)
@@ -670,10 +670,9 @@ def test_caught_new_consumption_failure_rolls_back_prior_job_and_audit(state):
             )
     # The independently reopened view observes no partial transaction success.
     with view(state) as reader:
-        assert reads.get_job(reader, P, first.job_id) is None
+        assert reader.get_job(P, first.job_id) is None
         assert (
-            reads.get_event(reader, P, original.event_id).processing
-            is EventProcessing.PENDING
+            reader.get_event(P, original.event_id).processing is EventProcessing.PENDING
         )
     assert (
         connection.execute("SELECT COUNT(*) FROM audit_events").fetchone()

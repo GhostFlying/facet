@@ -4,13 +4,19 @@ Test-only fixtures allocate already-validated origins and binding metadata. They
 are not production bypasses for the deferred auth/preview/command registries.
 """
 
+import json
 import sqlite3
+import subprocess
+import sys
 from contextlib import contextmanager, suppress
 from dataclasses import replace
 from datetime import timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from threading import Thread
 
 import pytest
+from db_view_job_values import unpack_job
 from test_db_schema import NOW, P, create_state, lid
 
 from facet.contracts import (
@@ -60,13 +66,15 @@ from facet.db.codecs import (
     StorageFailure,
     ThreadStopReason,
 )
-from facet.db.connection import _attach_view
 from facet.db.keys import event_key, job_key
 from facet.db.models import (
     AuditEventRow,
     BindingRevisionRow,
+    CountsSnapshot,
     ErrorEventRow,
     InsertAttemptRow,
+    JobStateCount,
+    ReadPage,
     RevisionGuard,
     RuleRevisionRow,
     RuleRow,
@@ -94,15 +102,236 @@ def state(tmp_path):
         session.close()
 
 
+def _unpack_row(table, cells):
+    if cells is None:
+        return None
+    assert type(cells) is list
+    values = []
+    for cell in cells:
+        if type(cell) is dict:
+            assert cell.keys() == {"hex"}
+            assert type(cell["hex"]) is str and len(cell["hex"]) <= 16384
+            values.append(bytes.fromhex(cell["hex"]))
+        else:
+            assert cell is None or type(cell) in {bool, int, str}
+            values.append(cell)
+    return _decode_row(table, tuple(values))
+
+
+class SnapshotProbe:
+    """Test-only committed snapshot materializer, explicitly NOT ReadSession.
+
+    Named production methods execute in a fresh admitted child. Parent facade
+    errors/type/thread checks are not counted as production guard evidence.
+    """
+
+    def __init__(self, root, instance):
+        self.root = root
+        self.instance = instance
+
+    def call(self, case, projection, **selectors):
+        # All callers below are fixed named methods. This is not a product IPC.
+        request = {
+            "instance": self.instance.value,
+            "projection": projection.value,
+            **selectors,
+        }
+        encoded = json.dumps(request)
+        assert len(encoded.encode()) <= 32768
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                str(Path(__file__).with_name("db_view_bootstrap.py")),
+                case,
+                str(self.root),
+            ],
+            input=encoded,
+            capture_output=True,
+            text=True,
+            close_fds=True,
+            check=True,
+            timeout=12,
+        )
+        assert result.stderr == "" and len(result.stdout.encode()) <= 2 * 1024 * 1024
+        response = json.loads(result.stdout)
+        if response["status"] != "ok":
+            assert response.keys() == {"status"}
+            raise StorageFailure(ErrorCode(response["status"]))
+        assert response.keys() == {"status", "result"}
+        return response["result"]
+
+    def get_projection(self, projection):
+        return _unpack_row("projections", self.call("row_projection", projection))
+
+    def inspect_schema(self, projection):
+        value = self.call("schema", projection)
+        assert value.keys() == {"metadata", "ledger"} and len(value["ledger"]) <= 500
+        return (
+            _unpack_row("schema_metadata", value["metadata"]),
+            tuple(_unpack_row("schema_migrations", row) for row in value["ledger"]),
+        )
+
+    def get_binding(self, projection, role):
+        return _unpack_row(
+            "bindings", self.call("row_binding", projection, role=role.value)
+        )
+
+    def get_binding_revision(self, projection, role, revision):
+        return _unpack_row(
+            "binding_revisions",
+            self.call(
+                "row_binding_revision",
+                projection,
+                role=role.value,
+                revision=revision.value,
+            ),
+        )
+
+    def get_rule(self, projection, id):
+        return _unpack_row("rules", self.call("row_rule", projection, id=id.value))
+
+    def get_epoch(self, projection, id):
+        return _unpack_row("epochs", self.call("row_epoch", projection, id=id.value))
+
+    def get_event(self, projection, id):
+        return _unpack_row(
+            "source_events", self.call("row_event", projection, id=id.value)
+        )
+
+    def get_job(self, projection, id):
+        result = self.call("row_job", projection, id=id.value)
+        return unpack_job(result, projection) if result is not None else None
+
+    def get_attempt(self, projection, id):
+        return _unpack_row(
+            "insert_attempts", self.call("row_attempt", projection, id=id.value)
+        )
+
+    def get_action(self, projection, id):
+        return _unpack_row(
+            "action_commands", self.call("row_action", projection, id=id.value)
+        )
+
+    def get_thread(self, projection, id):
+        return _unpack_row(
+            "tracked_threads", self.call("row_thread", projection, id=id.value)
+        )
+
+    def get_mapping(self, projection, id):
+        return _unpack_row(
+            "message_mappings", self.call("row_mapping", projection, id=id.value)
+        )
+
+    def get_thread_target(self, projection, source, target):
+        return _unpack_row(
+            "thread_targets",
+            self.call(
+                "row_thread_target",
+                projection,
+                source=source.value,
+                target=target.value,
+            ),
+        )
+
+    def get_thread_anchor(self, projection, source):
+        return _unpack_row(
+            "thread_targets",
+            self.call("row_thread_anchor", projection, source=source.value),
+        )
+
+    def get_checkpoint(self, projection):
+        return _unpack_row(
+            "history_checkpoints", self.call("row_checkpoint", projection)
+        )
+
+    def get_history_poll(self, projection, id):
+        return _unpack_row(
+            "history_polls", self.call("row_history_poll", projection, id=id.value)
+        )
+
+    def get_history_page(self, projection, id, ordinal):
+        return _unpack_row(
+            "history_pages",
+            self.call(
+                "row_history_page", projection, id=id.value, ordinal=ordinal.value
+            ),
+        )
+
+    def _page(self, case, table, projection, limit, cursor):
+        value = self.call(
+            case,
+            projection,
+            limit=limit.value,
+            cursor=cursor.hex() if cursor is not None else None,
+        )
+        assert value.keys() == {"items", "next"}
+        assert len(value["items"]) <= min(limit.value, 500)
+        return ReadPage(
+            tuple(
+                unpack_job(row, projection)
+                if case == "page_jobs"
+                else _unpack_row(table, row)
+                for row in value["items"]
+            ),
+            bytes.fromhex(value["next"]) if value["next"] is not None else None,
+        )
+
+    def list_jobs(self, projection, limit, cursor):
+        return self._page("page_jobs", "sync_jobs", projection, limit, cursor)
+
+    def list_attempts(self, projection, limit, cursor):
+        return self._page("page_attempts", "insert_attempts", projection, limit, cursor)
+
+    def list_events(self, projection, limit, cursor):
+        return self._page("page_events", "source_events", projection, limit, cursor)
+
+    def list_audit(self, projection, limit, cursor):
+        return self._page("page_audit", "audit_events", projection, limit, cursor)
+
+    def counts(self, projection, epoch):
+        value = self.call(
+            "counts", projection, epoch=epoch.value if epoch is not None else None
+        )
+        assert value.keys() == {"confirmed", "states", "uncertain", "complete", "total"}
+        assert len(value["states"]) == len(JobState)
+        return CountsSnapshot(
+            Count(value["confirmed"]),
+            tuple(
+                JobStateCount(JobState(state), Count(count))
+                for state, count in value["states"]
+            ),
+            Count(value["uncertain"]),
+            value["complete"],
+            Count(value["total"]) if value["total"] is not None else None,
+        )
+
+
 @contextmanager
 def view(state):
-    path, _, _, info = state
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, autocommit=True)
-    reader = _attach_view(connection, info.state_instance_id)
-    try:
-        yield reader
-    finally:
-        reader.close()
+    _, source, session, info = state
+    session._check()
+    assert session._uow is None and not source.in_transaction
+    with TemporaryDirectory(prefix="facet-synthetic-read-") as directory:
+        root = Path(directory)
+        for name in ("owner.lock", "view.lock"):
+            (root / name).touch(mode=0o600)
+        destination = root / "metadata.db"
+        destination.touch(mode=0o600)
+        copied = sqlite3.connect(destination, autocommit=True)
+        try:
+            # Fixed bounded backup behavior; this capture is test-owned, not a
+            # claimed complete M6 bundle or live same-inode reader.
+            from facet.db.migration_backup import _progress
+
+            source.backup(copied, pages=128, progress=_progress, sleep=0)
+        finally:
+            copied.close()
+        assert not any(
+            (root / ("metadata.db" + s)).exists() for s in ("-wal", "-shm", "-journal")
+        )
+        yield SnapshotProbe(root, info.state_instance_id)
 
 
 def publish(session, *, enabled=True, revision=1):
@@ -294,18 +523,17 @@ def test_private_typed_reads_schema_and_projection_are_no_create(state):
     _, connection, _, _ = state
     before = connection.total_changes
     with view(state) as reader:
-        meta, ledger = reads.inspect_schema(reader, P)
+        meta, ledger = reader.inspect_schema(P)
         assert meta.schema_version.value == 1 and len(ledger) == 1
-        assert reads.get_projection(reader, P).daemon_paused
-        assert reads.get_checkpoint(reader, P).cursor is None
-        assert reads.get_projection(reader, ProjectionId("other-projection")) is None
+        assert reader.get_projection(P).daemon_paused
+        assert reader.get_checkpoint(P).cursor is None
+        assert reader.get_projection(ProjectionId("other-projection")) is None
         assert (
-            reads.get_binding_revision(reader, P, Role.SOURCE, Revision(1)).state
+            reader.get_binding_revision(P, Role.SOURCE, Revision(1)).state
             is BindingState.VERIFICATION_PENDING
         )
-        with pytest.raises(StorageFailure, match="invalid_input"):
-            reads.get_binding(reader, P, "source")
-        counts = reads.counts(reader, P, None)
+        assert reader.call("guard_binding_role", P) == {"actual_child_assertions": True}
+        counts = reader.counts(P, None)
         assert counts.confirmed_mappings.value == 0
         assert not counts.discovery_complete and counts.known_total is None
         assert len(counts.by_job_state) == len(JobState)
@@ -316,8 +544,8 @@ def test_rule_snapshot_revision_audit_and_caught_failure_roll_back(state):
     _, connection, session, _ = state
     publish(session)
     with view(state) as reader:
-        assert reads.get_rule(reader, P, lid(10)).current_revision == Revision(1)
-        rows = reads.list_audit(reader, P, PageLimit(100), None).items
+        assert reader.get_rule(P, lid(10)).current_revision == Revision(1)
+        rows = reader.list_audit(P, PageLimit(100), None).items
         assert len(rows) == 1 and rows[0].kind is AuditKind.RULE_CHANGED
     before = connection.execute("SELECT COUNT(*) FROM audit_events").fetchone()
     with (
@@ -373,9 +601,9 @@ def test_admit_replay_stop_and_retrack_exact_generations(state):
             ThreadGenerationGuardTracked("tracked", Generation(2)),
         )
     with view(state) as reader:
-        assert reads.get_thread(reader, P, T).generation == Generation(3)
-        assert reads.get_job(reader, P, first.job_id).state is JobState.CANCELLED
-        assert reads.get_job(reader, P, lid(101)).state is JobState.QUEUED
+        assert reader.get_thread(P, T).generation == Generation(3)
+        assert reader.get_job(P, first.job_id).state is JobState.CANCELLED
+        assert reader.get_job(P, lid(101)).state is JobState.QUEUED
     assert connection.execute("SELECT COUNT(*) FROM thread_admissions").fetchone() == (
         2,
     )
@@ -481,20 +709,20 @@ def test_keyset_reads_are_bounded_table_and_projection_specific(state):
     with view(state) as reader:
         ids, cursor = [], None
         while True:
-            page = reads.list_jobs(reader, P, PageLimit(2), cursor)
+            page = reader.list_jobs(P, PageLimit(2), cursor)
             ids.extend(row.job_id for row in page.items)
             cursor = page.next_key
             if cursor is None:
                 break
         assert ids == [lid(n) for n in range(100, 107)]
-        first = reads.list_jobs(reader, P, PageLimit(2), None)
+        first = reader.list_jobs(P, PageLimit(2), None)
         for method, projection in [
-            (reads.list_audit, P),
-            (reads.list_jobs, ProjectionId("other")),
+            (reader.list_audit, P),
+            (reader.list_jobs, ProjectionId("other")),
         ]:
             with pytest.raises(StorageFailure):
-                method(reader, projection, PageLimit(2), first.next_key)
-        counts = reads.counts(reader, P, None)
+                method(projection, PageLimit(2), first.next_key)
+        counts = reader.counts(P, None)
         assert sum(v.count.value for v in counts.by_job_state) == 7
         assert counts.confirmed_mappings.value == 0
 
@@ -515,8 +743,8 @@ def test_large_stop_cancels_all_unsent_but_not_another_thread(state):
         "SELECT COUNT(*) FROM sync_jobs WHERE state='cancelled'"
     ).fetchone() == (503,)
     with view(state) as reader:
-        assert reads.get_job(reader, P, lid(999)).state is JobState.QUEUED
-        assert reads.get_thread(reader, P, other).active
+        assert reader.get_job(P, lid(999)).state is JobState.QUEUED
+        assert reader.get_thread(P, other).active
 
 
 @pytest.mark.parametrize(
@@ -542,8 +770,8 @@ def test_stop_retains_actual_uncertain_effects_and_cancels_only_safe_work(
     with session.transaction() as uow:
         policy.stop_thread(uow, P, T, Generation(1), NOW, ThreadStopReason.MANUAL_STOP)
     with view(state) as reader:
-        actual = reads.get_attempt(reader, P, value.attempt_id)
-        job_row = reads.get_job(reader, P, row.job_id)
+        actual = reader.get_attempt(P, value.attempt_id)
+        job_row = reader.get_job(P, row.job_id)
         if state_value is InsertState.PENDING_RECOVERY:
             assert actual.state is state_value and job_row.state is JobState.CLAIMED
         else:
@@ -650,7 +878,7 @@ def test_resolution_completion_requires_own_durable_classification(
         with session.transaction() as uow:
             jobs.complete_noninsert_job(uow, P, row.job_id, RevisionGuard(Revision(1)))
         with view(state) as reader:
-            assert reads.get_job(reader, P, row.job_id).state is expected
+            assert reader.get_job(P, row.job_id).state is expected
 
 
 def test_exact_audit_enum_branch_and_fixed_failure_no_private_message(state):

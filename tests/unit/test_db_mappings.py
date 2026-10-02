@@ -8,7 +8,6 @@ import sqlite3
 from contextlib import suppress
 from dataclasses import replace
 from datetime import timedelta
-from threading import Thread
 
 import pytest
 from fakes.privacy import (
@@ -140,9 +139,9 @@ def verify(state, attempt, values=None, *, guard=None):
 
 def observed_group(state, attempt):
     with view(state) as reader:
-        actual = reads.get_mapping(reader, P, attempt.source_message_id)
-        target = reads.get_thread_target(
-            reader, P, attempt.source_thread_id, attempt.target_thread_id
+        actual = reader.get_mapping(P, attempt.source_message_id)
+        target = reader.get_thread_target(
+            P, attempt.source_thread_id, attempt.target_thread_id
         )
     # Immutable history/ownership facts come from the original actual group,
     # not arbitrary SQL or a synthesized claim/receipt used as permission.
@@ -153,8 +152,8 @@ def observed_group(state, attempt):
 
 def assert_no_group(state, attempt):
     with view(state) as reader:
-        assert reads.get_mapping(reader, P, attempt.source_message_id) is None
-        assert reads.get_attempt(reader, P, attempt.attempt_id) == attempt
+        assert reader.get_mapping(P, attempt.source_message_id) is None
+        assert reader.get_attempt(P, attempt.attempt_id) == attempt
     for table in ("mapping_history", "target_ownership", "thread_targets"):
         assert state[1].execute(f"SELECT COUNT(*) FROM {table}").fetchone() == (0,)
 
@@ -171,7 +170,7 @@ def test_actual_known_result_verifies_complete_group_and_visibility_distinctly(
     assert receipt.object_id == attempt.attempt_id and receipt.revision == Revision(3)
     assert receipt.disposition == "updated"
     with view(state) as reader:
-        actual = reads.get_attempt(reader, P, attempt.attempt_id)
+        actual = reader.get_attempt(P, attempt.attempt_id)
         assert actual == replace(
             attempt,
             state=InsertState.VERIFIED,
@@ -179,20 +178,20 @@ def test_actual_known_result_verifies_complete_group_and_visibility_distinctly(
             visibility=visibility,
             revision=Revision(3),
         )
-        mapped = reads.get_mapping(reader, P, attempt.source_message_id)
+        mapped = reader.get_mapping(P, attempt.source_message_id)
         assert mapped == values[0]
         assert (
-            reads.get_thread_target(
-                reader, P, attempt.source_thread_id, attempt.target_thread_id
+            reader.get_thread_target(
+                P, attempt.source_thread_id, attempt.target_thread_id
             )
             == values[3]
         )
-        assert reads.get_thread_anchor(reader, P, attempt.source_thread_id) == values[3]
-        completed = reads.get_job(reader, P, original.job_id)
+        assert reader.get_thread_anchor(P, attempt.source_thread_id) == values[3]
+        completed = reader.get_job(P, original.job_id)
         assert completed.state.value == "completed" and completed.revision == Revision(
             2
         )
-        assert reads.counts(reader, P, None).confirmed_mappings.value == 1
+        assert reader.counts(P, None).confirmed_mappings.value == 1
     assert actual.claim_id == acquired.claim_id
     assert state[1].execute("SELECT COUNT(*) FROM job_claims").fetchone() == (0,)
     for table in (
@@ -214,14 +213,14 @@ def test_actual_inserted_attention_completes_original_and_recovery_without_recla
     receipt = verify(state, attempt)
     assert receipt.revision == Revision(4)
     with view(state) as reader:
-        assert reads.get_job(reader, P, original.job_id).state.value == "completed"
-        actual_recovery = reads.get_job(reader, P, old_recovery.job_id)
+        assert reader.get_job(P, original.job_id).state.value == "completed"
+        actual_recovery = reader.get_job(P, old_recovery.job_id)
         assert actual_recovery.state.value == "completed"
         assert actual_recovery.origin_epoch_id == old_recovery.origin_epoch_id
         assert actual_recovery.subject == old_recovery.subject
         assert actual_recovery.created_at == old_recovery.created_at
         assert actual_recovery.revision.value == old_recovery.revision.value + 1
-        assert reads.get_attempt(reader, P, attempt.attempt_id).error_code is None
+        assert reader.get_attempt(P, attempt.attempt_id).error_code is None
     assert state[1].execute("SELECT COUNT(*) FROM job_claims").fetchone() == (0,)
     assert state[1].execute("SELECT COUNT(*) FROM sync_jobs").fetchone() == (2,)
 
@@ -281,7 +280,7 @@ def test_actual_mapping_preserves_epoch_membership_and_unique_success_counts(
     )
     with view(state) as reader:
         for n in (700, 701):
-            snapshot = reads.counts(reader, P, lid(n))
+            snapshot = reader.counts(P, lid(n))
             # Original and recovery can both be completed work, but only one
             # source message is a confirmed success, never two attempts/jobs.
             assert snapshot.confirmed_mappings == Count(1)
@@ -289,9 +288,9 @@ def test_actual_mapping_preserves_epoch_membership_and_unique_success_counts(
                 x for x in snapshot.by_job_state if x.state.value == "completed"
             )
             assert completed.count == Count(2 if branch == "attention" else 1)
-            assert reads.get_epoch(reader, P, lid(n)).state is EpochState.PREPARED
-        assert reads.get_job(reader, P, original.job_id).origin_epoch_id is None
-        assert reads.get_job(reader, P, unrelated.job_id).state.value == other_state
+            assert reader.get_epoch(P, lid(n)).state is EpochState.PREPARED
+        assert reader.get_job(P, original.job_id).origin_epoch_id is None
+        assert reader.get_job(P, unrelated.job_id).state.value == other_state
     with session.transaction() as uow:
         epochs.advance_epoch(
             uow,
@@ -313,8 +312,8 @@ def test_actual_mapping_preserves_epoch_membership_and_unique_success_counts(
             RevisionGuard(Revision(0)),
         )
     with view(state) as reader:
-        assert reads.get_epoch(reader, P, lid(700)).state is EpochState.COMPLETED
-        assert reads.get_epoch(reader, P, lid(701)).state is EpochState.PREPARED
+        assert reader.get_epoch(P, lid(700)).state is EpochState.COMPLETED
+        assert reader.get_epoch(P, lid(701)).state is EpochState.PREPARED
 
 
 @pytest.mark.parametrize("branch", ["normal", "attention"])
@@ -386,13 +385,13 @@ def test_old_dispatched_effect_can_be_verified_without_new_admission(state, chan
                 (P.value,),
             )
     with view(state) as reader:
-        before_thread = reads.get_thread(reader, P, tracked.source_thread_id)
-        before_projection = reads.get_projection(reader, P)
+        before_thread = reader.get_thread(P, tracked.source_thread_id)
+        before_projection = reader.get_projection(P)
     verify(state, attempt)
     with view(state) as reader:
-        assert reads.get_thread(reader, P, tracked.source_thread_id) == before_thread
-        assert reads.get_projection(reader, P) == before_projection
-        assert reads.get_job(reader, P, original.job_id).state.value == "completed"
+        assert reader.get_thread(P, tracked.source_thread_id) == before_thread
+        assert reader.get_projection(P) == before_projection
+        assert reader.get_job(P, original.job_id).state.value == "completed"
     assert state[1].execute("SELECT COUNT(*) FROM sync_jobs").fetchone() == (1,)
 
 
@@ -536,25 +535,25 @@ def test_shared_thread_target_retains_first_facts_and_fallback_does_not_switch_a
     _, _, _, first = inserted(state)
     verify(state, first)
     with view(state) as reader:
-        anchor = reads.get_thread_anchor(reader, P, first.source_thread_id)
+        anchor = reader.get_thread_anchor(P, first.source_thread_id)
     second = next_message(state, 101)
     values = group(second, target=anchor)
     verify(state, second, values)
     third = next_message(state, 102, target_thread="synthetic-fallback-thread")
     verify(state, third, group(third, anchor=False))
     with view(state) as reader:
-        assert reads.get_thread_anchor(reader, P, first.source_thread_id) == anchor
+        assert reader.get_thread_anchor(P, first.source_thread_id) == anchor
         assert (
-            reads.get_thread_target(
-                reader, P, second.source_thread_id, second.target_thread_id
+            reader.get_thread_target(
+                P, second.source_thread_id, second.target_thread_id
             )
             == anchor
         )
-        fallback = reads.get_thread_target(
-            reader, P, third.source_thread_id, third.target_thread_id
+        fallback = reader.get_thread_target(
+            P, third.source_thread_id, third.target_thread_id
         )
         assert not fallback.anchor and fallback.first_attempt_id == third.attempt_id
-        assert reads.counts(reader, P, None).confirmed_mappings.value == 3
+        assert reader.counts(P, None).confirmed_mappings.value == 3
     assert state[1].execute("SELECT COUNT(*) FROM thread_targets").fetchone() == (2,)
 
 
@@ -565,7 +564,7 @@ def test_reused_thread_target_and_target_ownership_cannot_be_reassigned(state, b
     _, _, _, first = inserted(state)
     verify(state, first)
     with view(state) as reader:
-        old_target = reads.get_thread_anchor(reader, P, first.source_thread_id)
+        old_target = reader.get_thread_anchor(P, first.source_thread_id)
     second = next_message(
         state,
         101,
@@ -582,9 +581,9 @@ def test_reused_thread_target_and_target_ownership_cannot_be_reassigned(state, b
     with pytest.raises(StorageFailure):
         verify(state, second, group(second, target=replace(old_target, **changes[bad])))
     with view(state) as reader:
-        assert reads.get_attempt(reader, P, second.attempt_id) == second
-        assert reads.get_mapping(reader, P, second.source_message_id) is None
-        assert reads.counts(reader, P, None).confirmed_mappings.value == 1
+        assert reader.get_attempt(P, second.attempt_id) == second
+        assert reader.get_mapping(P, second.source_message_id) is None
+        assert reader.counts(P, None).confirmed_mappings.value == 1
 
 
 def test_lost_ack_reopen_current_read_replay_and_post_audit_facts_are_zero_write(state):
@@ -632,6 +631,7 @@ def test_damaged_verified_group_is_not_replayed_or_repaired(state, bad):
     verify(state, attempt)
     actual = get_attempt(state)
     values = observed_group(state, actual)
+    recovered = recovery(state, actual) if bad == "recovery" else None
     with state[2].transaction() as uow:
         if bad == "missing_history":
             # Damage the deferred cyclic relation in a test-only transaction
@@ -650,7 +650,6 @@ def test_damaged_verified_group_is_not_replayed_or_repaired(state, bad):
                 (P.value, actual.job_id.value),
             )
         else:
-            recovered = recovery(state, actual)
             uow._execute(
                 "UPDATE sync_jobs SET state='needs_attention',"
                 "last_error_code='consistency_failure' "
@@ -702,7 +701,7 @@ def test_each_group_write_fault_caught_inside_uow_rolls_back_and_reopens(state, 
         actual_state = path, reopened._connection, reopened, info
         assert_no_group(actual_state, attempt)
         with view(actual_state) as reader:
-            assert reads.get_job(reader, P, attempt.job_id).state.value == "claimed"
+            assert reader.get_job(P, attempt.job_id).state.value == "claimed"
         assert reopened._connection.execute(
             "SELECT phase FROM job_claims"
         ).fetchone() == ("verifying",)
@@ -770,37 +769,21 @@ def test_named_thread_reads_reject_writer_context_wrongtypes_and_foreign_thread(
     verify(state, attempt)
     with view(state) as reader:
         assert (
-            reads.get_thread_anchor(
-                reader, ProjectionId("missing-projection"), attempt.source_thread_id
+            reader.get_thread_anchor(
+                ProjectionId("missing-projection"), attempt.source_thread_id
             )
             is None
         )
-        for arguments in (
-            ("thread", attempt.target_thread_id),
-            (attempt.source_thread_id, "target"),
-        ):
-            with pytest.raises(StorageFailure):
-                reads.get_thread_target(reader, P, *arguments)
-        errors = []
-
-        def read_other():
-            try:
-                reads.get_thread_anchor(reader, P, attempt.source_thread_id)
-            except StorageFailure as error:
-                errors.append(error.code)
-
-        other = Thread(target=read_other)
-        other.start()
-        other.join(timeout=2)
-        assert not other.is_alive() and errors == [ErrorCode.OWNER_UNAVAILABLE]
+        assert reader.call(
+            "guard_thread_reads",
+            P,
+            source=attempt.source_thread_id.value,
+            target=attempt.target_thread_id.value,
+        ) == {"actual_child_assertions": True}
     with state[2].transaction() as uow:
         with pytest.raises(StorageFailure):
             reads.get_thread_anchor(uow, P, attempt.source_thread_id)
         assert not uow._failed
-    with pytest.raises(StorageFailure):
-        reads.get_thread_target(
-            reader, P, attempt.source_thread_id, attempt.target_thread_id
-        )
 
 
 def test_mapping_private_boundaries_and_later_failure_rollback_prior_group(

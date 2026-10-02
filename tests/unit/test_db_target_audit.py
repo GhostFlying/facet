@@ -34,7 +34,7 @@ from facet.db.models import (
     TargetOwnershipRow,
     ThreadTargetRow,
 )
-from facet.db.repositories import mappings, reads
+from facet.db.repositories import mappings
 from facet.db.repositories.base import _insert
 
 
@@ -144,8 +144,8 @@ def test_audit_is_fact_only_and_exact_replay_has_zero_writes(
     value = verified_fixture(state)
     _, connection, _, _ = state
     with view(state) as reader:
-        old_attempt = reads.get_attempt(reader, P, value.attempt_id)
-        old_counts = reads.counts(reader, P, None)
+        old_attempt = reader.get_attempt(P, value.attempt_id)
+        old_counts = reader.counts(P, None)
     receipt = audit(state, value, present=present, visibility=visibility)
     assert receipt.object_id == value.source_message_id
     assert (
@@ -158,12 +158,12 @@ def test_audit_is_fact_only_and_exact_replay_has_zero_writes(
     )
     assert connection.total_changes == before
     with view(state) as reader:
-        actual = reads.get_mapping(reader, P, value.source_message_id)
+        actual = reader.get_mapping(P, value.source_message_id)
         assert actual == replace(
             value, target_present=present, visibility=visibility, last_audit_at=NOW
         )
-        assert reads.get_attempt(reader, P, value.attempt_id) == old_attempt
-        assert reads.counts(reader, P, None) == old_counts
+        assert reader.get_attempt(P, value.attempt_id) == old_attempt
+        assert reader.counts(P, None) == old_counts
     assert connection.execute("SELECT COUNT(*) FROM sync_jobs").fetchone() == (1,)
     assert connection.execute("SELECT COUNT(*) FROM insert_attempts").fetchone() == (1,)
     assert connection.execute("SELECT COUNT(*) FROM mapping_history").fetchone() == (1,)
@@ -184,7 +184,7 @@ def test_audit_monotonic_time_and_mapping_revision_guards_survive_reopen(state):
     try:
         other = path, connection, reopened, info
         with view(other) as reader:
-            actual = reads.get_mapping(reader, P, value.source_message_id)
+            actual = reader.get_mapping(P, value.source_message_id)
         assert actual.target_present is False and actual.last_audit_at == later
         assert actual.mapping_revision == Revision(1)
         before = connection.total_changes
@@ -223,7 +223,7 @@ def test_typed_audit_arguments_refuse_and_poison_the_owned_uow(state, arguments)
         with suppress(StorageFailure):
             mappings.record_target_audit(uow, P, *arguments, RevisionGuard(Revision(1)))
     with view(state) as reader:
-        assert reads.get_mapping(reader, P, value.source_message_id) == value
+        assert reader.get_mapping(P, value.source_message_id) == value
 
 
 @pytest.mark.parametrize("projection", [P, ProjectionId("another-projection")])
@@ -267,5 +267,5 @@ def test_actual_after_update_abort_rolls_back_facts_and_preserves_verified_mappi
     assert caught.value.code is ErrorCode.CONSISTENCY_FAILURE
     assert "SYNTHETIC_PRIVATE_SQL_SENTINEL" not in str(caught.value)
     with view(state) as reader:
-        assert reads.get_mapping(reader, P, value.source_message_id) == value
+        assert reader.get_mapping(P, value.source_message_id) == value
     assert state[1].execute("PRAGMA integrity_check").fetchone() == ("ok",)

@@ -12,7 +12,7 @@ from facet.contracts import Claim, ClaimPhase, ErrorCode, Priority, Revision
 from facet.contracts.records import JobSubjectRecoverInsert
 from facet.db.codecs import StorageFailure, ThreadStopReason, timestamp_to_sql
 from facet.db.models import RevisionGuard
-from facet.db.repositories import intents, jobs, policy, reads
+from facet.db.repositories import intents, jobs, policy
 
 
 def recovery_work(state):
@@ -83,7 +83,7 @@ def test_actual_recovery_claim_prepares_old_attempt_checks_without_insert_permis
         "SELECT phase FROM job_claims WHERE job_id=?", (recovering.job_id.value,)
     ).fetchone() == ("preparing",)
     with view(state) as reader:
-        before = reads.get_attempt(reader, P, prepared.attempt_id)
+        before = reader.get_attempt(P, prepared.attempt_id)
     with pytest.raises(StorageFailure), session.transaction() as uow:
         intents.mark_dispatch(
             uow,
@@ -116,8 +116,8 @@ def test_actual_recovery_claim_prepares_old_attempt_checks_without_insert_permis
             RevisionGuard(receipt.revision),
         )
     with view(state) as reader:
-        assert reads.get_attempt(reader, P, prepared.attempt_id) == before
-        assert reads.get_job(reader, P, recovering.job_id).state.value == "retry_wait"
+        assert reader.get_attempt(P, prepared.attempt_id) == before
+        assert reader.get_job(P, recovering.job_id).state.value == "retry_wait"
     assert connection.execute("SELECT COUNT(*) FROM insert_attempts").fetchone() == (1,)
 
 
@@ -132,4 +132,4 @@ def test_recovery_claim_refuses_nonpreparing_acquisition(state, phase):
         jobs.claim(uow, P, recovering.job_id, invalid, RevisionGuard(Revision(0)), NOW)
     assert connection.execute("SELECT COUNT(*) FROM job_claims").fetchone() == (0,)
     with view(state) as reader:
-        assert reads.get_job(reader, P, recovering.job_id).state.value == "queued"
+        assert reader.get_job(P, recovering.job_id).state.value == "queued"

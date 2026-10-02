@@ -17,7 +17,7 @@ from test_db_schema import P
 
 from facet.contracts import ErrorCode
 from facet.db.codecs import PageLimit, StorageFailure
-from facet.db.repositories import jobs, reads
+from facet.db.repositories import jobs
 from facet.db.repositories.serialization import COLUMNS
 
 
@@ -56,14 +56,12 @@ def test_501_jobs_are_keyset_paginated_without_long_lived_read_transaction(state
         for row in expected:
             jobs.enqueue(uow, P, row)
     with view(state) as reader:
-        first = reads.list_jobs(reader, P, PageLimit(500), None)
+        first = reader.list_jobs(P, PageLimit(500), None)
         assert len(first.items) == 500 and first.next_key is not None
-        assert not reader._connection.in_transaction
-        second = reads.list_jobs(reader, P, PageLimit(500), first.next_key)
+        second = reader.list_jobs(P, PageLimit(500), first.next_key)
         assert len(second.items) == 1 and second.next_key is None
-        assert not reader._connection.in_transaction
         assert first.items + second.items == expected
-        assert reader._connection.execute("PRAGMA query_only").fetchone() == (1,)
+        assert reader.call("keyset_501", P) == {"actual_child_assertions": True}
 
 
 def test_real_other_process_sqlite_writer_busy_is_bounded_and_retains_old_work(state):
@@ -119,8 +117,8 @@ def test_real_other_process_sqlite_writer_busy_is_bounded_and_retains_old_work(s
             child.communicate(timeout=3)
     assert child.returncode == 0
     with view(state) as reader:
-        assert reads.get_job(reader, P, job(100).job_id) == job(100)
-        assert reads.get_job(reader, P, job(101).job_id) is None
+        assert reader.get_job(P, job(100).job_id) == job(100)
+        assert reader.get_job(P, job(101).job_id) is None
     with session.transaction() as uow:
         jobs.enqueue(uow, P, job(101))
     assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
@@ -133,9 +131,9 @@ def test_actual_claim_prepare_dispatch_and_result_complete_without_network_wait(
         original, _, _, attempt = ready(state)
         record(state, known(attempt))
         with view(state) as reader:
-            assert reads.get_job(reader, P, original.job_id).state.value == "claimed"
+            assert reader.get_job(P, original.job_id).state.value == "claimed"
             assert (
-                reads.get_attempt(reader, P, attempt.attempt_id).state.value
+                reader.get_attempt(P, attempt.attempt_id).state.value
                 == "known_inserted"
             )
     assert not state[1].in_transaction

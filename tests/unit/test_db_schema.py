@@ -1,10 +1,14 @@
 """DB-01/02/06/18/20/21: real file-backed trusted schema/owner-supplied sessions."""
 
 import os
+import select
 import sqlite3
-from contextlib import suppress
+import subprocess
+import sys
+from contextlib import contextmanager, suppress
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from threading import Thread
 
 import pytest
@@ -22,7 +26,7 @@ from facet.contracts import (
     Timestamp,
 )
 from facet.db.codecs import PrivateAddress, StorageFailure
-from facet.db.connection import _attach_view, _attach_writer, _initialize_database
+from facet.db.connection import _attach_writer, _initialize_database
 from facet.db.migrations import CHECKSUMS, REGISTRY_DIGEST, v0001
 from facet.db.models import (
     BindingRow,
@@ -326,28 +330,125 @@ def test_nested_reused_wrong_thread_closed_uow_refused(state):
         session.transaction()
 
 
+METADATA_WRITER = """
+import fcntl, os, select, socket, sqlite3, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[2])
+from facet.contracts import LocalId
+from facet.db.connection import _attach_writer
+from facet.db.models import OwnerSessionInfo
+os.umask(0o077)
+root = Path(sys.argv[1])
+owner = os.open(root / 'owner.lock', os.O_RDONLY)
+view = os.open(root / 'view.lock', os.O_RDONLY)
+fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+connection = sqlite3.connect(root / 'metadata.db', autocommit=True)
+info = OwnerSessionInfo(*(LocalId(f'00000000000040008000{n:012x}') for n in (1,2,3)))
+session = _attach_writer(connection, info)
+connection.execute('PRAGMA wal_autocheckpoint=0')
+# Preserve the supplied test-owned owner lineage, not a M103 new-owner claim.
+with session.transaction() as uow:
+    uow._execute('UPDATE projections SET config_revision=0')
+server = socket.socket(socket.AF_UNIX)
+server.bind(str(root / 'owner.sock'))
+server.listen(4)
+peers = []
+print('ready', flush=True)
+try:
+    while True:
+        selected, _, _ = select.select([server, sys.stdin, *peers], [], [], 10)
+        if sys.stdin in selected:
+            break
+        if server in selected:
+            peer, _ = server.accept()
+            peer.sendall(b'ready')
+            peers.append(peer)
+        for peer in tuple(peers):
+            if peer in selected:
+                command = peer.recv(6)
+                if not command:
+                    peers.remove(peer)
+                    peer.close()
+                elif command == b'commit':
+                    with session.transaction() as uow:
+                        uow._execute('UPDATE projections SET config_revision=1')
+                    peer.sendall(b'committed')
+                else:
+                    raise AssertionError('unknown fixed metadata writer command')
+finally:
+    fcntl.flock(view, fcntl.LOCK_EX)
+    session.close()
+    for peer in peers:
+        peer.close()
+    server.close()
+    os.close(view)
+    os.close(owner)
+"""
+
+
+@contextmanager
+def live_metadata_writer(root):
+    # A fixed test-only actor: existing supplied-lineage metadata, one update,
+    # real writer ownership and shutdown coordination. No product IPC/runtime.
+    for name in ("owner.lock", "view.lock"):
+        (root / name).touch(mode=0o600)
+    child = subprocess.Popen(
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            "-c",
+            METADATA_WRITER,
+            str(root),
+            str(Path(__file__).resolve().parents[2] / "src"),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        close_fds=True,
+        text=True,
+    )
+    try:
+        assert select.select([child.stdout], [], [], 8)[0]
+        assert child.stdout.readline() == "ready\n"
+        yield child
+    finally:
+        if child.poll() is None:
+            child.stdin.write("exit\n")
+            child.stdin.flush()
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait(timeout=5)
+        stdout, stderr = child.communicate()
+        assert stdout == "" and stderr == "" and child.returncode == 0
+
+
 def test_reader_existing_wal_does_not_write_or_create_and_releases_snapshot(
     state, tmp_path
 ):
-    connection, session, info = state
+    from test_db_repositories import SnapshotProbe
+
+    _, session, info = state
+    session.close()
     path = tmp_path / "metadata.db"
-    before = {p.name for p in tmp_path.iterdir()}
-    reader = _attach_view(
-        sqlite3.connect(f"file:{path}?mode=ro", uri=True, autocommit=True),
-        info.state_instance_id,
-    )
-    assert reader._read("SELECT config_revision FROM projections") == ((0,),)
-    assert not reader._connection.in_transaction
-    with session.transaction() as uow:
-        uow._execute("UPDATE projections SET config_revision=1")
-    assert reader._read("SELECT config_revision FROM projections") == ((1,),)
-    assert set(p.name for p in tmp_path.iterdir()) == before
-    with pytest.raises(StorageFailure):
-        reader._read("UPDATE projections SET config_revision=2")
-    assert connection.execute("SELECT config_revision FROM projections").fetchone() == (
-        1,
-    )
-    reader.close()
+    inode = path.stat().st_ino
+    with live_metadata_writer(tmp_path):
+        before = {p.name for p in tmp_path.iterdir()}
+        probe = SnapshotProbe(tmp_path, info.state_instance_id)
+        assert probe.call("live_schema_revision", P) == {
+            "actual_child_assertions": True
+        }
+        assert path.stat().st_ino == inode
+        assert set(p.name for p in tmp_path.iterdir()) == before
+    connection = sqlite3.connect(path, autocommit=True)
+    try:
+        assert connection.execute(
+            "SELECT config_revision FROM projections"
+        ).fetchone() == (1,)
+    finally:
+        connection.close()
 
 
 def test_writer_reattach_requires_exact_instance_namespace_owner(state, tmp_path):

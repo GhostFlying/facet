@@ -25,7 +25,7 @@ from facet.contracts import ErrorCode
 from facet.db.codecs import SchemaVersion, StorageFailure
 from facet.db.connection import _attach_writer
 from facet.db.migration_backup import snapshot_database
-from facet.db.repositories import jobs, reads
+from facet.db.repositories import jobs
 
 
 def destination(tmp_path, *, name="snapshot.db"):
@@ -55,13 +55,13 @@ def test_snapshot_reads_committed_wal_and_reopens_exact_facts(state, tmp_path):
     copied_session = _attach_writer(reopened, info)
     copied_state = copied_path, reopened, copied_session, info
     with view(copied_state) as reader:
-        attempt = reads.get_attempt(reader, P, prepared.attempt_id)
+        attempt = reader.get_attempt(P, prepared.attempt_id)
         assert attempt.state.value == "dispatch_started"
         assert attempt.revision == dispatched.revision
-        assert reads.get_job(reader, P, original.job_id).state.value == "claimed"
+        assert reader.get_job(P, original.job_id).state.value == "claimed"
     copied_session.close()
     with view(state) as reader:
-        assert reads.get_attempt(reader, P, prepared.attempt_id) == attempt
+        assert reader.get_attempt(P, prepared.attempt_id) == attempt
 
 
 @pytest.mark.parametrize("existing", ["unrelated", "facet", "transaction"])
@@ -136,8 +136,10 @@ def test_snapshot_requires_current_actual_writer_session(state, tmp_path, bad):
         worker.join(3)
         assert not worker.is_alive() and errors == [ErrorCode.OWNER_UNAVAILABLE]
     elif bad == "reader":
-        with view(state) as reader, pytest.raises(StorageFailure):
-            snapshot_database(reader, copied)
+        with view(state) as reader:
+            assert reader.call("snapshot_reject_read_source", P) == {
+                "actual_child_assertions": True
+            }
     else:
 
         class Foreign:
@@ -182,7 +184,7 @@ def test_snapshot_failure_returns_no_receipt_and_preserves_source(
         copied.set_authorizer(None)
         copied.close()
     with view(state) as reader:
-        assert reads.get_projection(reader, P).ruleset_revision.value == 1
+        assert reader.get_projection(P).ruleset_revision.value == 1
 
 
 def test_changed_source_owner_cannot_get_a_snapshot_receipt(state, tmp_path):

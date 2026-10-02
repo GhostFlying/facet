@@ -38,7 +38,7 @@ from facet.db.models import (
     HistoryPollRow,
     RevisionGuard,
 )
-from facet.db.repositories import epochs, policy, reads
+from facet.db.repositories import epochs, policy
 from facet.db.repositories.base import _insert
 
 
@@ -113,11 +113,11 @@ def test_scheduled_epoch_fixed_snapshot_and_complete_without_ghost_catchup(state
             RevisionGuard(Revision(0)),
         )
     with view(state) as reader:
-        result = reads.get_epoch(reader, P, value.epoch_id)
+        result = reader.get_epoch(P, value.epoch_id)
         assert (
             result.state is EpochState.COMPLETED and result.catchup_history_id is None
         )
-        assert reads.counts(reader, P, value.epoch_id).known_total == Count(0)
+        assert reader.counts(P, value.epoch_id).known_total == Count(0)
     with pytest.raises(StorageFailure), session.transaction() as uow:
         epochs.advance_epoch(
             uow,

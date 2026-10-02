@@ -15,6 +15,9 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from test_db_repositories import state as state
+from test_db_repositories import view
+from test_db_schema import P
 
 from facet.contracts import ErrorCode, LocalId, Sha256Hex
 from facet.db import read_views as views
@@ -453,6 +456,31 @@ def test_actual_virgin_runtime_pair_detects_ordinary_ro_shm_write(tmp_path):
         assert after["metadata.db-shm"] != before["metadata.db-shm"]
         for name in before.keys() - {"metadata.db-shm"}:
             assert after[name] == before[name]
+
+
+@pytest.mark.parametrize("row", [2, 3])
+def test_actual_admitted_reader_step_failure_rolls_back_and_remains_usable(state, row):
+    with view(state) as probe:
+        assert probe.call("read_step_fault", P, row=row) == {
+            "actual_child_assertions": True
+        }
+
+
+def test_actual_admitted_getters_reject_cursor_bounds_and_registered_family(state):
+    with view(state) as probe:
+        assert probe.call("guard_read_cursor", P) == {"actual_child_assertions": True}
+
+
+@pytest.mark.parametrize("variant", ["foreign", "instance", "schema", "sql"])
+def test_actual_admitted_attachment_refusal_preserves_or_closes_only_owned_handle(
+    state, variant
+):
+    with view(state) as probe:
+        assert probe.call("read_attach_failure", P, variant=variant) == (
+            {"actual_child_assertions": True}
+            if variant == "foreign"
+            else {"ordered_cleanup": True}
+        )
 
 
 @pytest.mark.parametrize("case", ["live_positive", "live_two_readers"])

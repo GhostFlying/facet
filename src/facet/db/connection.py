@@ -22,6 +22,13 @@ from .models import (
     ProjectionRow,
     RulesetRow,
 )
+from .read_views import (
+    _PERMITS,
+    ReadViewPermit,
+    _check_permit,
+    _close_permit,
+    _consume_permit,
+)
 from .schema import _inspect, _pristine
 from .transactions import UnitOfWork
 
@@ -132,7 +139,33 @@ class WriterSession(_Session):
 
 
 class ReadSession(_Session):
-    __slots__ = ()
+    __slots__ = ("_permit",)
+
+    def __init__(self, connection, instance, permit):
+        # Constructors, including a direct class call, cannot bypass admission.
+        _check_permit(permit)
+        if permit.connection is not connection or permit.expected_instance != instance:
+            raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+        super().__init__(connection, instance)
+        self._permit = permit
+
+    def _check(self):
+        # A wrong-thread/closed caller must not close or poison the real owner.
+        if (
+            self._closed
+            or threading.current_thread() is not self._permit.creator_thread
+        ):
+            raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+        try:
+            super()._check()
+            _check_permit(self._permit)
+        except StorageFailure:
+            self._invalidate()
+            raise
+
+    def _invalidate(self):
+        self._closed = True
+        _close_permit(self._permit)
 
     def _read(self, sql: str, parameters: tuple = (), *, maximum: int = 500) -> tuple:
         self._check()
@@ -150,7 +183,6 @@ class ReadSession(_Session):
             if len(result) > maximum:
                 raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
             connection.execute("COMMIT")
-            return result
         except (sqlite3.Error, StorageFailure) as error:
             try:
                 if connection.in_transaction:
@@ -161,6 +193,10 @@ class ReadSession(_Session):
             if isinstance(error, StorageFailure):
                 raise error from None
             raise sqlite_failure(error) from None
+        # Keep an invalidation/owned-close failure outside the SQL rollback
+        # handler: COMMIT already ended this snapshot and cleanup is one-shot.
+        self._check()
+        return result
 
 
 def _attach_writer(
@@ -185,13 +221,19 @@ def _attach_writer(
 
 
 def _attach_view(
-    connection: sqlite3.Connection, expected_instance: LocalId
+    connection: sqlite3.Connection,
+    expected_instance: LocalId,
+    *,
+    permit: ReadViewPermit,
 ) -> ReadSession:
-    if type(expected_instance) is not LocalId or not isinstance(
-        connection, sqlite3.Connection
+    if (
+        type(expected_instance) is not LocalId
+        or type(connection) is not sqlite3.Connection
     ):
         raise StorageFailure(ErrorCode.INVALID_INPUT)
     try:
+        # All provenance and creator checks precede even connection-local SQL.
+        _consume_permit(permit, connection, expected_instance)
         if connection.autocommit is not True or connection.in_transaction:
             raise StorageFailure(ErrorCode.INVALID_INPUT)
         # These are connection-local defenses, never journal/checkpoint PRAGMAs.
@@ -204,12 +246,21 @@ def _attach_view(
             "SELECT state_instance_id FROM projections"
         ).fetchone() != (expected_instance.value,):
             raise StorageFailure(ErrorCode.REQUEST_LINEAGE_MISMATCH)
-        return ReadSession(connection, expected_instance)
+        _check_permit(permit)
+        return ReadSession(connection, expected_instance, permit)
     except sqlite3.Error as error:
-        connection.close()
+        _close_permit(permit)
         raise sqlite_failure(error) from None
     except StorageFailure:
-        connection.close()
+        # Only an enrolled permit for this exact handle is ours to clean up.
+        # _close_permit repeats actual creator checks before closing, including
+        # on pre-SQL lease failure; a foreign caller never adopts the owner.
+        if (
+            type(permit) is ReadViewPermit
+            and permit in _PERMITS
+            and permit.connection is connection
+        ):
+            _close_permit(permit)
         raise
 
 

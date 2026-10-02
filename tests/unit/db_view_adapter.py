@@ -17,9 +17,25 @@ from dataclasses import replace
 from pathlib import Path
 from threading import Thread, current_thread
 
-from facet.contracts import ErrorCode, LocalId, Sha256Hex
+from db_view_job_values import pack_job
+
+from facet.contracts import (
+    Count,
+    ErrorCode,
+    JobState,
+    LocalId,
+    ProjectionId,
+    ProviderId,
+    Revision,
+    Role,
+    Sha256Hex,
+)
 from facet.db import read_views as views
-from facet.db.codecs import StorageFailure
+from facet.db.codecs import PageLimit, StorageFailure
+from facet.db.connection import _attach_view
+from facet.db.migration_backup import snapshot_database
+from facet.db.repositories import reads
+from facet.db.repositories.serialization import _encode_row
 
 INSTANCE = LocalId("00000000000040008000000000000001")
 
@@ -33,7 +49,7 @@ def refuse():
 
 
 class FixedReadProvider:
-    def __init__(self, latch, root, *, fault=None):
+    def __init__(self, latch, root, *, fault=None, instance=INSTANCE):
         self.latch = latch
         self.root = Path(root)
         self.seal = None
@@ -42,6 +58,7 @@ class FixedReadProvider:
         self.opening = None
         self.events = []
         self.fault = fault
+        self.instance = instance
         self.creator_pid = os.getpid()
         self.creator_thread = current_thread()
 
@@ -279,7 +296,7 @@ class FixedReadProvider:
             if connection is not self.opening["handle"]:
                 refuse()
             self._check_lease(lease)
-            permit = views._bind_read_view(connection, INSTANCE, lease, self.seal)
+            permit = views._bind_read_view(connection, self.instance, lease, self.seal)
             return connection, permit
         except Exception:
             # Until _bind returns a permit, this opener owns its fresh handle.
@@ -315,6 +332,468 @@ def _lock_available(root, name):
         return True
     finally:
         os.close(fd)
+
+
+# This finite test inventory contains actual imported functions and their one
+# result family. A request never selects a table, model, import, SQL or callback.
+GETTERS = {
+    "row_projection": (reads.get_projection, "projections", ()),
+    "schema": (reads.inspect_schema, None, ()),
+    "row_binding": (reads.get_binding, "bindings", (("role", Role),)),
+    "row_binding_revision": (
+        reads.get_binding_revision,
+        "binding_revisions",
+        (("role", Role), ("revision", Revision)),
+    ),
+    "row_rule": (reads.get_rule, "rules", (("id", LocalId),)),
+    "row_epoch": (reads.get_epoch, "epochs", (("id", LocalId),)),
+    "row_event": (reads.get_event, "source_events", (("id", LocalId),)),
+    "row_job": (reads.get_job, "sync_jobs", (("id", LocalId),)),
+    "row_attempt": (reads.get_attempt, "insert_attempts", (("id", LocalId),)),
+    "row_action": (reads.get_action, "action_commands", (("id", LocalId),)),
+    "row_thread": (reads.get_thread, "tracked_threads", (("id", ProviderId),)),
+    "row_mapping": (reads.get_mapping, "message_mappings", (("id", ProviderId),)),
+    "row_thread_target": (
+        reads.get_thread_target,
+        "thread_targets",
+        (("source", ProviderId), ("target", ProviderId)),
+    ),
+    "row_thread_anchor": (
+        reads.get_thread_anchor,
+        "thread_targets",
+        (("source", ProviderId),),
+    ),
+    "row_checkpoint": (reads.get_checkpoint, "history_checkpoints", ()),
+    "row_history_poll": (reads.get_history_poll, "history_polls", (("id", LocalId),)),
+    "row_history_page": (
+        reads.get_history_page,
+        "history_pages",
+        (("id", LocalId), ("ordinal", Count)),
+    ),
+    "page_jobs": (reads.list_jobs, "sync_jobs", (("limit", PageLimit),)),
+    "page_attempts": (reads.list_attempts, "insert_attempts", (("limit", PageLimit),)),
+    "page_events": (reads.list_events, "source_events", (("limit", PageLimit),)),
+    "page_audit": (reads.list_audit, "audit_events", (("limit", PageLimit),)),
+    "counts": (reads.counts, None, ()),
+}
+
+PHYSICAL_CASES = {
+    "guard_history_types": {"variant"},
+    "guard_history_lifetime": set(),
+    "guard_thread_reads": {"source", "target"},
+    "guard_binding_role": set(),
+    "read_zero_write": {"id", "ordinal"},
+    "keyset_501": set(),
+    "guard_read_cursor": set(),
+    "read_step_fault": {"row"},
+    "read_attach_failure": {"variant"},
+    "snapshot_reject_read_source": set(),
+    "live_schema_revision": set(),
+}
+
+
+def _expect_failure(function, *, code=None):
+    try:
+        function()
+    except StorageFailure as error:
+        if code is not None:
+            assert error.code is code
+        assert str(error) == error.code.value
+        return
+    raise AssertionError("fixed actual guard accepted")
+
+
+def physical_case(case, root, latch, facts, request):
+    assert type(request) is dict
+    assert request.keys() == {"instance", "projection"} | PHYSICAL_CASES[case]
+    instance = LocalId(request["instance"])
+    projection = ProjectionId(request["projection"])
+    runtime = _runtime(facts)
+    views._PROVIDER_TYPES = (FixedReadProvider,)
+    views._QUALIFIED_RUNTIMES = (runtime,)
+    provider = FixedReadProvider(latch, root, instance=instance)
+    provider.seal = views._issue_read_seal(provider, runtime)
+    mode = (
+        views.ViewMode.LIVE_WAL
+        if case == "live_schema_revision"
+        else views.ViewMode.STOPPED_CLEAN
+    )
+    lease = views._issue_read_lease(provider.seal, mode)
+
+    def live_artifacts():
+        return {
+            name: (path.stat().st_ino, path.read_bytes())
+            for name in ("metadata.db", "metadata.db-wal", "metadata.db-shm")
+            for path in (Path(root) / name,)
+        }
+
+    live_before = live_artifacts() if case == "live_schema_revision" else None
+    connection, permit = provider.open_bound(lease)
+    if case == "read_attach_failure":
+        variant = request["variant"]
+        assert variant in {"foreign", "instance", "schema", "sql"}
+        trace = []
+        connection.set_trace_callback(trace.append)
+        if variant == "foreign":
+            _expect_failure(
+                lambda: _attach_view(
+                    connection, instance, permit=object.__new__(views.ReadViewPermit)
+                ),
+                code=ErrorCode.OWNER_UNAVAILABLE,
+            )
+            assert trace == [] and not connection.in_transaction
+            errors = []
+
+            def foreign_creator():
+                try:
+                    _attach_view(connection, instance, permit=permit)
+                except StorageFailure as error:
+                    errors.append(error.code)
+
+            thread = Thread(target=foreign_creator)
+            thread.start()
+            thread.join(2)
+            assert not thread.is_alive() and errors == [ErrorCode.OWNER_UNAVAILABLE]
+            assert trace == [] and not provider.seal.invalidated
+        elif variant == "instance":
+            # Genuine bound ownership, but mismatching expected identity, must
+            # close rather than leave the adopted source handle alive.
+            wrong = LocalId("00000000000040008000000000000063")
+            _expect_failure(lambda: _attach_view(connection, wrong, permit=permit))
+        else:
+            action = (
+                sqlite3.SQLITE_READ if variant == "schema" else sqlite3.SQLITE_PRAGMA
+            )
+            connection.set_authorizer(
+                lambda current, *args: (
+                    sqlite3.SQLITE_DENY if current == action else sqlite3.SQLITE_OK
+                )
+            )
+            _expect_failure(lambda: _attach_view(connection, instance, permit=permit))
+        if variant != "foreign":
+            assert not provider.resources and not provider.inventory
+            assert provider.events[-2:] == ["retired", "released"]
+            return {"status": "ok", "result": {"ordered_cleanup": True}}
+    reader = _attach_view(connection, instance, permit=permit)
+    try:
+        if case == "guard_history_types":
+            variant = request["variant"]
+            assert variant in {"view", "projection", "poll", "ordinal", "zero"}
+
+            class Trap:
+                @property
+                def value(self):
+                    raise AssertionError("foreign property executed")
+
+            arguments = [
+                reader,
+                projection,
+                LocalId("000000000000400080000000000003e8"),
+                Count(1),
+            ]
+            if variant == "zero":
+                arguments[3] = Count(0)
+            else:
+                arguments[
+                    {"view": 0, "projection": 1, "poll": 2, "ordinal": 3}[variant]
+                ] = Trap()
+            _expect_failure(
+                lambda: reads.get_history_page(*arguments), code=ErrorCode.INVALID_INPUT
+            )
+            if variant not in {"ordinal", "zero"}:
+                _expect_failure(
+                    lambda: reads.get_history_poll(*arguments[:3]),
+                    code=ErrorCode.INVALID_INPUT,
+                )
+            reads.get_history_poll(
+                reader, projection, LocalId("000000000000400080000000000003e8")
+            )
+        elif case == "guard_history_lifetime":
+            id = LocalId("000000000000400080000000000003e8")
+            before = reads.get_history_poll(reader, projection, id)
+            failures = []
+
+            def other():
+                for function in (
+                    lambda: reads.get_history_poll(reader, projection, id),
+                    lambda: reads.get_history_page(reader, projection, id, Count(1)),
+                ):
+                    try:
+                        function()
+                    except StorageFailure as error:
+                        failures.append(error.code)
+
+            thread = Thread(target=other)
+            thread.start()
+            thread.join(2)
+            assert (
+                not thread.is_alive() and failures == [ErrorCode.OWNER_UNAVAILABLE] * 2
+            )
+            assert reads.get_history_poll(reader, projection, id) == before
+            reader.close()
+            _expect_failure(
+                lambda: reads.get_history_poll(reader, projection, id),
+                code=ErrorCode.OWNER_UNAVAILABLE,
+            )
+            _expect_failure(
+                lambda: reads.get_history_page(reader, projection, id, Count(1)),
+                code=ErrorCode.OWNER_UNAVAILABLE,
+            )
+        elif case == "guard_thread_reads":
+            source, target = (
+                ProviderId(request["source"]),
+                ProviderId(request["target"]),
+            )
+            assert (
+                reads.get_thread_anchor(
+                    reader, ProjectionId("missing-projection"), source
+                )
+                is None
+            )
+            for first, second in (("thread", target), (source, "target")):
+                _expect_failure(
+                    lambda first=first, second=second: reads.get_thread_target(
+                        reader, projection, first, second
+                    ),
+                    code=ErrorCode.INVALID_INPUT,
+                )
+            before = reads.get_thread_anchor(reader, projection, source)
+            failures = []
+
+            def other_thread():
+                try:
+                    reads.get_thread_anchor(reader, projection, source)
+                except StorageFailure as error:
+                    failures.append(error.code)
+
+            thread = Thread(target=other_thread)
+            thread.start()
+            thread.join(2)
+            assert not thread.is_alive() and failures == [ErrorCode.OWNER_UNAVAILABLE]
+            assert reads.get_thread_anchor(reader, projection, source) == before
+            reader.close()
+            _expect_failure(
+                lambda: reads.get_thread_target(reader, projection, source, target),
+                code=ErrorCode.OWNER_UNAVAILABLE,
+            )
+        elif case == "guard_binding_role":
+            _expect_failure(
+                lambda: reads.get_binding(reader, projection, "source"),
+                code=ErrorCode.INVALID_INPUT,
+            )
+            assert reads.get_binding(reader, projection, Role.SOURCE) is not None
+        elif case == "read_zero_write":
+            id, ordinal = LocalId(request["id"]), Count(request["ordinal"])
+            before = connection.total_changes
+            assert (
+                reads.get_history_poll(reader, projection, id).projection_id
+                == projection
+            )
+            assert reads.get_history_page(reader, projection, id, ordinal) is not None
+            assert (
+                reads.get_history_poll(
+                    reader, projection, LocalId("0000000000004000800000000000270f")
+                )
+                is None
+            )
+            assert reads.get_history_page(reader, projection, id, Count(2)) is None
+            foreign = ProjectionId("foreign-projection")
+            assert reads.get_history_poll(reader, foreign, id) is None
+            assert reads.get_history_page(reader, foreign, id, ordinal) is None
+            assert connection.total_changes == before and not connection.in_transaction
+        elif case == "keyset_501":
+            first = reads.list_jobs(reader, projection, PageLimit(500), None)
+            assert len(first.items) == 500 and first.next_key is not None
+            assert not connection.in_transaction
+            second = reads.list_jobs(reader, projection, PageLimit(500), first.next_key)
+            assert len(second.items) == 1 and second.next_key is None
+            assert not connection.in_transaction
+            assert connection.execute("PRAGMA query_only").fetchone() == (1,)
+        elif case == "guard_read_cursor":
+            from facet.db.keys import _frame, _read_key
+
+            for raw in (
+                b"",
+                b"private",
+                b"x" * 8193,
+                _frame(("read.unregistered", projection.value, "0", instance.value)),
+            ):
+                for function in (
+                    reads.list_jobs,
+                    reads.list_attempts,
+                    reads.list_events,
+                    reads.list_audit,
+                ):
+                    _expect_failure(
+                        lambda function=function, raw=raw: function(
+                            reader, projection, PageLimit(2), raw
+                        ),
+                        code=ErrorCode.INVALID_INPUT,
+                    )
+            raw = _read_key("sync_jobs", projection, 0, instance)
+            _expect_failure(
+                lambda: reads.list_audit(reader, projection, PageLimit(2), raw),
+                code=ErrorCode.INVALID_INPUT,
+            )
+            _expect_failure(
+                lambda: reads.list_jobs(
+                    reader, ProjectionId("other"), PageLimit(2), raw
+                ),
+                code=ErrorCode.INVALID_INPUT,
+            )
+            reads.get_projection(reader, projection)
+        elif case == "read_step_fault":
+            fail_row = request["row"]
+            assert type(fail_row) is int and fail_row in {2, 3}
+            called = []
+
+            def step(value):
+                called.append(value)
+                if value == fail_row:
+                    raise ValueError("SYNTHETIC_PRIVATE_FETCH_EXCEPTION")
+                return value
+
+            connection.create_function("test_only_fetch_fault", 1, step)
+            _expect_failure(
+                lambda: reader._read(
+                    "SELECT test_only_fetch_fault(v) FROM "
+                    "(SELECT 1 AS v UNION ALL SELECT 2 UNION ALL SELECT 3)"
+                ),
+                code=ErrorCode.PERSISTENCE_FAILURE,
+            )
+            assert (
+                called == list(range(1, fail_row + 1)) and not connection.in_transaction
+            )
+            assert reader._read("SELECT 1") == ((1,),)
+        elif case == "snapshot_reject_read_source":
+            trace = []
+            connection.set_trace_callback(trace.append)
+            _expect_failure(
+                lambda: snapshot_database(reader, connection),
+                code=ErrorCode.INVALID_INPUT,
+            )
+            assert trace == []
+            assert reader._read("SELECT 1") == ((1,),)
+        elif case == "live_schema_revision":
+            assert reader._read("SELECT config_revision FROM projections") == ((0,),)
+            assert not connection.in_transaction
+            assert live_artifacts() == live_before
+            peer = provider.resources[lease]["peer"]
+            peer.sendall(b"commit")
+            assert peer.recv(9) == b"committed"
+            live_committed = live_artifacts()
+            assert reader._read("SELECT config_revision FROM projections") == ((1,),)
+            assert not connection.in_transaction
+            _expect_failure(
+                lambda: reader._read("UPDATE projections SET config_revision=2")
+            )
+            assert reader._read("SELECT config_revision FROM projections") == ((1,),)
+            assert live_artifacts() == live_committed
+            reader.close()
+            assert live_artifacts() == live_committed
+        # read_attach_failure / foreign rejection rejoins here after proving the
+        # fresh actual owner was untouched and attaches its real permit.
+        return {"status": "ok", "result": {"actual_child_assertions": True}}
+    finally:
+        if not reader._closed:
+            reader.close()
+        assert not provider.inventory and not provider.resources
+
+
+def _read_request(case, request):
+    function, table, selectors = GETTERS[case]
+    fields = {"instance", "projection"} | {name for name, _ in selectors}
+    if case.startswith("page_"):
+        fields.add("cursor")
+    if case == "counts":
+        fields.add("epoch")
+    if type(request) is not dict or request.keys() != fields:
+        refuse()
+    instance = LocalId(request["instance"])
+    projection = ProjectionId(request["projection"])
+    arguments = tuple(cls(request[name]) for name, cls in selectors)
+    if case.startswith("page_"):
+        cursor = request["cursor"]
+        if cursor is not None:
+            if type(cursor) is not str or len(cursor) > 16384:
+                refuse()
+            cursor = bytes.fromhex(cursor)
+        arguments += (cursor,)
+    elif case == "counts":
+        arguments += (
+            LocalId(request["epoch"]) if request["epoch"] is not None else None,
+        )
+    return instance, projection, function, table, arguments
+
+
+def packed_row(table, row):
+    if row is None:
+        return None
+    cells = _encode_row(table, row)
+    result = []
+    for cell in cells:
+        if cell is None or type(cell) in {bool, int, str}:
+            result.append(cell)
+        elif type(cell) is bytes and len(cell) <= 8192:
+            result.append({"hex": cell.hex()})
+        else:
+            raise AssertionError("nonfinite test materialization")
+    return result
+
+
+def getter_case(case, root, latch, facts, request):
+    instance, projection, function, table, arguments = _read_request(case, request)
+    runtime = _runtime(facts)
+    views._PROVIDER_TYPES = (FixedReadProvider,)
+    views._QUALIFIED_RUNTIMES = (runtime,)
+    provider = FixedReadProvider(latch, root, instance=instance)
+    provider.seal = views._issue_read_seal(provider, runtime)
+    lease = views._issue_read_lease(provider.seal, views.ViewMode.STOPPED_CLEAN)
+    connection, permit = provider.open_bound(lease)
+    reader = _attach_view(connection, instance, permit=permit)
+    before = connection.total_changes
+    try:
+        value = function(reader, projection, *arguments)
+        assert connection.total_changes == before and not connection.in_transaction
+        assert connection.execute("PRAGMA query_only").fetchone() == (1,)
+        if case.startswith("page_"):
+            assert len(value.items) <= min(arguments[0].value, 500)
+            result = {
+                "items": [
+                    pack_job(row) if case == "page_jobs" else packed_row(table, row)
+                    for row in value.items
+                ],
+                "next": value.next_key.hex() if value.next_key is not None else None,
+            }
+        elif case == "schema":
+            assert len(value[1]) <= 500
+            result = {
+                "metadata": packed_row("schema_metadata", value[0]),
+                "ledger": [packed_row("schema_migrations", row) for row in value[1]],
+            }
+        elif case == "counts":
+            assert tuple(row.state for row in value.by_job_state) == tuple(JobState)
+            result = {
+                "confirmed": value.confirmed_mappings.value,
+                "states": [
+                    [row.state.value, row.count.value] for row in value.by_job_state
+                ],
+                "uncertain": value.unresolved_attempts.value,
+                "complete": value.discovery_complete,
+                "total": value.known_total.value
+                if value.known_total is not None
+                else None,
+            }
+        elif case == "row_job":
+            result = pack_job(value) if value is not None else None
+        else:
+            result = packed_row(table, value)
+        return {"status": "ok", "result": result}
+    except StorageFailure as error:
+        return {"status": error.code.value}
+    finally:
+        reader.close()
+        assert not provider.inventory and not provider.resources
 
 
 def run_case(case, root, latch, facts):

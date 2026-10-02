@@ -217,12 +217,61 @@ def main():
         # Paths are fixed from this file, added only after the closed probe.
         location = Path(__file__).resolve()
         sys.path[:0] = [str(location.parent), str(location.parents[2] / "src")]
-        from db_view_adapter import run_case
+        from db_view_adapter import (
+            GETTERS,
+            PHYSICAL_CASES,
+            getter_case,
+            physical_case,
+            run_case,
+        )
 
-        result = run_case(case, root, latch, facts)
-        print(json.dumps(result, sort_keys=True))
+        if (
+            case not in GETTERS
+            and case not in PHYSICAL_CASES
+            and case
+            not in {
+                "stopped_positive",
+                "live_positive",
+                "live_two_readers",
+                "double_attach",
+                "invalid_identities",
+                "invalid_claim_return",
+                "uncertain_retirement",
+                "allocation_failure",
+                "foreign_thread",
+                "inherited_fork",
+                "altered_runtime",
+                "extra_memory",
+                "reuse_claim",
+            }
+        ):
+            raise BootstrapFailure()
+
+        if case in GETTERS or case in PHYSICAL_CASES:
+            request = sys.stdin.buffer.read(32769)
+            if len(request) > 32768:
+                raise BootstrapFailure()
+            method = getter_case if case in GETTERS else physical_case
+            result = method(case, root, latch, facts, json.loads(request))
+        else:
+            result = run_case(case, root, latch, facts)
+        encoded = json.dumps(result, sort_keys=True)
+        if len(encoded.encode()) > 2 * 1024 * 1024:
+            raise BootstrapFailure()
+        print(encoded)
     except BootstrapFailure:
         print('{"status":"bootstrap_refused"}')
+    except Exception as error:
+        # Even a fixture protocol/parse failure does not export raw exceptions.
+        from facet.db.codecs import StorageFailure
+
+        if type(error) is StorageFailure:
+            print(json.dumps({"status": error.code.value}))
+        elif type(error) in {ValueError, TypeError, KeyError}:
+            print('{"status":"invalid_input"}')
+        else:
+            print('{"status":"test_failure"}')
+            raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

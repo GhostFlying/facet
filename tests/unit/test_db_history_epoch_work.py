@@ -14,7 +14,7 @@ from test_db_schema import P, lid
 from facet.contracts import Count, EpochState, ErrorCode, Revision
 from facet.db.codecs import PollOrigin, StorageFailure
 from facet.db.models import HistoryPageEventRow, RevisionGuard
-from facet.db.repositories import epochs, events, history, jobs, reads
+from facet.db.repositories import epochs, events, history, jobs
 from facet.db.repositories.base import _insert
 
 
@@ -81,7 +81,7 @@ def test_existing_resolution_needs_current_epoch_join_and_retains_first_identity
                 RevisionGuard(old_work.revision),
             )
     with view(state) as reader:
-        original_work = reads.get_job(reader, P, old_work.job_id)
+        original_work = reader.get_job(P, old_work.job_id)
     selected, value = selected_poll(session, origin)
     response = page(value, count=1)
     with session.transaction() as uow:
@@ -99,10 +99,8 @@ def test_existing_resolution_needs_current_epoch_join_and_retains_first_identity
             RevisionGuard(begun.revision),
         )
     with view(state) as reader:
-        assert (
-            reads.get_history_poll(reader, P, value.poll_id).revision == begun.revision
-        )
-        assert reads.get_job(reader, P, old_work.job_id) == original_work
+        assert reader.get_history_poll(P, value.poll_id).revision == begun.revision
+        assert reader.get_job(P, old_work.job_id) == original_work
     assert connection.execute(
         "SELECT COUNT(*) FROM history_page_events"
     ).fetchone() == (0,)
@@ -132,8 +130,8 @@ def test_existing_resolution_needs_current_epoch_join_and_retains_first_identity
     assert replay.disposition == "replayed" and replay.revision == ingested.revision
     assert connection.total_changes == before
     with view(state) as reader:
-        assert reads.get_job(reader, P, old_work.job_id) == original_work
-        assert reads.get_job(reader, P, current_work.job_id) is None
+        assert reader.get_job(P, old_work.job_id) == original_work
+        assert reader.get_job(P, current_work.job_id) is None
     assert connection.execute(
         "SELECT COUNT(*) FROM epoch_jobs WHERE epoch_id=? AND job_id=?",
         (selected.epoch_id.value, old_work.job_id.value),
@@ -157,7 +155,7 @@ def test_existing_resolution_needs_current_epoch_join_and_retains_first_identity
     # Catch-up completion records durable work; it does not complete queued
     # resolution or bypass the epoch's separate work-completion gate.
     with view(state) as reader:
-        guard = reads.get_epoch(reader, P, selected.epoch_id).revision
+        guard = reader.get_epoch(P, selected.epoch_id).revision
     total = selected.known_message_total if selected.discovery_complete else Count(1)
     with pytest.raises(StorageFailure), session.transaction() as uow:
         epochs.advance_epoch(
@@ -170,11 +168,8 @@ def test_existing_resolution_needs_current_epoch_join_and_retains_first_identity
             RevisionGuard(guard),
         )
     with view(state) as reader:
-        assert reads.get_job(reader, P, old_work.job_id).state.value == status
-        assert (
-            reads.get_epoch(reader, P, selected.epoch_id).state
-            is not EpochState.COMPLETED
-        )
+        assert reader.get_job(P, old_work.job_id).state.value == status
+        assert reader.get_epoch(P, selected.epoch_id).state is not EpochState.COMPLETED
     if status == "failed":
         with session.transaction() as uow:
             epochs.advance_epoch(
@@ -188,10 +183,10 @@ def test_existing_resolution_needs_current_epoch_join_and_retains_first_identity
             )
         with view(state) as reader:
             assert (
-                reads.get_epoch(reader, P, selected.epoch_id).state
+                reader.get_epoch(P, selected.epoch_id).state
                 is EpochState.COMPLETED_WITH_ISSUES
             )
-            assert reads.get_job(reader, P, old_work.job_id) == original_work
+            assert reader.get_job(P, old_work.job_id) == original_work
 
 
 @pytest.mark.parametrize("origin", ["initial", "recovery"])
@@ -226,9 +221,9 @@ def test_finish_revalidates_legacy_page_required_work_in_exact_epoch(
                 (P.value, value.poll_id.value),
             )
     with view(state) as reader:
-        before = reads.get_history_poll(reader, P, value.poll_id)
-        checkpoint = reads.get_checkpoint(reader, P)
-        saved_page = reads.get_history_page(reader, P, value.poll_id, response.ordinal)
+        before = reader.get_history_poll(P, value.poll_id)
+        checkpoint = reader.get_checkpoint(P)
+        saved_page = reader.get_history_page(P, value.poll_id, response.ordinal)
     with pytest.raises(StorageFailure), session.transaction() as uow:
         if stage == "page":
             history.finish_history_page(
@@ -248,12 +243,9 @@ def test_finish_revalidates_legacy_page_required_work_in_exact_epoch(
                 RevisionGuard(before.revision),
             )
     with view(state) as reader:
-        assert reads.get_history_poll(reader, P, value.poll_id) == before
-        assert reads.get_checkpoint(reader, P) == checkpoint
-        assert (
-            reads.get_history_page(reader, P, value.poll_id, response.ordinal)
-            == saved_page
-        )
+        assert reader.get_history_poll(P, value.poll_id) == before
+        assert reader.get_checkpoint(P) == checkpoint
+        assert reader.get_history_page(P, value.poll_id, response.ordinal) == saved_page
 
 
 def test_checkpoint_poll_does_not_invent_or_require_an_epoch_for_prior_work(state):
@@ -292,7 +284,7 @@ def test_checkpoint_poll_does_not_invent_or_require_an_epoch_for_prior_work(stat
         )
     assert connection.execute("SELECT COUNT(*) FROM epoch_jobs").fetchone() == (0,)
     with view(state) as reader:
-        assert reads.get_job(reader, P, old_work.job_id).origin_epoch_id is None
+        assert reader.get_job(P, old_work.job_id).origin_epoch_id is None
 
 
 @pytest.mark.parametrize("origin", ["initial", "recovery"])
@@ -334,11 +326,9 @@ def test_caught_missing_epoch_work_undoes_prior_chunk_join_membership_and_revisi
                 RevisionGuard(accepted.revision),
             )
     with view(state) as reader:
-        assert (
-            reads.get_history_poll(reader, P, value.poll_id).revision == begun.revision
-        )
-        assert reads.get_job(reader, P, old_work.job_id) == old_work
-        assert reads.get_job(reader, P, second_work.job_id) == second_work
+        assert reader.get_history_poll(P, value.poll_id).revision == begun.revision
+        assert reader.get_job(P, old_work.job_id) == old_work
+        assert reader.get_job(P, second_work.job_id) == second_work
     assert connection.execute(
         "SELECT COUNT(*) FROM history_page_events"
     ).fetchone() == (0,)

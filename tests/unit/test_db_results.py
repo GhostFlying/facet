@@ -44,13 +44,13 @@ from facet.db.codecs import (
 )
 from facet.db.connection import _attach_writer
 from facet.db.models import JobClaimRow, RevisionGuard
-from facet.db.repositories import epochs, intents, jobs, policy, reads
+from facet.db.repositories import epochs, intents, jobs, policy
 from facet.db.repositories.serialization import _encode_row
 
 
 def get_attempt(state, attempt_id=None):
     with view(state) as reader:
-        return reads.get_attempt(reader, P, attempt_id or lid(200))
+        return reader.get_attempt(P, attempt_id or lid(200))
 
 
 def ready(state, *, dispatched=True):
@@ -105,8 +105,7 @@ def selected_epoch(n):
 
 def recovery(state, row):
     with view(state) as reader:
-        page = reads.list_jobs(
-            reader,
+        page = reader.list_jobs(
             P,
             PageLimit(500),
             None,
@@ -135,8 +134,8 @@ def test_known_result_keeps_verifying_claim_and_lost_ack_replay_is_zero_write(st
         replay = record(reopened_state, actual, guard=actual.revision)
         assert replay.disposition == "replayed" and reopened.total_changes == before
         with view(reopened_state) as reader:
-            assert reads.get_job(reader, P, original.job_id).state.value == "claimed"
-            assert reads.counts(reader, P, None).confirmed_mappings.value == 0
+            assert reader.get_job(P, original.job_id).state.value == "claimed"
+            assert reader.counts(P, None).confirmed_mappings.value == 0
     finally:
         new_session.close()
 
@@ -168,12 +167,12 @@ def test_poststop_dispatched_results_are_retained_without_new_admission(
         )
     record(state, row)
     with view(state) as reader:
-        assert reads.get_attempt(reader, P, row.attempt_id) == row
-        thread = reads.get_thread(reader, P, tracked.source_thread_id)
+        assert reader.get_attempt(P, row.attempt_id) == row
+        thread = reader.get_thread(P, tracked.source_thread_id)
         assert not thread.active and thread.generation.value == 2
-        assert reads.counts(reader, P, None).confirmed_mappings.value == 0
+        assert reader.counts(P, None).confirmed_mappings.value == 0
         assert (
-            reads.get_job(reader, P, original.job_id).state.value
+            reader.get_job(P, original.job_id).state.value
             == {
                 "known": "claimed",
                 "pending": "blocked",
@@ -291,7 +290,7 @@ def test_unknown_result_blocks_original_and_preserves_one_old_attempt_recovery(s
     work = recovery(state, row)
     assert work.state.value == "queued" and work.priority is Priority.RECOVERY
     with view(state) as reader:
-        blocked = reads.get_job(reader, P, original.job_id)
+        blocked = reader.get_job(P, original.job_id)
         assert blocked.state.value == "blocked"
         assert blocked.last_error_code is ErrorCode.INSERT_RESULT_UNKNOWN
     assert connection.execute("SELECT COUNT(*) FROM job_claims").fetchone() == (0,)
@@ -352,14 +351,12 @@ def test_pending_attention_after_actual_recovery_defer_and_reclaim_is_not_succes
     )
     record(state, attentive)
     with view(state) as reader:
-        actual = reads.get_job(reader, P, work.job_id)
+        actual = reader.get_job(P, work.job_id)
         assert actual.state.value == "needs_attention" and actual.revision.value == 4
         assert actual.last_error_code is ErrorCode.DUPLICATE_CANDIDATES
         assert actual.attempt_count.value == 2
-        assert (
-            reads.get_job(reader, P, original.job_id).state.value == "needs_attention"
-        )
-        assert reads.counts(reader, P, None).confirmed_mappings.value == 0
+        assert reader.get_job(P, original.job_id).state.value == "needs_attention"
+        assert reader.counts(P, None).confirmed_mappings.value == 0
     assert connection.execute("SELECT COUNT(*) FROM job_claims").fetchone() == (0,)
     assert get_attempt(state).claim_id == old.claim_id
     before = connection.total_changes
@@ -586,7 +583,7 @@ def test_first_unknown_result_cannot_resume_or_normalize_incompatible_recovery(
         record(state, pending(old))
     assert get_attempt(state) == old
     with view(state) as reader:
-        assert reads.get_job(reader, P, old.job_id).state.value == "claimed"
+        assert reader.get_job(P, old.job_id).state.value == "claimed"
 
 
 @pytest.mark.parametrize("origin", ["prepared", "dispatch"])
@@ -606,7 +603,7 @@ def test_definite_noninsertion_facts_do_not_create_attempt_or_choose_retry(
     record(state, row)
     assert get_attempt(state) == row
     with view(state) as reader:
-        assert reads.get_job(reader, P, original.job_id).state.value == "claimed"
+        assert reader.get_job(P, original.job_id).state.value == "claimed"
     assert connection.execute("SELECT COUNT(*) FROM sync_jobs").fetchone() == (1,)
     assert connection.execute("SELECT COUNT(*) FROM insert_attempts").fetchone() == (1,)
 
@@ -653,10 +650,8 @@ def test_inserted_attention_retains_target_facts_and_never_reports_success(
     record(state, row)
     assert get_attempt(state) == row
     with view(state) as reader:
-        assert (
-            reads.get_job(reader, P, original.job_id).state.value == "needs_attention"
-        )
-        assert reads.counts(reader, P, None).confirmed_mappings.value == 0
+        assert reader.get_job(P, original.job_id).state.value == "needs_attention"
+        assert reader.counts(P, None).confirmed_mappings.value == 0
     assert recovery(state, row).state.value == "needs_attention"
     assert connection.execute("SELECT COUNT(*) FROM job_claims").fetchone() == (0,)
 

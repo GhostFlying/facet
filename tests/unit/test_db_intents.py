@@ -30,7 +30,7 @@ from facet.contracts import (
 from facet.db.codecs import StorageFailure, ThreadStopReason
 from facet.db.connection import _attach_writer
 from facet.db.models import JobClaimRow, RevisionGuard
-from facet.db.repositories import intents, jobs, policy, reads
+from facet.db.repositories import intents, jobs, policy
 from facet.db.repositories.base import _insert
 
 
@@ -70,11 +70,11 @@ def test_intent_precedes_dispatch_and_claim_phase_changes_in_the_same_transactio
     replay = prepare(session, prepared)
     assert replay.disposition == "replayed" and connection.total_changes == changes
     with view(state) as reader:
-        assert reads.get_attempt(reader, P, prepared.attempt_id) == prepared
+        assert reader.get_attempt(P, prepared.attempt_id) == prepared
     dispatched = dispatch(session, prepared)
     assert dispatched.revision == Revision(1)
     with view(state) as reader:
-        actual = reads.get_attempt(reader, P, prepared.attempt_id)
+        actual = reader.get_attempt(P, prepared.attempt_id)
         assert actual.state is InsertState.DISPATCH_STARTED
         assert actual.certainty is OutcomeCertainty.UNKNOWN
         assert actual.dispatch_started_at == NOW and actual.result_at is None
@@ -181,7 +181,7 @@ def test_dispatch_rechecks_actor_entry_guards_and_leaves_prepared_on_refusal(
             RevisionGuard(Revision(1 if bad == "stale" else 0)),
         )
     with view(state) as reader:
-        assert reads.get_attempt(reader, P, prepared.attempt_id) == prepared
+        assert reader.get_attempt(P, prepared.attempt_id) == prepared
 
 
 @pytest.mark.parametrize("after_dispatch", [False, True])
@@ -198,7 +198,7 @@ def test_stop_keeps_dispatched_facts_but_never_authorizes_marker_replay(
             uow, P, T, tracked.generation, NOW, ThreadStopReason.MANUAL_STOP
         )
     with view(state) as reader:
-        actual = reads.get_attempt(reader, P, prepared.attempt_id)
+        actual = reader.get_attempt(P, prepared.attempt_id)
         assert actual.state is (
             InsertState.DISPATCH_STARTED
             if after_dispatch
@@ -208,7 +208,7 @@ def test_stop_keeps_dispatched_facts_but_never_authorizes_marker_replay(
     with pytest.raises(StorageFailure):
         dispatch(session, prepared, revision=actual.revision.value)
     with view(state) as reader:
-        assert reads.get_attempt(reader, P, prepared.attempt_id) == actual
+        assert reader.get_attempt(P, prepared.attempt_id) == actual
 
 
 def test_unresolved_thread_blocks_new_message_prepare_even_with_another_actual_claim(
@@ -237,9 +237,9 @@ def test_unresolved_thread_blocks_new_message_prepare_even_with_another_actual_c
     with pytest.raises(StorageFailure, match=ErrorCode.INSERT_RESULT_UNKNOWN.value):
         prepare(session, new_attempt)
     with view(state) as reader:
-        assert reads.get_attempt(reader, P, new_attempt.attempt_id) is None
+        assert reader.get_attempt(P, new_attempt.attempt_id) is None
         assert (
-            reads.get_attempt(reader, P, prepared.attempt_id).state
+            reader.get_attempt(P, prepared.attempt_id).state
             is InsertState.DISPATCH_STARTED
         )
 
@@ -274,7 +274,7 @@ def test_dispatch_failure_rolls_back_preceding_prepare_marker_and_claim_phase(st
     finally:
         connection.set_authorizer(None)
     with view(state) as reader:
-        assert reads.get_attempt(reader, P, prepared.attempt_id) is None
+        assert reader.get_attempt(P, prepared.attempt_id) is None
     assert connection.execute(
         "SELECT phase FROM job_claims WHERE job_id=?", (value.job_id.value,)
     ).fetchone() == (ClaimPhase.PREPARING.value,)
@@ -292,8 +292,8 @@ def test_committed_unknown_dispatch_marker_survives_close_and_reopen_without_res
     # Same supplied test lineage, not the M1-03 fresh owner-run restart protocol.
     reopened = _attach_writer(sqlite3.connect(path, autocommit=True), info)
     try:
-        with view(state) as reader:
-            actual = reads.get_attempt(reader, P, prepared.attempt_id)
+        with view((path, reopened._connection, reopened, info)) as reader:
+            actual = reader.get_attempt(P, prepared.attempt_id)
         assert actual.state is InsertState.DISPATCH_STARTED
         assert actual.certainty is OutcomeCertainty.UNKNOWN
         with pytest.raises(StorageFailure):

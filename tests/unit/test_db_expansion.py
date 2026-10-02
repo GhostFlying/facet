@@ -52,7 +52,7 @@ from facet.db.models import (
     ThreadExpansionItemRow,
     ThreadExpansionRunRow,
 )
-from facet.db.repositories import epochs, expansion, jobs, policy, reads
+from facet.db.repositories import epochs, expansion, jobs, policy
 from facet.db.repositories.base import _insert
 
 
@@ -159,7 +159,7 @@ def test_own_snapshot_finishes_then_only_own_claimed_job_can_complete(state):
         )
         jobs.complete_noninsert_job(uow, P, parent.job_id, RevisionGuard(Revision(1)))
     with view(state) as reader:
-        assert reads.get_job(reader, P, parent.job_id).state is JobState.COMPLETED
+        assert reader.get_job(P, parent.job_id).state is JobState.COMPLETED
     assert connection.execute(
         "SELECT state,expected_messages FROM thread_expansion_runs"
     ).fetchone() == ("complete", 3)
@@ -215,7 +215,7 @@ def test_identical_snapshot_resumes_old_allocation_and_changed_set_retains_old_w
         "SELECT COUNT(*) FROM thread_expansion_items"
     ).fetchone() == (1,)
     with view(state) as reader:
-        assert reads.get_job(reader, P, child.job_id).state is JobState.QUEUED
+        assert reader.get_job(P, child.job_id).state is JobState.QUEUED
     with pytest.raises(StorageFailure), session.transaction() as uow:
         expansion.finish_expansion(
             uow, P, value.run_id, NOW, RevisionGuard(Revision(1))
@@ -475,7 +475,7 @@ def test_existing_items_only_child_joins_selected_epoch_without_changing_first_o
     ingest(session, value, (item(value, message, child),), ())
     ingest(session, value, (item(value, message, child),), (), revision=1)
     with view(state) as reader:
-        saved = reads.get_job(reader, P, child.job_id)
+        saved = reader.get_job(P, child.job_id)
         assert saved.origin_epoch_id == child.origin_epoch_id
         assert saved.job_id == child.job_id and saved.state.value == status
     assert connection.execute(
@@ -522,8 +522,8 @@ def test_existing_items_only_child_joins_selected_epoch_without_changing_first_o
     # A separately opened read view proves the durable relation and unchanged
     # child's pending/failure, rather than relying on an enqueue receipt.
     with view(state) as reader:
-        assert reads.get_job(reader, P, child.job_id).state.value == status
-        assert reads.get_epoch(reader, P, selected_epoch.epoch_id).state is (
+        assert reader.get_job(P, child.job_id).state.value == status
+        assert reader.get_epoch(P, selected_epoch.epoch_id).state is (
             EpochState.COMPLETED_WITH_ISSUES
             if status == "failed"
             else EpochState.PREPARED
@@ -558,8 +558,8 @@ def test_later_bad_item_rolls_back_existing_child_epoch_join_and_all_membership(
         "SELECT revision FROM thread_expansion_runs"
     ).fetchone() == (0,)
     with view(state) as reader:
-        assert reads.get_job(reader, P, child.job_id).origin_epoch_id is None
-        assert reads.get_job(reader, P, missing.job_id) is None
+        assert reader.get_job(P, child.job_id).origin_epoch_id is None
+        assert reader.get_job(P, missing.job_id) is None
 
 
 def test_finish_revalidates_existing_child_membership_in_this_exact_epoch(state):
