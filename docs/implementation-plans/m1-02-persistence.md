@@ -597,3 +597,19 @@ than completed success; recovery-job retries are checks, not new insert attempts
 History page/epoch transitions, expansion proof, insert/mapping transactions,
 backup/restore/migration and real process-crash gates remain pending in this
 partial slice. No empty event consumption or caller-provided catch-up ID is enabled.
+
+## Independently approved insert-result recording extension
+
+The coordinator dispatched the independently approved result-recording amendment
+on 2026-10-02: [exact finite supplement](adrs/insert-result-recording-amendment.md),
+SHA-256 `2bf222b1819d80ddbed48387c8afd8fda5678db4b6425d1e89f396ea2687b427`.
+Its design author was `phase1_plan_review`; independent design reviewer was
+`phase1_architecture_plan`. The frozen storage r3 prefix and History r4 amendment
+remain unchanged. This execution append does not rewrite their historical scope.
+
+Implement only that supplement's result signature, full-row CAS/replay, explicit
+observation time, original-job/claim disposition and finite recovery membership
+rules. Actual IR-01..10 tests add to DB-10/11, not replace DB-01..28. Counters,
+deadlines, same-state error patches, attribution evidence and scheduling policy
+remain outside this supplement. Design approval is not source acceptance; a new
+exact implementation candidate, independent acceptance review and CI are required.
