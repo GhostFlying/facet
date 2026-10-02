@@ -613,3 +613,20 @@ rules. Actual IR-01..10 tests add to DB-10/11, not replace DB-01..28. Counters,
 deadlines, same-state error patches, attribution evidence and scheduling policy
 remain outside this supplement. Design approval is not source acceptance; a new
 exact implementation candidate, independent acceptance review and CI are required.
+
+## Independently approved first-map verification extension
+
+The coordinator dispatched the independently approved finite
+[mapping supplement](adrs/mapping-verification-amendment.md) on 2026-10-02,
+SHA-256 `81b21b0f1c30d0799ea636acb59fdfc90d9920567e25e3abb5484347c38ec2d6`.
+Design author `phase1_plan_review` and independent design reviewer
+`phase1_architecture_plan` closed the direct-response normal/inserted-attention
+completion, four-row provenance, two bounded private reads, visibility, time and
+exact-replay seams. Original storage/result/History documents and the approved
+503-line plan prefix remain unchanged.
+
+Implement only its project-message first-map transaction and MV-01..12 real-file
+tests. Unknown attribution, repair, missing fidelity facts, actual M2 readback
+authority and runtime attention scheduling remain separate gates. Independent
+exact-source acceptance plus CI is required; this document dispatch is not source,
+Gmail, process-owner or whole M1-02 evidence. DB-21 no-create closure stays held.
