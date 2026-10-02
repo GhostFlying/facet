@@ -100,3 +100,20 @@ publication/CI evidence and does not relabel the candidate runs as its checks.
 Overall user approval G0 remains pending; PR #2 remains Draft and unmerged.
 No product implementation, CLI runtime, Gmail operation, image publication or
 deployment was introduced by these documentation/history units.
+
+## Product-first total-plan reordering
+
+The user approved the presentation order, not overall-plan G0: goals, operating
+loop, overall acceptance, scope/non-goals, milestones, then work packages and
+execution. Independent Astra high plan-only review approved
+`phase-1-planning.md` at SHA-256
+`4eca92dd86dc9a84cfd435139dc53524984b64aafb322bf8feed0cbb66e99835`, baseline
+`be0c1020e026b66a67f28149a22cef539aa65f8b`, before the structural edit.
+
+The four-document candidate preserves the 36 original package card bodies and
+operational DAG/waves/CLI/authority sections; its new overview only summarizes
+existing contracts. Exact-SHA candidate review/CI is tracked in
+[draft PR #2](https://github.com/GhostFlying/facet/pull/2) and
+[Epic #1](https://github.com/GhostFlying/facet/issues/1), not inferred from an
+earlier verdict. Overall G0 remains pending, with no product/Gmail/image/deploy
+work or plan merge authorized by this reordering.

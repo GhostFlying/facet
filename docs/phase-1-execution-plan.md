@@ -1,79 +1,132 @@
-# Facet Phase 1 完整执行计划
+# Facet Phase 1 总计划
 
 日期：2026-10-02
 
-状态：完整 CLI/commit 规范新增版已通过独立 Astra high 技术审查
-（`eca99118b46db765960c7439246b6a1c5f4e5ccb`）；历史重挂后的等价候选
-`5d623f201b4e4f8c701b196d3f017bf874f3e79a` 已独立核验并通过 CI。
-此前 `7c68991` 审查保留为历史记录，本次新增有单独审查证据。
-整体计划待用户 review/明确批准（G0）；M1-M6 均未实现。GitHub 跟踪入口为
+状态：总计划草案，用户整体批准 G0 仍 pending；M1-M6 与生产 CLI 均未实现。
+技术 review 和 CI 见 [review record](reviews/phase-1-plan-review.md) 与
+[draft PR #2](https://github.com/GhostFlying/facet/pull/2)，推进入口为
 [Phase 1 Epic #1](https://github.com/GhostFlying/facet/issues/1)。
 
-目标：交付单用户、自托管、可恢复的 Gmail projection，包含完整维护 CLI、只读
-Dashboard、Docker Compose 一键启动、Actions 镜像、备份恢复和完整 v0.1 验收。
-协调 agent 负责依赖分解、派工、review 调度、验收、进度与 blocker 汇报；设计、
-代码、测试、文档、提交和冲突处理由负责的子 agent 完成。
+本计划汇总 [产品契约](product-contract.md)、[项目计划](project-plan.md)、
+[投影规格](gmail-projection-spec.md)、[Dashboard 规格](dashboard-spec.md) 和
+[完整 CLI 契约](cli-spec.md) 的既有要求。下文是目标、必需证据和执行安排，不是
+已测结果；当前能力以 [开发状态](development-status.md) 为准。Phase 0 只证明其
+采样范围内的 Gmail 可行性，不能代替生产验收。
 
-本计划落实 [项目计划](project-plan.md) 的 M1-M6，并遵守
-[产品契约](product-contract.md)、[投影规格](gmail-projection-spec.md) 与
-[Dashboard 规格](dashboard-spec.md)。协作过程和模板见
-[agent 工作流](agent-workflow.md)，当前能力以
-[开发状态](development-status.md) 为准。计划中的路径、命令、指标和交付件不是
-已实现功能；Phase 0 只证明其采样范围内的 Gmail 可行性。
+## 整体目标
 
-## 完整 CLI 与现有工作包
+交付一个单用户、可长期自托管的 Gmail 选择性投影服务。Source 是唯一事实来源；
+用户通过明确规则或手动选择授权完整 thread，由 Facet 将授权内容写入另一个 Gmail
+target，AI agents 只连接 target。Facet 自身的 source OAuth 仍是邮箱级读取权限，
+选择性由 Facet 执行逻辑实现，不是 OAuth 对 sender 的访问隔离。
 
-[CLI 契约](cli-spec.md) 是必需交付，不能以 skeleton/help-only 验收；命令/ownership/
-JSON/退出码/confirmation/故障与 privacy 细节集中于该规格，36 个工作包 ID 不变。
-共享 command registry/types/请求键/preview 与输出规则由 foundation/integration
-owner 管理，各 feature handler 归对应包。以下 CLI acceptance 增加到包的现有 gate：
+需要交付的结果是：
 
-| Gate / CLI acceptance | 已有包 owner | 必需实际操作 |
+- 披露选择可理解且持续有效：一封 message 获准即授权完整可用 non-draft thread，
+  包括较早历史、附件、其他参与者与 own replies；tracked thread 的未来消息继续
+  投影，即使 sender 改变。Preview 解释持续授权，不承诺冻结会话。
+- Target 是用户可通过 Gmail API/UI 检查的披露视图。Facet 对自己写入内容的范围、
+  保真、日期、thread、附件和映射状态负责；target 既有或直接收到的 unmanaged
+  内容也可能被 AI connector 读取，Facet 要提示，不能自动删除或认领。
+- 服务在既有一致性边界内持续运行和恢复：选中工作持久可解释，限流、断网、
+  restart 或授权失效不静默丢失 jobs；最终成功、review、取消或明确失败。不承诺
+  Gmail 与 SQLite 的 exactly once，也不承诺恢复已无法取得的 source 内容。
+- 自托管可观察、可维护：只读 Dashboard 显示可信汇总，全套 CLI 处理配置、授权、
+  规则、进度、异常及维护；Compose、公开可追溯镜像、备份恢复和升级回滚形成完整
+  交付，而不只是可启动源码或 help 骨架。
+
+## 用户使用闭环
+
+以下描述交付后的实际路径；当前尚不能执行生产 `facet` 命令。
+
+1. 安装和检查：选择明确镜像版本/digest 与本地持久 volume，准备私密配置；CLI
+   validate/init/doctor 检查本地 schema、文件权限及待核验 binding，不声称已检查
+   live profiles/target 内容。初始化不复制邮件、不导入 spike 状态；Web 默认无公网暴露。
+2. 授权与绑定：经 CLI Desktop loopback/SSH OAuth 分别绑定不同 source/target，
+   核对 live profiles/实际 scope，并报告 target 既有 unmanaged 内容。OAuth 是一次
+   安装准备，不由 Compose up 替代，也不自动授权
+   任意 backfill、额外 scope 或未选择账号。
+3. 预览和明确开始：配置规则或选择 thread，preview 解释固定六个月 discovery、
+   thread 全历史与持续披露；setup/preview 零 insert。用户显式 start 后才做获准
+   backfill；真实 bulk 还需持久 H0 消费/gap 能力与具体 live 范围许可。
+4. 增量使用：daemon 消费 History，投影 tracked thread 的新消息与 own replies；
+   Dashboard 看汇总进度、队列、异常和 snapshot freshness，CLI 查本地状态；
+   target Gmail API/UI 是内容验收入口。
+5. 调整选择：新增 sender/domain 默认只对未来 admission 生效，手工 AddSender/
+   AddDomain action labels 纳入当前 thread，BlackList 则停止所选 thread。
+   旧 thread 的停止用 stop/BlackList，历史扩展另需明确 backfill；
+   remove allow rule 或移除 blacklist 不暗中停止/恢复已有 tracking。
+6. 处理异常：CLI queue/review/recovery/audit 解释 blocked、unknown insert、
+   source_missing、target missing 和 History gap；按受限 preview/approve/repair
+   处理实际范围，不盲 retry、认领旧副本、重置 cursor 或删除 target。Auth 失效时
+   offline status/doctor/maintenance 仍可用，reauth 后 pending work 继续。
+7. 长期维护：一次配置/OAuth 后用 `docker compose up -d` 启动；容器重建保留 DB、
+   binding、credentials 和 jobs。用镜像 CLI 停机持锁备份、离线验证/恢复/迁移，
+   按明确 digest 升级与支持的 schema 路径回滚，无 host Python 安装要求。
+
+## 整体验收
+
+下列八类是 Phase 1 必须证明的结果，沿用现有契约和 gate，不是已通过的结果。
+每项需要测试/实测记录及适用范围；源码完成、PR merge、build/help 成功或容器
+启动不能替代验收。公开证据只用合成数据、受控汇总和 review/CI/artifact 引用，
+真实邮箱内容、IDs、凭据和私人主机路径保持私密。
+
+| 类别 | 必须达到的结果 | 必需证明证据 | 已有 gate / CLI / 工作包 |
+| --- | --- | --- | --- |
+| A1 披露与授权 | 完整 thread 持续授权、固定六个月 discovery、未来规则/显式历史扩展、可信 automatic admission、stop/BlackList 正确；unmanaged target 仅报告 | 合成认证/域名/effective_at/legacy/stop 反例；preview→start 与零隐式 insert；获准范围的真实 admission/action 结果 | G1/G3/G5；CLI-02/03/05；M1-06、M3-01 至 M3-04、M5-01 至 M5-03 |
+| A2 Gmail 保真和可见性 | 原 raw 不重序列化；内容/MIME/附件、有效 Date/可解释降级、实际 target thread 集合正确；默认 All Mail，不镜像读/星/Inbox/Sent 状态 | 版本化 semantic/MIME/附件 digest 与 Date/thread 合成测试；限定 live Gmail API 回读和 UI 检查；fallback 只处理确认 threading 错误 | G2/G6；CLI-02；M2-02/05、M6-08 |
+| A3 连续同步与恢复 | H0/discovery/History 全分页接续，gap/reconcile 不扩大授权；intent/unknown、restart、取消/故障可恢复或明确 attention，选中工作不静默消失 | Cursor/intent/insert/map/stop/restart/disk 故障注入；初始化交错、History expiry 与归属反例；范围内 live 恢复、未知 gap 显式 range 决定 | G2/G3/G4/G5；CLI-02/03/04/05；M2-03/04、M3-02、M4-01/02/03/06、M5-03 |
+| A4 隐私和输出边界 | DB 仅必要 metadata，raw 仅内存、不落文件；logs/CI/images 无邮件内容或凭据，许可的私密 state/backup owner-only；HTTP/DOM/frontend/URL/export 无邮件与内部私密字段 | DB/journal/log/files 和 CLI private/public 分层 sentinels；Web network/DOM/浏览器检查；image/context/layers/artifacts 扫描与 owner-only 文件检查 | G1/G4/G6；CLI-08；P1-02、M1-05、M4-04/05、M6-03 至 M6-06 |
+| A5 可观察和可维护 | Dashboard 数量/单位/unknown/stale/部分失败真实；完整 CLI 完成 setup、控制、规则、queue/review/recovery/audit/维护，首应答丢失仍可查 | 桌面/手机 UI 和 GET 零 Gmail/写副作用；CLI subprocess/fake E2E、JSON/退出码/确认/preview/request-key；invalid_grant 下 offline 诊断和维护 | G1/G4/G6；CLI-01 至 CLI-08；M1-03/05/06、M4-04/05/06、M6-01/02/06 |
+| A6 部署、备份和升级恢复 | 非 root 单 sync owner、local WAL volume、安全 HTTP/Nginx 边界；Compose 一键启动；公开镜像、容器 CLI、备份/恢复/迁移/rollback 可用 | 干净环境按双语 runbook 操作；匿名 digest pull、双架构 runtime/SBOM/provenance；容器重建 state 保留、DB+credential 锁竞争和实际运维演练 | G6；CLI-06/07；M6-01 至 M6-07 |
+| A7 条件同步延迟 | 正常 API、有效授权、无积压时，source 新消息到 target insert+回读的 P95 < 60 秒；backfill 另算，AI connector 不计入 | 实测前冻结 source 时间、discovered/queued/verified timestamps、样本量与排除/无样本规则；实际样本及 polling/queue/processing 分段，无样本不能 pass，不用历史 RFC Date 算起点 | G4/G6；M4-06、M6-08 |
+| A8 最终交付和 72h 运行 | G1-G6 全过；指定主机至少 72h，覆盖 restart/refresh/受控故障/backup/restore 与真实失效→重新 OAuth→pending jobs 继续；文档/限制/候选证据完整 | 实际起止、样本/运行记录及许可 scope；live Gmail API/UI、部署/CLI/恢复证据；candidate SHA/digest 和 reviews/CI/gates 索引，license/正式 release 决定按台账关闭 | G1 至 G6；CLI-07/08；M6-07/08/09 |
+
+A7 沿用既有条件性性能目标，不是 Gmail 外部服务 SLA；不新增样本量或硬指标。
+测量 plan 在实测前冻结，无样本/条件不满足如实报告，未达标不能改口径或减少
+样本换取通过。A8 的 72 小时是必需最低窗口，不是计时到点自动验收；仍有失败 gate
+就继续整改。真实 Gmail、re-auth/撤权故障和主机演练需对应权限/用户参与，合成
+测试不能代替。M4 alpha 或 AI 产品索引/检索效果都不等于 Phase 1 完成。
+
+## 范围与非目标
+
+本期只支持一个用户、一个 projection、两个不同 Gmail 账号。Python/SQLite WAL
+运行在 local filesystem，单 daemon owns sync/HTTP，有限并发、rate limits 与 raw
+内存预算；静态 Dashboard 只读，无邮件详情/写控制。完整 CLI、Docker Compose、
+Actions 的 public `ghcr.io/ghostflying/facet` 双架构镜像、双语运维文档与备份/恢复/
+升级路径是必交付范围。
+
+Source 默认 `gmail.readonly`，观察用户手工 action labels；便利 `gmail.modify`、
+target label 创建和可选 Inbox 按额外 scope/选择启用，不自动扩大权限。Target 默认
+`gmail.insert` + `gmail.readonly`、All Mail 可见，仅 insert 不 send/forward。
+Target 应专用；既有 unmanaged 邮件仍可能被 connector 读取，Facet 不接管它们。
+
+Phase 1 不做 send、purge/retention/target 自动删除、双向同步、全量状态镜像、
+多租户、其他 provider、LLM 分类、通用 MCP、Web OAuth/邮件浏览/规则编辑或应用
+自建 HTTPS/login。未来撤回也不保证清除第三方索引/缓存。AI connector 的授权、
+索引、搜索、附件读取与回答准确性由各 AI 产品负责，不是 Facet 发布 gate 或同步
+延迟的一部分。
+
+G0 是开发阶段对具体总计划版本的批准，不是安装后的 CLI runtime flag。D1 工程
+自主 merge 与 D2 GHCR/main full-SHA scope 已授权，只在 G0/phase 开始后生效；
+live Gmail/规则、host、额外 scopes、license/正式发布和持续唤醒按权限台账处理。
+本轮重排不启动这些外部动作。
+
+## 里程碑
+
+M1-M6 是验收顺序，不强制所有工程串行；已冻结工程输入齐备时，后阶段独立离线
+模块可以提前。Live/部署 gate 另记录，不能据此宣布前阶段完成。
+
+| 里程碑 | 用户得到的阶段结果 | 关闭条件 |
 | --- | --- | --- |
-| G1 / CLI-01/08 | M1-01/03/04/05/06，P1-02 | config/init、auth-status、offline status/doctor/inspect、JSON/退出码/非 TTY/privacy；稳定请求键及首次应答丢失 lookup |
-| G2 / CLI-02/08 | M2-04/05 | threads/review/recovery preview producer、track/stop、queue/operations、安全 retry；unknown insert 不绕过 recovery |
-| G3 / CLI-03 | M3-01/02/03/04 | rules、preview/start/backfill pause/resume、review；用途/范围/过期 preview guards |
-| G4 / CLI-04 | M1-03，M4-02/03/04/06 | daemon 控制和持久 pause、ingestion/mutation 边界、unknown gap 的显式范围决定、可续 reconcile/audit、bounded repair |
-| G5 / CLI-05 | M5-01/02/03 | mode/实际 scopes、legacy report、blacklist/stop，不复活 stopped generation |
-| G6 / CLI-06/07/08 | M6-01/02/03/06/07/08 | 最终 image 完整 CLI，无 host Python；offline backup/restore/migrate/inspect、re-auth、升级回滚和容器 E2E |
+| M1 工程和身份基础 | 可校验配置/绑定/状态，安全持久化与正式 CLI 基础 | G1：身份/锁/隐私/认证设计证据齐备 |
+| M2 可恢复投影 | 手动选定 thread 能投影、核验并解释未知结果 | G2：保真、归属、队列/故障及限定 live 证据 |
+| M3 规则与 backfill | 规则生效边界、preview/显式 start、固定发现窗口可用 | G3：认证启用证据与 disclosure/持久发现验收 |
+| M4 增量与 Dashboard alpha | History/gap/校对和只读页面形成长期同步 alpha | G4：增量交错、恢复、浏览器/隐私与 runtime 证据 |
+| M5 action labels | 学习规则/纳入当前 thread/BlackList 竞争边界可用 | G5：幂等、legacy/mode/cancellation 与范围内 live 证据 |
+| M6 自托管 v0.1 | 镜像/Compose/全 CLI/运维交付、真实部署和运行验收完整 | G6：对应全部 gate、部署/恢复及实际 72h 证据 |
 
-M1-03/M1-04 的 writer/auth ADR 同时定义成套维护与 auth/refresh 的 DB+credential
-ownership/锁层次，防止 backup/restore 跨版本。离线读命令不因 invalid_grant 失效；
-CLI 私密 metadata 与公共 aggregate DTO 分开，所有模式都禁止正文/raw/凭据/原始
-provider errors。实际 Gmail/re-auth/repair 仍须独立范围许可，G0 当前 pending。
-
-## 完成定义和调度原则
-
-G0 是顶层启动 gate：用户 review 并明确批准具体 Phase 1 计划版本。当前 pending，
-技术 review 和 CI 不代替该批准；总计划 draft PR 不自主 merge，P1 产品实施/M1
-均不启动。批准后协调 agent 按本计划自主派工，内部普通复杂工作包只需要独立 agent
-plan/code/acceptance review，不逐包再问用户。重要产品、隐私、scope 或 authority
-改变重新提交用户 review。
-
-Phase 1 完成必须满足 G1-G6 全部 gate，完成授权范围内的 Gmail API/UI 实测、
-指定主机部署、备份恢复、restart/re-auth 恢复，以及至少 72 小时 dogfood。
-M4 只是 alpha。未经验证的能力保持明确状态，失败的 gate 不能被缩小范围代替。
-
-每个复杂包先形成文件化 plan 和必要 ADR，再由独立 reviewer 审核；通过后实施，
-随后进行独立代码 review 和验收 review。Review 绑定明确的 plan 版本、base SHA
-和候选 commit SHA。变更后只继承仍适用的结论，受影响证据重新验证。
-
-下文 owner 是角色，不是固定 agent。协调 agent 派工时在对应 Issue 中绑定实际
-agent、worktree、branch 和 reviewer。`S` 表示 `gpt-6.1-sol` / xhigh，主要负责
-实施、测试、文档和集成；`A` 表示 `gpt-6-astra` / high，主要负责复杂设计与高风险
-review。独立 reviewer 不能审核自己负责设计或编写的同一变更。模型选择由协调
-agent 按风险调整，不要求用户逐包指定。
-
-当前总并发槽为 4：协调 agent 加 3 个执行槽。设计期可为 3 个独立设计/检查任务；
-实施期默认 2 个 worker 加 1 个 reviewer。Review 是共享服务，不用让所有 worker
-都等待同一串行大 PR。若只有两个依赖就绪的包，其余槽用于 review 或测试，不制造
-无依赖价值的并行工作。
-
-工作包中的“依赖”指实施所需的已冻结接口/输出；G1-G6 是集成验收依赖，另由 gate
-表和就绪记录控制。前阶段已 offline-verified、live gate 待授权时，可继续拥有稳定
-工程输入的后续离线实施，不能把前阶段全部宣告通过。派工记录需同时注明这两类依赖。
-
-## 依赖图和里程碑门槛
+### 依赖图和里程碑门槛
 
 ```text
 整体计划技术 review + 用户明确批准 G0（当前 pending）
@@ -109,7 +162,12 @@ G1→G2→G3→G4→G5→G6 的验收顺序保持不变。后阶段的 ADR、合
 | G5 | 三种 action、legacy、幂等、readonly/便利模式、BlackList 竞争测试与范围内 live 证据 | 当前 label 快照不能复原过期 add/remove 命令 |
 | G6 | 完整 CLI-06/07/08、备份恢复、镜像/Compose/Nginx、升级回滚、双语文档、授权部署和 72h dogfood | Build/help 成功不能证明完整维护 CLI、真实部署或长期稳定 |
 
-## P1：开工基础和测试基座
+## 工作包与推进机制
+
+以下 36 个包保留已审 ID、依赖、交付和验收。先列工作包，再给 CLI 归属、协作规则、
+就绪波次和权限台账；实际派工以 frozen interfaces 与对应 gate/evidence 为准。
+
+### P1：开工基础和测试基座
 
 **P1-00 执行台账和协作基线**
 
@@ -150,7 +208,7 @@ schema/写入协议不能进入各 worker 的独立实现。
 分别建立 DB 禁邮件内容 sentinels 和 Web 更严格的 metadata sentinels；DB 允许的
 binding/rules/IDs 不被误当作全面禁存字段。测试工具自身不写 raw 临时文件。
 
-## M1：正式工程、身份、持久状态与隐私
+### M1：正式工程、身份、持久状态与隐私
 
 **M1-01 正式包、配置和 CLI 基础**
 
@@ -218,7 +276,7 @@ forward/ARC 与伪造 From 都不会凭文本变为可信 pass；每个 accept �
 依据和 policy 版本。未知→review。G1 关闭基础与设计 gate；G3 启用真实自动 admission
 仍须有范围内证据，不能把 parser 测试当信任证明。用户不需要先确认银行名单才能继续 M1。
 
-## M2：thread 投影、保真和未知结果恢复
+### M2：thread 投影、保真和未知结果恢复
 
 **M2-01 Gmail adapters、错误分类和限流**
 
@@ -277,7 +335,7 @@ Owner：集成 agent，S；review：A。
 变化被正确解释；只对确认 threading 错误 fallback，其他 400 不重写；source_missing
 有明确状态。合成 crash evidence 与限定真实 Gmail API/UI 日期、会话、附件证据分开记录。
 
-## M3：规则、生效时间和六个月发现
+### M3：规则、生效时间和六个月发现
 
 **M3-01 Admission policy 与 review**
 
@@ -319,7 +377,7 @@ Owner：验收 agent，S；review：A。文件：M3 integration tests、G3 evide
 样本与声明覆盖对应；未确认银行 domains 不成为默认 allowlist。G3 可记录离线实现完成，
 缺少 live 认证证据时 live gate 保持未闭合，不把结果包装为全部验收通过。
 
-## M4：History、恢复、校对与 Dashboard alpha
+### M4：History、恢复、校对与 Dashboard alpha
 
 **M4-01 History ingestion 和无缝初始化**
 
@@ -387,7 +445,7 @@ G3 live gate。真实 bulk 还须持久 H0 消费/gap 能力就绪和明确 D3 �
 压力不拖死其他 thread；关机未知 insert 保 recovery；Web 刷新不触发 Gmail；G4 alpha
 包含实际 CLI + Dashboard 路径和授权初始化交错实测。此后才允许获授权的大范围 backfill。
 
-## M5：Action labels 和 BlackList
+### M5：Action labels 和 BlackList
 
 **M5-01 Durable action commands 和学习**
 
@@ -421,7 +479,7 @@ Owner：验收 agent，S；review：A。
 不复活；reconcile/gap/restore/recovery 不绕过 generation；在途 insert 完成被记录；
 target 历史保留。范围内 label live evidence 与合成 race evidence 分开。
 
-## M6：Compose、Actions 镜像和自托管 v0.1
+### M6：Compose、Actions 镜像和自托管 v0.1
 
 **M6-01 停机备份**
 
@@ -549,7 +607,59 @@ Owner：发布验收 agent，S；review：独立 A。
 许可证和首次 release 决定完成；未满足的项保持阻塞。实际 tag/release/publication
 遵守用户决定，工程 agent 执行，协调 agent 只调度与验收。
 
-## 可并行波次和关键路径
+### 完整 CLI 与现有工作包
+
+[CLI 契约](cli-spec.md) 是必需交付，不能以 skeleton/help-only 验收；命令/ownership/
+JSON/退出码/confirmation/故障与 privacy 细节集中于该规格，36 个工作包 ID 不变。
+共享 command registry/types/请求键/preview 与输出规则由 foundation/integration
+owner 管理，各 feature handler 归对应包。以下 CLI acceptance 增加到包的现有 gate：
+
+| Gate / CLI acceptance | 已有包 owner | 必需实际操作 |
+| --- | --- | --- |
+| G1 / CLI-01/08 | M1-01/03/04/05/06，P1-02 | config/init、auth-status、offline status/doctor/inspect、JSON/退出码/非 TTY/privacy；稳定请求键及首次应答丢失 lookup |
+| G2 / CLI-02/08 | M2-04/05 | threads/review/recovery preview producer、track/stop、queue/operations、安全 retry；unknown insert 不绕过 recovery |
+| G3 / CLI-03 | M3-01/02/03/04 | rules、preview/start/backfill pause/resume、review；用途/范围/过期 preview guards |
+| G4 / CLI-04 | M1-03，M4-02/03/04/06 | daemon 控制和持久 pause、ingestion/mutation 边界、unknown gap 的显式范围决定、可续 reconcile/audit、bounded repair |
+| G5 / CLI-05 | M5-01/02/03 | mode/实际 scopes、legacy report、blacklist/stop，不复活 stopped generation |
+| G6 / CLI-06/07/08 | M6-01/02/03/06/07/08 | 最终 image 完整 CLI，无 host Python；offline backup/restore/migrate/inspect、re-auth、升级回滚和容器 E2E |
+
+M1-03/M1-04 的 writer/auth ADR 同时定义成套维护与 auth/refresh 的 DB+credential
+ownership/锁层次，防止 backup/restore 跨版本。离线读命令不因 invalid_grant 失效；
+CLI 私密 metadata 与公共 aggregate DTO 分开，所有模式都禁止正文/raw/凭据/原始
+provider errors。实际 Gmail/re-auth/repair 仍须独立范围许可，G0 当前 pending。
+
+### 完成定义和调度原则
+
+G0 是顶层启动 gate：用户 review 并明确批准具体 Phase 1 计划版本。当前 pending，
+技术 review 和 CI 不代替该批准；总计划 draft PR 不自主 merge，P1 产品实施/M1
+均不启动。批准后协调 agent 按本计划自主派工，内部普通复杂工作包只需要独立 agent
+plan/code/acceptance review，不逐包再问用户。重要产品、隐私、scope 或 authority
+改变重新提交用户 review。
+
+Phase 1 完成必须满足 G1-G6 全部 gate，完成授权范围内的 Gmail API/UI 实测、
+指定主机部署、备份恢复、restart/re-auth 恢复，以及至少 72 小时 dogfood。
+M4 只是 alpha。未经验证的能力保持明确状态，失败的 gate 不能被缩小范围代替。
+
+每个复杂包先形成文件化 plan 和必要 ADR，再由独立 reviewer 审核；通过后实施，
+随后进行独立代码 review 和验收 review。Review 绑定明确的 plan 版本、base SHA
+和候选 commit SHA。变更后只继承仍适用的结论，受影响证据重新验证。
+
+下文 owner 是角色，不是固定 agent。协调 agent 派工时在对应 Issue 中绑定实际
+agent、worktree、branch 和 reviewer。`S` 表示 `gpt-6.1-sol` / xhigh，主要负责
+实施、测试、文档和集成；`A` 表示 `gpt-6-astra` / high，主要负责复杂设计与高风险
+review。独立 reviewer 不能审核自己负责设计或编写的同一变更。模型选择由协调
+agent 按风险调整，不要求用户逐包指定。
+
+当前总并发槽为 4：协调 agent 加 3 个执行槽。设计期可为 3 个独立设计/检查任务；
+实施期默认 2 个 worker 加 1 个 reviewer。Review 是共享服务，不用让所有 worker
+都等待同一串行大 PR。若只有两个依赖就绪的包，其余槽用于 review 或测试，不制造
+无依赖价值的并行工作。
+
+工作包中的“依赖”指实施所需的已冻结接口/输出；G1-G6 是集成验收依赖，另由 gate
+表和就绪记录控制。前阶段已 offline-verified、live gate 待授权时，可继续拥有稳定
+工程输入的后续离线实施，不能把前阶段全部宣告通过。派工记录需同时注明这两类依赖。
+
+### 可并行波次和关键路径
 
 | 波次 | 可调度的包 | 关键约束 |
 | --- | --- | --- |
@@ -580,7 +690,7 @@ AUTH/insert 归属 ADR→M2/G2→admission/H0→History/gap/alpha→action races
 部署/dogfood。只有 M6-08 有固定最低 72 小时；认证证据、OAuth 和主机决策可能影响
 等待时长，协调 agent 会报告下一就绪包而非伪造 ETA。
 
-## 风险、决策和外部动作台账
+### 风险、决策和外部动作台账
 
 | ID | 状态与责任 | 影响/触发点 | 提交用户的内容或工程处理 |
 | --- | --- | --- | --- |
@@ -610,7 +720,7 @@ DTO 技术等契约内工程决定由 agent 通过 ADR/review 作出。遇到 bl
 继续其他依赖就绪的离线任务。Decision packet 模板和汇报节奏见
 [agent 工作流](agent-workflow.md)。
 
-## 本轮与首次实施 handoff
+### 本轮与首次实施 handoff
 
 本轮交付是完整计划、独立 review 结果、文档一致性检查及 draft 总计划 PR，供用户
 review。总计划 PR 等用户明确批准 G0 后才能 merge，不能靠 D1 自主合并。本轮不会
@@ -625,7 +735,7 @@ G0 通过后首次实施 dispatch 从 P1-01 接口/ADR plan-review 开始，再�
 implemented、offline-verified、Gmail-verified、deployment-verified 区分，不以 Issue
 关闭、PR merge 或模型 review 自动等同产品验收。
 
-## 发布实施参考
+### 发布实施参考
 
 实施 agent 核对官方文档中的当前发布行为，再选已核验 action commit/base-image
 digest；示例 action 版本不直接作为 pin：

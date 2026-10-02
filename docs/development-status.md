@@ -12,7 +12,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | --- | --- | --- |
 | Phase 0 Gmail spike | Complete within its scope | See [redacted results](phase-0-gmail-spike-results.md); production behavior not implied |
 | Repository bootstrap | Complete | Public `main` published with account noreply identity; Python 3.11/3.12 offline CI passed |
-| Phase 1 execution planning | Complete CLI/commit extension technically approved; user G0 pending | Reviewed `eca99118` maps by verified tree equivalence to `5d623f2`; 36 packages, complete CLI acceptance, passing candidate CI; no product implementation |
+| Phase 1 execution planning | Product-first reordering draft; user G0 pending | Reordering plan independently approved; candidate review/CI tracked in draft PR #2; previous CLI approval historical; 36 packages unchanged, no product implementation |
 | M1 foundation | Not implemented | Config, bindings, schema/migrations, locks, rule storage, public status models |
 | M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
 | M3 admission/backfill | Not implemented | Rules/authenticity, preview, fixed six-month discovery, durable backfill |
@@ -27,6 +27,14 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 
 ## Active implementation record
 
+- User authorized product-first reordering of the total plan, not G0 approval:
+  goals → operating loop → overall acceptance → scope/non-goals → milestones →
+  work packages/execution. Eight acceptance groups summarize existing contracts;
+  the 36 card bodies, DAG, waves, CLI ownership and authority ledger are preserved.
+  The file-based reordering plan received independent Astra high approval before
+  editing. Exact candidate review and CI belong to this revision and are tracked
+  in [draft PR #2](https://github.com/GhostFlying/facet/pull/2); earlier approvals
+  do not imply approval of the new overview. No production work has started.
 - [Repository bootstrap](implementation-plans/repository-bootstrap.md).
 - User requested a complete maintenance CLI and atomic English commit subjects
   (`feat: impl ...`, `fix: fix ...`, other types with action verbs), plus one-time

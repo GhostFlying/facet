@@ -2,9 +2,10 @@
 
 Date: 2026-10-02
 
-Status: complete CLI/document candidate technically approved and history
-normalization independently accepted. Overall user approval G0 is pending;
-product implementation has not started.
+Status: product-first reordering plan independently approved; overall user
+approval G0 is pending. Earlier CLI/history approvals remain historical evidence;
+the reordered candidate requires its own technical review. Product implementation
+has not started.
 
 ## Scope and authority
 
@@ -210,3 +211,69 @@ milestone evidence.
 - Pending: report-only evidence review/publication and its own CI, then explicit
   user overall-plan review/approval. PR #2 remains Draft and unmerged;
   production M1-M6 and the runtime maintenance CLI remain unimplemented.
+
+## Product-first total-plan reordering before editing
+
+The user authorized a presentation change, not overall-plan approval G0 or
+product implementation. Start from clean planning branch
+`be0c1020e026b66a67f28149a22cef539aa65f8b`; main is not edited. Preserve the existing
+worktree and branch; do not rewrite history or change product/CLI contracts.
+
+Scope is at most four documents: this record, `docs/phase-1-execution-plan.md`,
+and only necessary current-state/review entries in `docs/development-status.md`
+and `docs/reviews/phase-1-plan-review.md`. AGENTS, README, product/project/Gmail/
+Dashboard/CLI specifications, source code, and history appendix are out of scope.
+
+Proposed presentation order:
+
+1. Overall goals: controlled ongoing thread authorization, the target view of
+   Facet-managed material, long-running self-hosting, observability and maintenance.
+2. User operating loop: install/configure/OAuth, preview and explicit start,
+   incremental tracking, rules/action labels, CLI exception handling, and
+   backup/restore/upgrade.
+3. Eight overall acceptance groups: disclosure, fidelity, continuity/recovery,
+   privacy, observation/maintenance, deployment/recovery, conditional P95 < 60 s,
+   and final delivery including the actual 72-hour dogfood gate. Map each to
+   required evidence and existing G/CLI/package owners; requirements are not results.
+4. Scope and non-goals, including unmanaged target data and the AI-connector
+   boundary; no new feature, hard metric or weakened gate.
+5. Milestones: retain M1-M6/G0-G6, M4 alpha versus v0.1, engineering versus live
+   dependencies, the existing DAG and gate evidence.
+6. Work packages and execution: move the 36 cards, CLI ownership, review/model/
+   concurrency rules, waves, risks and authority ledger after the product overview.
+
+Before this edit, obtain independent plan review of this section. After approval,
+use a minimal structural patch: simplify the title/opening and link the review
+record rather than leading with historical SHAs. Move existing package card
+bodies, dependencies/tests, DAG, wave and authority text without semantic changes;
+compare extracted card bodies and preserved operational sections to the baseline.
+New overview prose summarizes existing contracts only. Freeze latency measurement
+definition/sample plan before live tests; unchanged normal API, valid auth and
+no-backlog conditions apply, and no samples cannot pass. Do not invent results.
+
+Acceptance/checks: the six-part order is visible; the eight acceptance groups are
+traceable to existing requirements; all 36 IDs and original card bodies remain,
+and no dependency/wave/authority meaning changes. Run local-link/Markdown/
+whitespace/privacy and staged safety checks. Submit a local atomic
+`docs: reorganize Phase 1 plan around product goals and acceptance` candidate for
+exact-SHA independent review; pushing requires a separate coordinator instruction.
+
+Risks/stop: duplicated overview could silently broaden disclosure, impose a new
+measurement threshold or weaken recovery/privacy. Stop and escalate a material
+contract conflict instead of resolving it in prose. G0 remains pending; neither
+technical review nor this reordering authorizes plan merge, coding, Gmail calls,
+image publication or deployment. The initial step is plan-only review before editing.
+
+Independent Astra high plan review approved the above reordering scope/approach
+at file SHA-256
+`4eca92dd86dc9a84cfd435139dc53524984b64aafb322bf8feed0cbb66e99835` before
+the total-plan edit. The coordinator then authorized the structural implementation
+and local candidate commit only. Candidate technical review/CI will be tracked
+against its exact SHA in draft PR #2/Epic #1; G0 remains pending.
+
+Local structural checks passed for the reordered draft: six top-level parts,
+eight acceptance groups, all 36 package card bodies and the seven preserved
+operational sections (DAG/gates, CLI ownership, coordination, waves, authority,
+handoff and references) match the baseline apart from heading level/separation.
+Links, fences, heading separation, private-host-path and whitespace checks passed
+for the four-document scope. These are documentation checks, not runtime proof.
