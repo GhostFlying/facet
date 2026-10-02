@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12']
+        python-version: ['3.12', '3.13']
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,3 +43,8 @@ jobs:
         run: uv run --frozen pytest
       - name: Spike CLI smoke check
         run: uv run --frozen facet-spike --help
+      - name: Production CLI smoke check
+        run: |
+          uv run --frozen facet --help
+          uv run --frozen facet --json --version
+          uv run --frozen pytest tests/cli/test_bootstrap.py -q

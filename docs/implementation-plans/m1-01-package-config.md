@@ -428,3 +428,43 @@ Checked read-only on 2026-10-02; primitive documentation is not Facet test evide
 - [Python 3.12 OS interfaces](https://docs.python.org/3.12/library/os.html): file
   creation, no-follow/permission and durability primitives; test local race/failure
   behavior rather than assuming a multi-file operation is atomic.
+
+## Execution appendix — dispatched foundation candidate
+
+The r3 plan above (through Primary references) remains the exact independently
+approved prefix, SHA-256
+`feeabe53d454c931da343964aa7d0a923508d86d3710a03e7c69dc413d534101`.
+Its preparation-only status/conditional freeze language is historical. Reviewer
+`phase1_plan_review` approved it against integrated base `09031e7`; the coordinator
+then explicitly dispatched implementation on 2026-10-02. This appendix records
+execution without changing inventory, ownership, schema or product gates.
+
+- Core atomic commit `78949ce374a5b27cdc1fc30f14bbb39f76dddde7` received independent
+  bounded preliminary approval: 47 exports/closed branches, 42 core tests, and
+  66 full tests in that core-only snapshot passed. This is not final package or
+  CI/integration approval.
+- The existing local Python 3.13.5 lacks `_sqlite3`. The coordinator authorized
+  the QA owner to prepare an isolated official managed CPython 3.12.13 runtime;
+  our separate locked venv verifies SQLite 3.53.1. No system interpreter/settings
+  were changed or second runtime downloaded. Full local checks use this complete
+  runtime; actual 3.13 coverage waits for CI, not a fake local-runtime claim.
+- `uv lock` added only PyYAML 6.0.3 and adjusted supported artifacts for the Python
+  floor; existing dependency versions are retained. Its
+  [tagged primary source](https://github.com/yaml/pyyaml/blob/6.0.3/setup.py) and safe
+  parser documentation were inspected; Facet's own hostile-YAML tests prove its
+  stricter behavior. Authorized dependency bootstrap downloads are distinct from
+  Gmail-free test execution.
+- Current local candidate checks: 149 tests (24 retained spike plus 125 foundation),
+  Ruff lint/format 55 files, production/spike help, wheel build and separate
+  non-editable installed-wheel entry/import/config smoke. The isolated wheel
+  environment is constrained to the production dependencies exported from `uv.lock`.
+  The initial offline wheel install encountered a registry cache miss; normal
+  dependency retrieval followed by locked dependency constraints succeeded.
+- Implemented reads only claim `structural_only`. Default managed reads and all
+  init/apply commands remain `owner_unavailable`, with zero writes, no spike
+  reading or unfiltered exception output. The StrEnum invalid-value path has a
+  subprocess privacy negative control. No credential, DB, owner/view protocol,
+  admission, Gmail, image/deployment or complete CLI/G1 capability is claimed.
+- Exact final candidate review/3.12+3.13 CI/integration results belong to
+  [Issue #7](https://github.com/GhostFlying/facet/issues/7) and its focused PR;
+  no self-referential report-only repository commit is necessary.

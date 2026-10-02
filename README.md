@@ -6,20 +6,23 @@ vertical slice is a selective Gmail projection into a separate Gmail account.
 Repository: [GhostFlying/facet](https://github.com/GhostFlying/facet) (public).
 License selection is pending; no production release is available yet.
 
-This repository currently contains a Phase 0 spike, not the production sync
-daemon. Its purpose and stop conditions are documented in
+This repository contains the production package/config/CLI foundation and an
+isolated Phase 0 spike, not a working production sync daemon. The spike's purpose
+and stop conditions are documented in
 [`docs/phase-0-gmail-spike-plan.md`](docs/phase-0-gmail-spike-plan.md).
 The redacted live findings are documented in
 [`docs/phase-0-gmail-spike-results.md`](docs/phase-0-gmail-spike-results.md).
 
 Phase 0 is complete: Gmail API behavior and target Gmail conversation/PDF access
-were verified. Production implementation is planned, not yet available.
+were verified. The production foundation provides strict offline configuration
+reads; Gmail synchronization, initialization and the complete maintenance CLI
+remain future reviewed work.
 
 The user approved the complete Phase 1 plan on 2026-10-02 at
 `caba7c73895a303d329cf3eba1c89557530c38c5`; [PR #2](https://github.com/GhostFlying/facet/pull/2)
 is merged at that exact SHA. Agents now advance reviewed internal work packages
-and qualified PR merges autonomously. Production capabilities are still
-unimplemented; material product, privacy or authority changes return to the user.
+and qualified PR merges autonomously. Current capability and evidence are in the
+development status; material product, privacy or authority changes return to the user.
 
 ## Development plan
 
@@ -74,7 +77,8 @@ The complete CLI is a required Phase 1 deliverable, not help-only scaffolding.
 All maintenance commands will run from the image without host Python. Status,
 doctor and stopped backup/restore/migration/inspection work offline when Gmail
 or OAuth fails; queue retry cannot bypass unknown-insert recovery. This new CLI
-contract has independent technical review evidence but remains unimplemented.
+contract is incrementally implemented. Current `facet` commands are listed below;
+the complete CLI/G1-G6 gates have not passed.
 
 Commit subjects use atomic English `type: action summary` form: features use
 `feat: impl ...`, fixes use `fix: fix ...`, and documentation/test/refactor/CI/
@@ -83,12 +87,16 @@ normalization is a separately reviewed operation, not general rewrite authority.
 
 ## Local setup
 
+Python 3.12+ is required. Both `facet` and `facet-spike` are installed; the spike
+keeps its separate state and is never imported by production commands.
+
 ```bash
-uv sync --extra dev
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest
-uv run facet-spike --help
+uv sync --locked --extra dev
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen pytest
+uv run --frozen facet --help
+uv run --frozen facet-spike --help
 bash scripts/check-repo-safety.sh
 ```
 
@@ -99,8 +107,34 @@ checks lint, formatting, tests, CLI startup, and the repository safety baseline.
 It never receives Gmail credentials. The safety check reads tracked/staged files;
 ignored runtime data is not scanned or uploaded.
 
-Private runtime files live in `.facet-spike/` and are ignored by Git. The CLI
-creates token and state files with owner-only permissions.
+Private spike runtime files live in `.facet-spike/` and are ignored by Git. Only
+the explicitly invoked spike creates its experimental tokens/state. Production
+help, version and config reads create no state and make no Gmail/network calls.
+
+### Available production foundation
+
+`facet --help`, `facet --version`, `python -m facet`, and `facet config validate/show`
+are implemented. For an owner-only (0600) standalone config outside the configured
+state root, use:
+
+```bash
+uv run --frozen facet config validate --config ./standalone-config.yaml --json
+uv run --frozen facet config show --config ./standalone-config.yaml --json
+```
+
+The required `projection` fields are `id`, `source_email` and `target_email`.
+Optional sections/defaults follow the [M1-01 plan](docs/implementation-plans/m1-01-package-config.md).
+Validation is explicitly `structural_only`: it does not verify Google identity,
+scopes, managed state or sender rules. Rules remain pending canonical PSL/auth
+validation. Default show omits addresses, rule/label values and private paths;
+`--private-metadata` is a local opt-in, not a public export. `--public` config
+output is refused.
+
+Default managed config reads, `facet init`, `facet config init` and `config apply`
+return `owner_unavailable` (exit 4) without writing. They await the reviewed M1-03
+single-owner/read-view implementation and M1-06 integration. There is no unlocked
+fallback, implicit OAuth/backfill, successful stub initialization or spike import.
+These limits do not reduce the required complete CLI delivery.
 
 ## Google OAuth prerequisite
 

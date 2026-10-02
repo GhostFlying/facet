@@ -12,19 +12,23 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | --- | --- | --- |
 | Phase 0 Gmail spike | Complete within its scope | See [redacted results](phase-0-gmail-spike-results.md); production behavior not implied |
 | Repository bootstrap | Complete | Public `main` published with account noreply identity; Python 3.11/3.12 offline CI passed |
-| Phase 1 execution planning | User G0 approved; plan integrated | Exact approved/merged `caba7c7`; independent review/QA and candidate/main CI passed; production capabilities remain unimplemented |
-| P1-00 execution baseline | Implementation/candidate review in progress | Reviewed r2 plan; current-state approval/ownership docs and 36-package ledger; not yet integrated |
-| M1 foundation | Not implemented | Config, bindings, schema/migrations, locks, rule storage, public status models |
+| Phase 1 execution planning | User G0 approved; plan integrated | Exact approved/merged `caba7c7`; independent review/QA and candidate/main CI passed; not milestone completion |
+| P1-00 execution baseline | Integrated | PR #6 exact `2618eaf`; independent plan/implementation review, candidate/main CI passed |
+| P1-01 core/writer ADRs | Reviewed and integrated design freeze | PR #8 exact `09031e7`; core-v1/writer-v1, independent review and candidate/main CI passed; no runtime/G1 claim |
+| P1-02 test foundations | Provider-slice review changes requested; CT pending | Provider metadata-format finding being corrected; actual M1-01 core compatibility plus final review/CI/integration still required |
+| M1-01 package/config/CLI foundation | Implemented, locally offline-tested candidate | Minimum core types, strict structural config and actual validate/show; exact candidate independent review and 3.12/3.13 CI pending |
+| M1 foundation as a whole | Incomplete | Bindings, schema/migrations, locks, complete init/doctor/config apply, rule storage and public status models remain |
 | M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
 | M3 admission/backfill | Not implemented | Rules/authenticity, preview, fixed six-month discovery, durable backfill |
 | M4 sync + Dashboard alpha | Not implemented | History/gap recovery, reconcile, aggregate read-only Web UI |
 | M5 action labels | Not implemented | Learning, legacy handling, idempotent commands, BlackList cancellation |
 | M6 self-hosted v0.1 | Not implemented | One-command Compose, Actions GHCR image, Nginx, backup/restore, bilingual docs, live/deployment/72-hour gates |
 
-The executable package is currently `facet_spike`, not `facet`. Existing tests
-cover MIME payload analysis/comparison, private atomic file permissions, RFC-ID
-query validation, and aggregate spike reports. They do not test a production
-daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
+Both `facet` and the isolated `facet_spike` are now packaged for Python 3.12+.
+Production imports/CLI never adopt spike cursors/tokens. The foundation tests cover
+closed types, strict YAML, no-follow private reads and real CLI subprocess
+JSON/exit/privacy/zero-effect behavior, alongside all existing spike tests. They
+do not verify a production daemon, trusted admission, backfill or rendered Dashboard.
 
 ## Active implementation record
 
@@ -38,8 +42,11 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 - [P1-00 plan](implementation-plans/p1-00-execution-baseline.md) r2 received
   independent approval at SHA-256
   `b77d4f90d44ea61aad286851454e9db7d98cef0e1c703ad5968470e4d7242bae` before
-  implementation. Its current candidate requires independent implementation/
-  acceptance review and fresh CI before integration. The shared current-state
+  implementation. [PR #6](https://github.com/GhostFlying/facet/pull/6) actually merged
+  at `2618eafad817aee4e491aa87ebede0f44f27a20b` after independent implementation/
+  acceptance approval and [candidate CI](https://github.com/GhostFlying/facet/actions/runs/36970748778);
+  [main CI](https://github.com/GhostFlying/facet/actions/runs/36971068807) succeeded.
+  The shared current-state
   docs owner and 36 actual package states are in [the ledger](phase-1-progress.md).
   Initial Issues: [P1-00 #3](https://github.com/GhostFlying/facet/issues/3),
   [P1-01 #4](https://github.com/GhostFlying/facet/issues/4),
@@ -47,9 +54,31 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 - Independent startup baseline QA on main `caba7c7` passed Python 3.11.2,
   24 offline tests, Ruff lint/format (33 files), spike CLI help and safety.
   This preserves the spike baseline; it is not production Python 3.12/runtime,
-  Gmail, Compose or maintenance verification. P1-01's plan is separately approved,
-  but ADR implementation waits for integrated P1-00/base update; P1-02 waits for
-  reviewed frozen typed interfaces and its own plan review.
+  Gmail, Compose or maintenance verification.
+- P1-01 [PR #8](https://github.com/GhostFlying/facet/pull/8) actually merged exact
+  `09031e723af1ef6590dc6746744ee52894501e38`, after independent reviewer
+  `phase1_plan_review` approved the corrected candidate and
+  [candidate CI](https://github.com/GhostFlying/facet/actions/runs/36974129495) passed.
+  [Main CI](https://github.com/GhostFlying/facet/actions/runs/36974823051) passed
+  Python 3.11/3.12. Frozen core `p1-core-v1` and writer `p1-writer-v1` are engineering
+  inputs, not evidence that storage/writer/recovery runtime exists or G1 is closed.
+- M1-01 [plan](implementation-plans/m1-01-package-config.md) r3 received independent
+  approval at SHA-256 `feeabe53d454c931da343964aa7d0a923508d86d3710a03e7c69dc413d534101`
+  before coordinator dispatch. The current candidate implements 47 canonical core
+  exports, strict bounded YAML/config defaults, safe standalone config reads and
+  actual `facet config validate/show`, with empty mutable-field registry. Init/apply
+  and managed reads are controlled unavailable; no temporary writer/view protocol.
+  Local locked checks passed CPython 3.12.13 with SQLite 3.53.1: 149 tests (24 retained
+  spike plus 125 new), Ruff lint/format (55 files), both entrypoint help and wheel
+  build/non-editable install smoke. Dependency bootstrap used authorized network;
+  production tests made no Gmail calls and subprocess guards forbid network/spike/DB
+  imports. The preexisting local 3.13.5 lacks `_sqlite3`; it is not a full-runtime
+  verification substitute. Actual candidate CI on 3.12/3.13 and independent
+  implementation/acceptance review are still pending, recorded in
+  [Issue #7](https://github.com/GhostFlying/facet/issues/7); not Gmail/deployment/G1 evidence.
+  P1-02 must pass CT compatibility against reviewed merged types before its closure
+  and M1-02 implementation release. M1-02 is only in plan preparation
+  ([Issue #9](https://github.com/GhostFlying/facet/issues/9)).
 - Historical planning/normalization records below retain their original SHA/
   verification scope. Their then-pending G0/Draft states were superseded by the
   explicit approval and actual integration recorded above, not retroactively
@@ -145,9 +174,11 @@ daemon, trusted sender admission, bulk backfill, or a rendered Dashboard.
 
 ## Next authorized development unit
 
-Complete independent implementation/acceptance review and CI for P1-00, then
-integrate its baseline. Dispatch the separately reviewed P1-01 ADR work on that
-updated main; freeze reviewed interfaces before P1-02 implementation. Ordinary
+Complete independent implementation/acceptance review and 3.12/3.13 CI for this
+M1-01 candidate; integrate only on coordinator authorization. P1-02 closes only
+after its mandatory CT tests consume the reviewed merged core types and its own
+review/CI/integration gates pass; then M1-02 may start its reviewed implementation.
+M1-02 planning can proceed earlier. Ordinary
 phase-internal plans/engineering PRs advance under the approved autonomous gates;
 material product/privacy/authority changes return to the user. Continue with the
 P1 interface/ADR/test work, then dependency-ready M1 packages from the
