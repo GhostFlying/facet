@@ -1,6 +1,6 @@
 """Metadata-only credential replacement CAS operations."""
 
-from facet.contracts import ErrorCode, ProjectionId, Role
+from facet.contracts import ErrorCode, LocalId, ProjectionId, Role
 
 from ..codecs import StorageFailure, encode_scalar, timestamp_to_sql
 from ..models import CredentialChangeRow, WriteReceipt
@@ -8,6 +8,7 @@ from .base import _decode, _insert, _mutating, _query, _require_row
 
 __all__ = (
     "get_change",
+    "get_open_change",
     "begin_change",
     "mark_validated",
     "commit_change",
@@ -29,6 +30,18 @@ _GRANTS = {
     "refresh_explicit",
     "refresh_omitted_inherited",
 }
+_SCOPES = {
+    "gmail_insert",
+    "gmail_labels",
+    "gmail_modify",
+    "gmail_readonly",
+}
+_POLICY_SCOPES = {
+    "source_readonly": ("gmail_readonly",),
+    "source_convenience": ("gmail_modify",),
+    "target_default": ("gmail_insert", "gmail_readonly"),
+    "target_labels": ("gmail_insert", "gmail_labels", "gmail_readonly"),
+}
 
 
 def _fail(code: ErrorCode) -> None:
@@ -49,14 +62,25 @@ def _validate(row: CredentialChangeRow) -> None:
         _fail(ErrorCode.INVALID_INPUT)
     if row.grant_kind is not None and row.grant_kind not in _GRANTS:
         _fail(ErrorCode.INVALID_INPUT)
+    expected_scopes = ",".join(_POLICY_SCOPES[row.scope_policy])
+    if row.granted_scopes is not None and (
+        type(row.granted_scopes) is not str
+        or row.granted_scopes != expected_scopes
+        or any(scope not in _SCOPES for scope in row.granted_scopes.split(","))
+    ):
+        _fail(ErrorCode.INVALID_INPUT)
     if row.phase == "requesting" and (
         row.envelope_digest is not None
         or row.grant_kind is not None
+        or row.granted_scopes is not None
         or row.error is not None
     ):
         _fail(ErrorCode.INVALID_INPUT)
     if row.phase in {"validated", "committed"} and (
-        row.envelope_digest is None or row.grant_kind is None or row.error is not None
+        row.envelope_digest is None
+        or row.grant_kind is None
+        or row.granted_scopes != expected_scopes
+        or row.error is not None
     ):
         _fail(ErrorCode.INVALID_INPUT)
     if row.phase in {"abandoned", "attention"} and row.error is None:
@@ -97,15 +121,34 @@ def _find(uow, projection_id: ProjectionId, role: Role, change_id):
         (projection_id.value, role.value, change_id.value),
         maximum=1,
     )
-    return (
-        None if not rows else _decode(uow, projection_id, "credential_changes", rows[0])
-    )
+    if not rows:
+        return None
+    row = _decode(uow, projection_id, "credential_changes", rows[0])
+    _validate(row)
+    return row
 
 
 def get_change(context, projection_id: ProjectionId, role: Role, change_id):
     if type(role) is not Role:
         _fail(ErrorCode.INVALID_INPUT)
     return _find(context, projection_id, role, change_id)
+
+
+def get_open_change(context, projection_id: ProjectionId, role: Role):
+    """Read a role's unresolved change through the owner transaction."""
+
+    if type(role) is not Role:
+        _fail(ErrorCode.INVALID_INPUT)
+    rows = _query(
+        context,
+        "SELECT change_id FROM credential_changes WHERE projection_id=? AND role=? "
+        "AND phase IN('requesting','validated','attention') LIMIT 1",
+        (projection_id.value, role.value),
+        maximum=1,
+    )
+    if not rows:
+        return None
+    return _find(context, projection_id, role, LocalId(rows[0][0]))
 
 
 @_mutating
@@ -219,12 +262,12 @@ def abandon_change(
     if type(role) is not Role or type(error) is not ErrorCode:
         _fail(ErrorCode.INVALID_INPUT)
     current = _find(uow, projection_id, role, change_id)
-    if current is None or current.phase not in {"requesting", "validated", "attention"}:
+    if current is None or current.phase not in {"requesting", "validated"}:
         _fail(ErrorCode.REQUEST_CONFLICT)
     uow._execute(
         "UPDATE credential_changes SET phase='abandoned',error=?,updated_at=? "
         "WHERE projection_id=? AND role=? AND change_id=? "
-        "AND phase IN('requesting','validated','attention')",
+        "AND phase IN('requesting','validated')",
         (
             error.value,
             timestamp_to_sql(current.updated_at),
