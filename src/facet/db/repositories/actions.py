@@ -1,8 +1,9 @@
 """Finite action metadata and same-transaction effects, not a learning actor.
 
-The compiled producer registry is deliberately empty. A syntactic action, rule,
-receipt, or UUID is not authority to disclose source mail. All fields are private
-normalized metadata; no content, arbitrary payload, callback, or remote work.
+The compiled producer inventory contains only the reviewed readonly action
+label producer. A syntactic action, rule, receipt, or UUID is not authority to
+disclose source mail. All fields are private normalized metadata; no content,
+arbitrary payload, callback, or remote work.
 """
 
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ from facet.contracts.records import (
     RuleRef,
     SourceEventKeyLabelChanged,
 )
+from facet.projection.actions import ActionLabelProducer
 
 from ..codecs import (
     ActionKind,
@@ -50,11 +52,12 @@ from ..models import (
     WriteReceipt,
 )
 from ..transactions import UnitOfWork
-from .base import _get, _guard, _insert, _mutating, _query, _require_row
+from .base import _decode, _get, _guard, _insert, _mutating, _query, _require_row
+from .serialization import COLUMNS
 
 # Only a separately reviewed, compiled M5 producer may change this tuple. No
 # registration API, configurable type name, environment switch, or plugin.
-_ACTION_PRODUCER_TYPES: tuple[type, ...] = ()
+_ACTION_PRODUCER_TYPES: tuple[type, ...] = (ActionLabelProducer,)
 
 
 def _inconsistent():
@@ -175,6 +178,31 @@ def _admission(uow, projection, thread):
             ("admission_revision", thread.admission_revision),
         ),
     )
+
+
+def _find_rule(uow, projection_id, kind, value):
+    rows = _query(
+        uow,
+        "SELECT "
+        + ",".join(COLUMNS["rules"])
+        + " FROM rules WHERE projection_id=? AND kind=? AND normalized_value=?",
+        (projection_id.value, kind.value, value),
+        maximum=2,
+    )
+    if len(rows) > 1:
+        _inconsistent()
+    return None if not rows else _decode(uow, projection_id, "rules", rows[0])
+
+
+def _ruleset_members(uow, projection_id, revision):
+    rows = _query(
+        uow,
+        "SELECT "
+        + ",".join(COLUMNS["ruleset_members"])
+        + " FROM ruleset_members WHERE projection_id=? AND ruleset_revision=?",
+        (projection_id.value, revision.value),
+    )
+    return tuple(_decode(uow, projection_id, "ruleset_members", row) for row in rows)
 
 
 @_mutating

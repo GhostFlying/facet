@@ -79,6 +79,7 @@ from facet.db.models import (
 )
 from facet.db.repositories import actions, epochs, events, jobs, policy, reads
 from facet.db.repositories.base import _get, _insert
+from facet.projection.actions import ActionLabelProducer
 
 
 class SyntheticActionProducer:
@@ -87,7 +88,7 @@ class SyntheticActionProducer:
 
 @pytest.fixture
 def producer(monkeypatch):
-    assert actions._ACTION_PRODUCER_TYPES == ()
+    assert (ActionLabelProducer,) == actions._ACTION_PRODUCER_TYPES
     monkeypatch.setattr(actions, "_ACTION_PRODUCER_TYPES", (SyntheticActionProducer,))
     yield SyntheticActionProducer()
     assert not actions._ENROLLED_SCOPES
@@ -407,7 +408,7 @@ def test_ap01_conflicting_kind_or_alias_id_refuses(state, collision):
 def test_ap03_production_registry_and_forged_scope_cannot_complete(state):
     _, _, session, _ = state
     row = register(session)
-    assert actions._ACTION_PRODUCER_TYPES == ()
+    assert (ActionLabelProducer,) == actions._ACTION_PRODUCER_TYPES
     selection = actions._ActionSelection(
         row.action_command_id, RuleRef(lid(20), Revision(1)), lid(950)
     )
@@ -903,7 +904,7 @@ def test_ap10_attention_and_same_action_admission_both_orders_rollback_without_p
     state, attention_first, caught
 ):
     _, connection, session, _ = state
-    assert actions._ACTION_PRODUCER_TYPES == ()
+    assert (ActionLabelProducer,) == actions._ACTION_PRODUCER_TYPES
     row = register(session)
     attention = needs_attention(row)
     tracked, admission = thread_rows()
