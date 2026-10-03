@@ -8,12 +8,14 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-from fakes.gmail import InsertReply
+from fakes.gmail import HttpFailure, InsertReply
 
 from facet.config import initial_template
 from facet.contracts import (
     BindingState,
+    Generation,
     PolicyVersion,
+    ProviderId,
     Revision,
     Role,
     RuleKind,
@@ -22,7 +24,7 @@ from facet.contracts import (
     Sha256Hex,
     Timestamp,
 )
-from facet.db.codecs import RuleValue
+from facet.db.codecs import RuleValue, ThreadStopReason
 from facet.db.models import (
     BindingRevisionRow,
     RevisionGuard,
@@ -235,6 +237,33 @@ def test_fidelity_ignores_transport_headers_and_keeps_raw_only_in_memory():
     assert first.rfc_message_id is not None
     assert repr(first) == "<fidelity facts>"
 
+    multipart = (
+        b"Date: invalid-date\r\n"
+        b"Message-ID: <multipart@example.invalid>\r\n"
+        b"In-Reply-To: <parent@example.invalid>\r\n"
+        b"Content-Type: multipart/mixed; boundary=facet-boundary\r\n\r\n"
+        b"--facet-boundary\r\n"
+        b"Content-Type: text/html; charset=utf-8\r\n\r\n"
+        b"<p>\xe4\xbd\xa0\xe5\xa5\xbd</p>\r\n"
+        b"--facet-boundary\r\n"
+        b"Content-Type: text/plain\r\n"
+        b"Content-Disposition: attachment; filename=note.txt\r\n\r\n"
+        b"attachment\r\n--facet-boundary--\r\n"
+    )
+    assert inspect(multipart).date_policy.value == "fallback_received_time"
+
+
+def _worker_adapters(controller, owner):
+    source = SourceAdapter(
+        controller.service("source", scopes=frozenset({"gmail.readonly"}))
+    )
+    target = TargetAdapter(
+        controller.service(
+            "target", scopes=frozenset({"gmail.insert", "gmail.readonly"})
+        )
+    )
+    return ProjectionWorker(owner, source, target), source, target
+
 
 def test_worker_expands_inserts_reads_back_and_maps(gmail_controller, monkeypatch):
     parent = _trusted_parent()
@@ -246,6 +275,7 @@ def test_worker_expands_inserts_reads_back_and_maps(gmail_controller, monkeypatc
         "m-old",
         "thread-1",
         raw_old,
+        labels=("SPAM",),
         internal_date="1000",
         payload=payload_old,
     )
@@ -260,15 +290,7 @@ def test_worker_expands_inserts_reads_back_and_maps(gmail_controller, monkeypatc
     with TemporaryDirectory(prefix="facet-worker-", dir=parent) as root:
         owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
         try:
-            source = SourceAdapter(
-                gmail_controller.service("source", scopes=frozenset({"gmail.readonly"}))
-            )
-            target = TargetAdapter(
-                gmail_controller.service(
-                    "target", scopes=frozenset({"gmail.insert", "gmail.readonly"})
-                )
-            )
-            worker = ProjectionWorker(owner, source, target)
+            worker, source, target = _worker_adapters(gmail_controller, owner)
             assert worker.run().expanded == 1
             receipt = worker.run(max_jobs=5)
             assert receipt.processed == 2
@@ -321,15 +343,7 @@ def test_worker_response_loss_stays_in_recovery_without_blind_retry(
     with TemporaryDirectory(prefix="facet-worker-recovery-", dir=parent) as root:
         owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
         try:
-            source = SourceAdapter(
-                gmail_controller.service("source", scopes=frozenset({"gmail.readonly"}))
-            )
-            target = TargetAdapter(
-                gmail_controller.service(
-                    "target", scopes=frozenset({"gmail.insert", "gmail.readonly"})
-                )
-            )
-            worker = ProjectionWorker(owner, source, target)
+            worker, source, target = _worker_adapters(gmail_controller, owner)
             assert worker.run().expanded == 1
             encoded = base64.urlsafe_b64encode(raw).decode().rstrip("=")
             gmail_controller.script(
@@ -354,5 +368,138 @@ def test_worker_response_loss_stays_in_recovery_without_blind_retry(
             ).fetchone() == ("queued",)
             assert worker.run().processed == 0
             assert gmail_controller.identifiers("target") == ("inserted-1",)
+        finally:
+            owner.close()
+
+
+def test_worker_excludes_drafts_but_keeps_empty_thread_explainable(
+    gmail_controller, monkeypatch
+):
+    parent = _trusted_parent()
+    raw = _raw("draft", "DRAFT_SENTINEL")
+    gmail_controller.seed(
+        "source",
+        "m-new",
+        "thread-1",
+        raw,
+        labels=("DRAFT",),
+        payload=_payload(raw),
+    )
+    with TemporaryDirectory(prefix="facet-worker-draft-", dir=parent) as root:
+        owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
+        try:
+            worker, _, _ = _worker_adapters(gmail_controller, owner)
+            assert worker.run().expanded == 1
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM sync_jobs WHERE kind='project_message'"
+            ).fetchone() == (0,)
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM job_claims"
+            ).fetchone() == (0,)
+        finally:
+            owner.close()
+
+
+def test_worker_source_missing_clears_claim_with_typed_state(
+    gmail_controller, monkeypatch
+):
+    parent = _trusted_parent()
+    raw = _raw("missing", "MISSING_SENTINEL")
+    gmail_controller.seed("source", "m-new", "thread-1", raw, payload=_payload(raw))
+    with TemporaryDirectory(prefix="facet-worker-missing-", dir=parent) as root:
+        owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
+        try:
+            worker, _, _ = _worker_adapters(gmail_controller, owner)
+            assert worker.run().expanded == 1
+            gmail_controller.remove_source_fact("m-new")
+            assert worker.run().deferred == 1
+            assert owner._connection.execute(
+                "SELECT state,last_error_code FROM sync_jobs "
+                "WHERE kind='project_message'"
+            ).fetchone() == ("source_missing", "source_missing")
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM job_claims"
+            ).fetchone() == (0,)
+        finally:
+            owner.close()
+
+
+def test_worker_source_raw_cap_clears_claim_without_target_call(
+    gmail_controller, monkeypatch
+):
+    parent = _trusted_parent()
+    raw = _raw("oversize", "OVERSIZE_SENTINEL")
+    gmail_controller.seed("source", "m-new", "thread-1", raw, payload=_payload(raw))
+    with TemporaryDirectory(prefix="facet-worker-cap-", dir=parent) as root:
+        owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
+        try:
+            worker, _, _ = _worker_adapters(gmail_controller, owner)
+            assert worker.run().expanded == 1
+            bounded = ProjectionWorker(
+                owner,
+                worker._source,
+                worker._target,
+                max_raw_bytes=16,
+            )
+            assert bounded.run().deferred == 1
+            assert owner._connection.execute(
+                "SELECT state,last_error_code FROM sync_jobs "
+                "WHERE kind='project_message'"
+            ).fetchone() == ("needs_attention", "invalid_input")
+            assert gmail_controller.identifiers("target") == ()
+        finally:
+            owner.close()
+
+
+def test_worker_readback_failure_keeps_typed_attention_and_no_claim(
+    gmail_controller, monkeypatch
+):
+    parent = _trusted_parent()
+    raw = _raw("readback", "READBACK_SENTINEL")
+    gmail_controller.seed("source", "m-new", "thread-1", raw, payload=_payload(raw))
+    with TemporaryDirectory(prefix="facet-worker-readback-", dir=parent) as root:
+        owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
+        try:
+            worker, _, _ = _worker_adapters(gmail_controller, owner)
+            assert worker.run().expanded == 1
+            gmail_controller.script(
+                "target",
+                "messages.get",
+                {"userId": "me", "id": "inserted-1", "format": "raw"},
+                HttpFailure(429),
+            )
+            assert worker.run().deferred == 1
+            assert owner._connection.execute(
+                "SELECT state,error_code FROM insert_attempts"
+            ).fetchone() == ("needs_attention", "target_rate_limited")
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM job_claims"
+            ).fetchone() == (0,)
+        finally:
+            owner.close()
+
+
+def test_worker_does_not_project_after_thread_stop(gmail_controller, monkeypatch):
+    parent = _trusted_parent()
+    raw = _raw("stopped", "STOPPED_SENTINEL")
+    gmail_controller.seed("source", "m-new", "thread-1", raw, payload=_payload(raw))
+    with TemporaryDirectory(prefix="facet-worker-stop-", dir=parent) as root:
+        owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
+        try:
+            worker, _, _ = _worker_adapters(gmail_controller, owner)
+            assert worker.run().expanded == 1
+            with owner.session.transaction() as uow:
+                from facet.db.repositories import policy
+
+                policy.stop_thread(
+                    uow,
+                    owner.projection_id,
+                    ProviderId("thread-1"),
+                    Generation(1),
+                    NOW,
+                    ThreadStopReason.MANUAL_STOP,
+                )
+            assert worker.run().processed == 0
+            assert gmail_controller.identifiers("target") == ()
         finally:
             owner.close()
