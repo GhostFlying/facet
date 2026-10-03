@@ -55,8 +55,8 @@ from ..transactions import UnitOfWork
 from .base import _decode, _get, _guard, _insert, _mutating, _query, _require_row
 from .serialization import COLUMNS
 
-# Only a separately reviewed, compiled M5 producer may change this tuple. No
-# registration API, configurable type name, environment switch, or plugin.
+# This is the fixed M2 shipping inventory. No registration API, configurable
+# type name, environment switch, or plugin may change it.
 _ACTION_PRODUCER_TYPES: tuple[type, ...] = (ActionLabelProducer,)
 
 
