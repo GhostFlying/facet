@@ -119,7 +119,7 @@ H0 消费和 gap 恢复能力，并受单独 Gmail 操作范围授权。
 
 ### M2 自动 discovery、backfill、History 增量和投影核心（第一条可用产品能力）
 
-交付：source/target adapter、自动 discovery、固定六个月 backfill、History polling 全分页和 cursor、事件持久化/去重、`messagesAdded` 与 action-label 事件、规则更新和 projection jobs、raw payload 内存传递、逐 thread worker、source 到 target 映射、目标回读、insert intent 与 pending recovery、restart continuation。不建立 DB 内容缓存或磁盘 spool，重启后重新从 source 获取 raw。
+交付：source/target adapter、自动 discovery、固定六个月 backfill、History polling 全分页和 cursor、事件持久化/去重、`messagesAdded` 与 readonly action-label 事件、规则更新（含 `effective_at`/generation）和 projection jobs、raw payload 内存传递、逐 thread worker、source 到 target 映射、目标回读、insert intent 与 pending recovery、restart continuation。不建立 DB 内容缓存或磁盘 spool，重启后重新从 source 获取 raw。
 
 范围：`src/facet/projection/worker.py`、`fidelity.py`、`recovery.py`、`src/facet/gmail/source.py`、`target.py`、`retry.py`，以及 DB repositories。
 
@@ -131,21 +131,21 @@ H0 消费和 gap 恢复能力，并受单独 Gmail 操作范围授权。
 
 交付：History 404/gap recovery、source reconcile、target audit、只读 Web Dashboard、基础 queue/recovery/doctor 汇总和长期运行状态。
 
-范围：`src/facet/projection/rules.py`、`authenticity.py`、`admission.py`、`backfill.py`、规则和 backfill CLI。
+范围：`src/facet/projection/gap_recovery.py`、`reconcile.py`、`audit.py`、`src/facet/status/`、`src/facet/web/`，以及 gap/reconcile/doctor 的只读汇总接线。
 
 验收：History 404 不静默丢事件；恢复窗口、effective_at 和 generation 受控；source/target 缺失和重复有明确报告；Dashboard 只返回聚合状态，不含邮件细节；新增规则不会隐式扩大历史披露。
+
+Dashboard 验收：显示状态、已完成数量、历史进度、积压、异常分类和诊断，数据过期有提示；Discovery 未完成不虚构总量；重试不重复计数；所有 API 和页面都不包含邮件细节或原始异常。Web 请求不改变同步状态、不调用 Gmail，桌面与手机均可查看关键状态。
 
 M2 已经交付初始 H0、History 消费和自动 backfill；M3 只补 gap、校对和可观察性，不再把 History polling 视为后置能力。
 
 ### M4 完整维护 CLI、审计/受限修复和 action-label 便利模式
 
-交付：完整维护 CLI（queue/review/recovery/audit/repair、backup/restore/migrate/upgrade）、更完整的 offline doctor/status、BlackList 竞争和受限修复、`gmail.modify` 便利 label 清理。第一阶段只读 action-label 观察与规则更新已在 M2 完成。
+交付：完整维护 CLI（queue/review/recovery/audit/repair、backup/restore/migrate/upgrade）、更完整的 offline doctor/status、审计/受限修复和 `gmail.modify` 便利 label 清理。M2 已完成只读 action-label 观察、规则更新和 generation/BlackList 竞争语义。
 
-范围：`src/facet/projection/history.py`、`reconcile.py`、`src/facet/runtime.py`、`src/facet/status/`、`src/facet/web/`、静态页面和同步状态 CLI。
+范围：`src/facet/cli/` 中的维护命令（queue/review/recovery/audit/repair/backup/restore/migrate/upgrade）、`src/facet/runtime.py`、`src/facet/gmail/labels.py`，以及 convenience mode 和维护状态/doctor 接线。
 
-验收：初始化期间的新邮件和自己回复不漏；target 中断时 cursor 仍在 durable jobs 后推进；恢复窗口覆盖整个停机期；校对发现 source 缺消息并补齐；target 手工删除或重复产生明确报告。恢复不能重新激活已 BlackList 的 thread，也不能把动态新规则自动应用到所有历史。
-
-Dashboard 验收：显示状态、已完成数量、历史进度、积压、异常分类和诊断，数据过期有提示；Discovery 未完成不虚构总量；重试不重复计数；所有 API 和页面都不包含邮件细节或原始异常。Web 请求不改变同步状态、不调用 Gmail，桌面与手机均可查看关键状态。
+验收：queue/review/recovery/audit/repair、backup/restore/migrate/upgrade 和 offline doctor/status 对 pending、unknown、缺失和重复保持可解释且不绕过 writer 协议；便利模式核对实际 `gmail.modify` 授权，并在命令持久化后才清理 action labels；readonly 模式不修改 source。M2 的 BlackList generation 语义不能重新激活已停止的 thread，也不能把动态新规则自动应用到所有历史。
 
 M4 完成后，形成可通过 CLI 配置、带只读 Dashboard、可长期同步的 Gmail alpha。
 
@@ -194,17 +194,17 @@ Release 仍需决定。公开源码不自动代表 package 已公开，必须实
 | Thread 重建 | 正常会话合并；fallback 映射完整可审计 | M2 |
 | Insert 后 crash | 唯一且内容匹配的候选被绑定；模糊结果不盲目重试 | M2 |
 | Message-ID 缺失或重复 | 不能只凭 Message-ID 判定同一封；进入受限恢复或 review | M2 |
-| 六个月边界 | 用固定截止时间发现候选，纳入后复制完整 thread | M3 |
-| Domain 和真实性 | PSL、子域边界、认证来源、alignment 和未知结果均有覆盖 | M1 M3 |
+| 六个月边界 | 用固定截止时间发现候选，纳入后复制完整 thread | M2 |
+| Domain 和真实性 | PSL、子域边界、认证来源、alignment 和未知结果均有覆盖 | M1 M2 |
 | 初始化和分页 crash | H0 之前 discovery 与 H0 之后 History 共同覆盖，事件可重放 | M2 |
 | 收信和自己回复 | 自动投影；已 tracked thread 的后续 sender 变化保留 | M2 |
 | History 404 | 对 active threads 补漏，并恢复停机窗口内 admission | M3 |
 | 新规则和 reconcile | 未来生效与显式历史回扫边界不被校对绕过 | M2 M3 |
 | Action labels | 多 message 事件聚合；readonly 观察、effective_at/generation 和重复执行受控 | M2 |
-| BlackList 竞争 | 未开始的 jobs 被取消；已经在途的 insert 可能完成并被记录 | M4 |
+| BlackList 竞争 | 未开始的 jobs 被取消；已经在途的 insert 可能完成并被记录 | M2 |
 | 故障与部署 | 限流、失效凭据、磁盘满、退出和备份恢复都保留可解释状态 | M2 M6 |
 | Dashboard 统计 | 总量未知、重放、部分失败和快照过期都真实显示 | M3 |
-| Dashboard 隐私 | HTTP、DOM、前端状态、诊断和导出中无邮件字段或原始错误 | M1 M4 M6 |
+| Dashboard 隐私 | HTTP、DOM、前端状态、诊断和导出中无邮件字段或原始错误 | M1 M3 M6 |
 | DB 内容边界 | 不保存 raw、正文、附件或完整 headers，重启重新取 source | M1 M2 M6 |
 
 规则、状态机和 crash points 用离线测试验证；Gmail 日期、thread 和 attachment 行为用真实账号验证。CI 默认不持有 Gmail 凭据。真实集成测试限定已选定的测试邮件与 thread，不发送邮件，也不自动删除既有 target 内容。
