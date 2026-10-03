@@ -38,6 +38,10 @@ Compose, or raw disk cache are included.
   deduplicates event/action/job effects.  A 404 abandons the poll and records a
   typed gap/attention fact with an H1 fence, and is not treated as an empty
   poll; H1 recovery epochs/scans remain M3.
+- Provider history JSON is reduced to closed `HistoryRecord`/message/label
+  facts at the adapter boundary; producer code never receives arbitrary
+  provider dictionaries.  Malformed records become closed `ProviderFailure`
+  values.
 - Fault/restart tests cover H0, page persistence, cursor ordering and duplicate
   label changes.  Synthetic body/header/attachment/provider-error sentinels do
   not reach DB, logs, stdout/stderr or temporary files.
