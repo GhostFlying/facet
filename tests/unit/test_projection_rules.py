@@ -109,3 +109,8 @@ def test_rule_values_are_bounded_private_scalars() -> None:
 def test_replacing_config_with_invalid_type_is_rejected() -> None:
     with pytest.raises(RuleInputError):
         normalize_rules(replace(RulesConfig(), allow_senders=["a@example.com"]))
+
+
+def test_untrusted_authentication_mode_is_rejected() -> None:
+    with pytest.raises(RuleInputError):
+        normalize_rules(RulesConfig(authenticity="allow_unknown"))

@@ -90,7 +90,7 @@ class SuffixPolicy:
         if any(unicodedata.category(char) in {"Cc", "Cs"} for char in value):
             raise SuffixInputError()
         candidate = value.rstrip(".")
-        if not candidate or "/" in candidate or "@" in candidate or ".." in candidate:
+        if not candidate or "/" in candidate or "@" in candidate or ".." in value:
             raise SuffixInputError()
         try:
             ascii_value = (
