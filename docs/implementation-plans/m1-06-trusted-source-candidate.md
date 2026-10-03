@@ -40,12 +40,27 @@ network, OAuth, target adapter, or dashboard file is edited by this plan.
 
 `SourceAdapter.discover` remains the existing ID-only, fixed-window method for
 adapter/history compatibility. Add a separate `discover_candidates` method
-whose page items are the existing M2 `DiscoveryCandidate` shape. For each item,
-the adapter may perform a metadata read and emits only typed values: one valid
-From address, `Visibility`, draft flag, source account, observation timestamp,
-and `VerifiedSourceEvidence | None`. Multiple/invalid From values, missing
-metadata, unsupported labels, or provider failures produce a controlled
-attention/invalid result, never a guessed sender or trusted evidence.
+whose page items are a closed `CandidateResult` union. A successful item carries
+the existing M2 `DiscoveryCandidate` shape: one valid From address,
+`Visibility`, draft flag, source account, observation timestamp, and
+`VerifiedSourceEvidence | None`. An attention item carries only source
+message/thread IDs and a closed redacted reason (`missing_metadata`,
+`multiple_from`, `malformed_from`, `unsupported_labels`, or
+`provider_failure`). Exactly one candidate or attention item is present for
+every discovered ID; the adapter never drops a selected item, guesses a
+sender, or turns malformed data into trusted evidence. Provider failures that
+prevent page enumeration remain a page-level controlled failure with the
+checkpoint unchanged, not a partial-success claim.
+
+The exact new shapes are `CandidateAttention(reason, message_id, thread_id)`,
+`CandidateResult(candidate | attention)`, and
+`CandidatePage(items, next_page_token)`. `CandidateResult` enforces exactly one
+variant and all fields have redacted representations. `source_account` comes
+from the verified M1-04 source binding, never from an untrusted profile string
+returned by the message adapter. A malformed or missing provider timestamp does
+not reuse the existing `_timestamp` fallback-to-now; it becomes a typed
+`invalid_metadata` attention item (or a page-level controlled failure when the
+page cannot be safely enumerated).
 
 The source-auth module defines a producer-owned attestation protocol. Its only
 trusted constructor is an owner-issued token held by the injected provider
