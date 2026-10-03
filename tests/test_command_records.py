@@ -228,6 +228,7 @@ def test_passive_auth_control_kinds_have_no_executor_or_registration():
         {kind.value for kind in EnabledCommand}
         | {kind.value for kind in AuthCommand}
         | {kind.value for kind in BootstrapCommand}
+        | {"backfill_preview", "backfill_start"}
     )
     from facet.db import migration_entry, read_views
 
