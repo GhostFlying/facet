@@ -48,7 +48,21 @@ def _local_id() -> LocalId:
 
 def _digest(keys) -> Sha256Hex:
     digest = hashlib.sha256()
-    for key in sorted(keys, key=lambda value: repr(value)):
+
+    def fields_for(key):
+        return tuple(
+            getattr(key, field)
+            for field in (
+                "tag",
+                "history_record_id",
+                "source_message_id",
+                "label_id",
+                "change",
+            )
+            if hasattr(key, field)
+        )
+
+    for key in sorted(keys, key=lambda value: repr(fields_for(value))):
         fields = tuple(
             getattr(key, field)
             for field in (
