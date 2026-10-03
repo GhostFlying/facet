@@ -23,7 +23,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1-05 public status/privacy | Early pure/logging library integrated; full consumer gate open | PR #16 actually merged exact `f209fbe`, independent review and candidate/main CI passed with 488 offline tests; actual DB/auth/runtime/HTTP/DOM/Compose consumers still pending |
 | M1-06 authentication/initialization | Typed candidate seam integrated; full package open | PR #39 exact `3ba6465` merged at main `05a6044`; candidate discovery converts ID-only pages into redacted typed candidate/attention results, rejects malformed metadata, and defaults source authentication to unknown. Independent implementation review, focused 22, full 2443 offline tests, Python 3.12/3.13 CI, Ruff and safety passed. Real source-path attestation, initialization and G1 remain open |
 | M1 foundation as a whole | Incomplete | Full persistence, process/view/credential ownership, init/doctor/config apply, authenticated bindings and real status consumers remain; G1 has not passed |
-| M2 automated projection core | Pure admission/rules, typed candidate preparation, and action-label durable effect candidate implemented; independent implementation review open | PR #36 and PR #39 remain the integrated preparation seams. The current candidate composes the fixed action-label producer with SQLite action/rule/thread/resolve-job effects, including AddSender/AddDomain/BlackList, draft/attention routing, and restart replay; offline acceptance is complete locally, but the candidate is not merged or milestone-complete. A real source-path producer, Backfill/History wiring, projection worker, fidelity, intent/recovery and restart remain open |
+| M2 automated projection core | Pure admission/rules, typed candidate preparation, and durable action-label effects integrated; milestone incomplete | PR #36 and PR #39 remain the integrated preparation seams. PR #41 is merged at main `fbb9fc8`; its action consumer composes the fixed action-label producer with SQLite action/rule/thread/resolve-job effects, including AddSender/AddDomain/BlackList, draft/attention routing, retryable source failure retention, and restart replay. Independent implementation review and Python 3.12/3.13 CI passed. A real source-path producer, Backfill/History wiring, projection worker, fidelity, intent/recovery and restart remain open |
 | M3 continuous recovery and Dashboard alpha | Not implemented | History gap recovery, reconcile/audit, aggregate read-only Web UI and status diagnostics |
 | M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
 | M5 self-hosted delivery | Not implemented | One-command Compose, Actions GHCR image, Nginx and bilingual operations docs |
@@ -77,12 +77,17 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   consumer is intentionally limited to its injected typed reader, while
   production History/Backfill wiring remains open. No Gmail, target write, DB
   mapping, or live-account operation was performed by this unit.
-- The current M2 action-label effect candidate is the first durable consumer
-  on this branch: synthetic SQLite/WAL tests cover AddSender, AddDomain,
-  BlackList, draft-only attention, and file-backed restart replay without a
-  second source read. It does not call Gmail or target APIs. Its final
-  candidate SHA, independent implementation review, PR/CI and main
-  integration evidence are still pending.
+- PR #41 is the first integrated durable action-label consumer on main at
+  `fbb9fc8048239ae10a7620ddf7e179fa09172eb8`. Synthetic SQLite/WAL tests cover
+  AddSender, AddDomain, BlackList, draft-only attention, retryable source
+  failures, and file-backed restart replay without a second source read. The
+  final candidate `cd50e2f93d7258868a7bb61d0af242aee9ec59c8` received an
+  independent implementation review with no P0/P1 findings; 361 focused
+  consumer/integration tests and the full 2450-test offline suite passed,
+  together with Ruff, wheel import smoke, Python `-S` import, safety, and
+  candidate Python 3.12/3.13 CI. It does not call Gmail or target APIs. The
+  next production-critical seam is real source History/Backfill discovery and
+  worker wiring; M2 and the first runnable production sync remain open.
 
 ## Active implementation record
 
