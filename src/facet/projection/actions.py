@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from facet.contracts import (
     ErrorCode,
@@ -19,7 +20,9 @@ from facet.contracts import (
 )
 from facet.contracts.records import SourceEvent, SourceEventKeyLabelChanged
 from facet.db.codecs import ActionKind, PrivateAddress, StorageFailure
-from facet.gmail.credentials import AccountAddress
+
+if TYPE_CHECKING:
+    from facet.gmail.credentials import AccountAddress
 
 __all__ = (
     "PrivateActionLabelMap",
@@ -70,6 +73,7 @@ class ActionMessageFact:
     source_thread_id: ProviderId
     sender: PrivateAddress
     observed_at: Timestamp
+    is_draft: bool = False
 
     def __post_init__(self) -> None:
         if (
@@ -77,6 +81,7 @@ class ActionMessageFact:
             or type(self.source_thread_id) is not ProviderId
             or type(self.sender) is not PrivateAddress
             or type(self.observed_at) is not Timestamp
+            or type(self.is_draft) is not bool
         ):
             _fail()
 
@@ -92,6 +97,7 @@ class ActionAttentionReason(StrEnum):
     NO_EXTERNAL_SENDER = "no_external_sender"
     AMBIGUOUS_EXTERNAL_SENDER = "ambiguous_external_sender"
     DUPLICATE_EVENT = "duplicate_event"
+    DRAFT = "draft"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -149,6 +155,8 @@ class ActionSourceReader:
 def _own(
     sender: PrivateAddress, own_addresses: tuple[AccountAddress | PrivateAddress, ...]
 ) -> bool:
+    from facet.gmail.credentials import AccountAddress
+
     if type(sender) is not PrivateAddress or type(own_addresses) is not tuple:
         _fail()
     if any(
@@ -211,8 +219,14 @@ class ActionLabelProducer:
         }
         if len(fact_keys) != len(facts):
             return ActionAttention(key, ActionAttentionReason.DUPLICATE_EVENT)
-        external = tuple(fact for fact in facts if not _own(fact.sender, own_addresses))
+        external = tuple(
+            fact
+            for fact in facts
+            if not fact.is_draft and not _own(fact.sender, own_addresses)
+        )
         if not external:
+            if facts and all(fact.is_draft for fact in facts):
+                return ActionAttention(key, ActionAttentionReason.DRAFT)
             return ActionAttention(key, ActionAttentionReason.NO_EXTERNAL_SENDER)
         ordered = sorted(
             external,

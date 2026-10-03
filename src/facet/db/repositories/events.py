@@ -1,6 +1,7 @@
 """Idempotent source-event metadata and durable resolution/effect work."""
 
 from facet.contracts import ErrorCode, JobKind, JobState, ProviderId
+from facet.contracts.records import SourceEventKeyLabelChanged
 
 from ..codecs import EventProcessing, StorageFailure, next_revision
 from ..keys import event_key
@@ -210,9 +211,32 @@ def classify_event(uow, projection_id, event_id, processing, error, jobs, guard)
         if not _effect_matches(row, job):
             _conflict()
     if processing is EventProcessing.CONSUMED and not jobs:
-        # No-admission decisions are not allocated in the v1 inventory. An
-        # empty list or a job for another event is not a durable decision.
-        raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+        # A completed BlackList action is itself the durable effect. It does
+        # not allocate expansion work, but only this exact action may close
+        # the source event without a projection job.
+        from ..codecs import ActionKind, ActionState
+
+        key = row.event.key
+        action = None
+        if type(key) is SourceEventKeyLabelChanged:
+            action = _get(
+                uow,
+                projection_id,
+                "action_commands",
+                (
+                    ("event_id", row.event_id),
+                    ("history_record_id", key.history_record_id),
+                    ("label_id", key.label_id),
+                    ("source_thread_id", row.event.source_thread_id),
+                ),
+            )
+        if (
+            action is None
+            or action.kind is not ActionKind.BLACKLIST
+            or action.state is not ActionState.EXECUTED
+            or action.source_thread_id != row.event.source_thread_id
+        ):
+            raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
     if processing is row.processing and error == row.error_code:
         # A genuine completed classification can be inspected/replayed after
         # stop. It cannot enqueue work or join a new epoch. Every supplied
