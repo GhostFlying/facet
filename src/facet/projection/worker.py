@@ -455,7 +455,21 @@ class ProjectionWorker:
             )
             del readback
         except ProviderFailure as error:
-            self._defer(job, error.code, error.retry_after_seconds)
+            attention_code = error.code
+            if attention_code not in {
+                ErrorCode.INVALID_INPUT,
+                ErrorCode.TARGET_AUTH_REQUIRED,
+                ErrorCode.TARGET_RATE_LIMITED,
+                ErrorCode.NETWORK_UNAVAILABLE,
+                ErrorCode.TARGET_STORAGE_FULL,
+            }:
+                attention_code = ErrorCode.INSERT_RESULT_UNKNOWN
+            self._result(
+                attempt,
+                InsertState.NEEDS_ATTENTION,
+                OutcomeCertainty.INSERTED,
+                attention_code,
+            )
             return "deferred"
         except ValueError:
             valid, visibility = False, Visibility.UNKNOWN
