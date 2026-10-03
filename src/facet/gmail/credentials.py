@@ -40,8 +40,10 @@ from .credential_models import (
     GrantEvidence,
     GrantEvidenceKind,
     ProviderSecret,
+    RefreshResult,
     ScopePolicy,
     ScopeSet,
+    policy_scopes,
 )
 
 __all__ = (
@@ -489,9 +491,18 @@ class CredentialManager:
                     if role is Role.SOURCE
                     else ErrorCode.TARGET_AUTH_REQUIRED
                 )
-            if type(refreshed) is not ProviderSecret:
+            explicit_scopes = None
+            if type(refreshed) is RefreshResult:
+                refreshed_secret = refreshed.secret
+                explicit_scopes = refreshed.scopes
+            elif type(refreshed) is ProviderSecret:
+                refreshed_secret = refreshed
+            else:
                 _fail(ErrorCode.INVALID_INPUT)
-            if refreshed.expires_at.value <= observed.value:
+            expected_scopes = policy_scopes(old.scope_policy, role)
+            if explicit_scopes is not None and explicit_scopes != expected_scopes:
+                _fail(ErrorCode.SCOPE_REQUIRED)
+            if refreshed_secret.expires_at.value <= observed.value:
                 _fail(
                     ErrorCode.SOURCE_AUTH_REQUIRED
                     if role is Role.SOURCE
@@ -502,14 +513,22 @@ class CredentialManager:
                 credential_revision=new_revision,
                 change_id=change_id,
                 grant=GrantEvidence(
-                    GrantEvidenceKind.REFRESH_OMITTED_INHERITED,
-                    old.grant.granted,
-                    old.grant.requested,
+                    (
+                        GrantEvidenceKind.REFRESH_EXPLICIT
+                        if explicit_scopes is not None
+                        else GrantEvidenceKind.REFRESH_OMITTED_INHERITED
+                    ),
+                    expected_scopes
+                    if explicit_scopes is not None
+                    else old.grant.granted,
+                    expected_scopes
+                    if explicit_scopes is not None
+                    else old.grant.requested,
                     observed,
                     old.credential_revision,
                 ),
                 profile_verified_at=old.profile_verified_at,
-                secret=refreshed,
+                secret=refreshed_secret,
             )
             raw = encode_envelope(candidate)
             digest = Sha256Hex(hashlib.sha256(raw).hexdigest())
