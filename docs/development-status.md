@@ -1,6 +1,6 @@
 # Facet development status
 
-Updated: 2026-10-03 (PRC; historical UTC receipts retain their original dates)
+Updated: 2026-10-04 (PRC; historical UTC receipts retain their original dates)
 
 This is the durable handoff for autonomous development. Update it with evidence
 at the end of each coherent implementation unit. Do not store account addresses,
@@ -23,7 +23,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1-05 public status/privacy | Early pure/logging library integrated; full consumer gate open | PR #16 actually merged exact `f209fbe`, independent review and candidate/main CI passed with 488 offline tests; actual DB/auth/runtime/HTTP/DOM/Compose consumers still pending |
 | M1-06 authentication/initialization | r2 design approved; not implemented | Trusted production source-path evidence/registry, actual dependencies and complete init/doctor/G1 remain; all-unknown is not final acceptance |
 | M1 foundation as a whole | Incomplete | Full persistence, process/view/credential ownership, init/doctor/config apply, authenticated bindings and real status consumers remain; G1 has not passed |
-| M2 automated projection core | Not implemented | Production adapter/worker, six-month discovery/backfill, History polling/pagination/cursor, action-label rule events, fidelity, intent/recovery and restart |
+| M2 automated projection core | Pure admission/rules preparation integrated; production core open | PR #36 exact candidate `6b13ca7` was independently approved as bounded pure prep and merged at main `28077e4`; focused 39 passed and Python 3.12/3.13 candidate CI passed. M1-06 trusted producer, typed adapter candidate, action-label effects, Backfill/History wiring, projection worker, fidelity, intent/recovery and restart remain open |
 | M3 continuous recovery and Dashboard alpha | Not implemented | History gap recovery, reconcile/audit, aggregate read-only Web UI and status diagnostics |
 | M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
 | M5 self-hosted delivery | Not implemented | One-command Compose, Actions GHCR image, Nginx and bilingual operations docs |
@@ -57,6 +57,26 @@ discovery、固定六个月 backfill、History 全分页/cursor/事件去重、r
 read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四路、实时优先、
 公平调度和复杂 raw budget 不再是第一交付或 milestone gate。它们不代表已删除的代码，
 而是从当前关键路径移除的工程方案。
+
+## Latest product-first handoff (2026-10-04)
+
+- M1-04 credential binding is integrated through PR #35 recovery head and the
+  separately reviewed explicit-scope follow-up PR #37. Main contains
+  `4c07766` and `a61c474`; both Python lanes passed for the follow-up. The
+  remaining non-gate hardening note is cleanup of a manager-owned `.pending`
+  temp file after a pre-replace write/fsync failure.
+- M2 PR #36 is integrated at main `28077e4`. It delivers only the fixed,
+  offline policy/rules and typed attention-first admission seam: exact sender/
+  domain matching, bundled PSL/IDNA, blacklist/effective-at boundaries, and
+  lineage-bound `auth-v1` evidence checks. Its final implementation review
+  approved exact `6b13ca7` as bounded pure preparation only; focused 39 tests
+  passed and candidate Python 3.12/3.13 CI passed.
+- This is not automatic admission, G2, or the first runnable production sync.
+  The next product-bearing dependency is M1-06's real source-path evidence
+  producer plus the adapter's typed candidate extension. Only after those are
+  released should the action-label repository effect and BackfillProducer be
+  wired. No Gmail, target write, DB mapping, or live-account operation was
+  performed by these units.
 
 ## Active implementation record
 
@@ -410,22 +430,17 @@ engineering integration and remaining gates are in the sections above.
 
 ## Next authorized development unit
 
-Freeze and independently verify this bounded Oct3 docs handoff on actual main
-befe. Then implement only the root-released migration-entry allocation on the
-accepted unmerged combined SQL input a9c, preserving its approved plan/design
-and binding new exact-source acceptance/CI before any integration. The separate
-no-state bootstrap worker follows its own finite source/review gate; restore
-remains plan-only. Preserve the integrated OS foundation's finite kernel/
-mount/consumer limits. Its low-level resources and the qualified
-finite M1-02 library do not close whole persistence, RV11, canonical M1-03 or G1;
-actual runtime/provider/credential and backup/restore consumers remain pending.
-M1-05 and M1-04 early pure deliveries are actually integrated; their real DB/auth/runtime
-consumer gates remain open. M1-01 and P1-02 are actually integrated. Ordinary
-phase-internal plans/engineering PRs advance under the approved autonomous gates;
-material product/privacy/authority changes return to the user. Continue with the
-P1 interface/ADR/test work, then dependency-ready M1 packages from the
-[execution plan](phase-1-execution-plan.md). Write and review a concrete package
-implementation record before coding. M1's minimum scope is:
+The next product-bearing unit is the smallest integration that can turn the
+pure M2 seam into a real discovery decision: release M1-06's verified
+source-Gmail-path evidence producer and the adapter-owned typed candidate
+extension, then independently review their exact contract before wiring the
+existing action/repository and BackfillProducer owners. Do not synthesize
+sender/auth facts from ID-only History records, and do not claim automatic
+admission until those dependencies are integrated. Ordinary phase-internal
+plans/engineering PRs advance under the approved autonomous gates; material
+product/privacy/authority changes return to the user. The complete M1/M2
+foundations and their remaining runtime/provider consumers remain open. M1's
+minimum scope is:
 
 1. Establish the production Python package/CLI without breaking the spike.
 2. Validate configuration and explicit source/target bindings; refuse identity
