@@ -22,14 +22,19 @@ restart state ambiguous: the file could contain a newer token while SQLite still
 authorizes the old revision, and a concurrent refresh could overwrite it.
 
 Add one typed `credential_changes` table to the fresh-v2 catalogue (not a new
-runtime/schema version or a second database).  It stores only role, kind/phase,
-old/new and binding/policy revisions, operation/supersession IDs, exact envelope
-digest, bounded grant metadata, profile/expiry timestamps, and controlled error
-code.  A unique unresolved-role guard plus repository CAS operations enforce one
-writer-owned change at a time.  The existing binding update remains the source
-of accepted revision; refresh publication updates it only in the same writer
-transaction as the committed change.  No token/client secret/provider response
-is stored in SQLite.
+runtime/schema version or a second database).  It stores only projection and
+state-instance lineage, role, kind/phase, old/new and binding/policy revisions,
+operation/supersession IDs, exact envelope digest, bounded grant metadata,
+profile/expiry timestamps, and controlled error code.  The row is foreign-keyed
+to the projection and linked to the role's binding revision; all CAS predicates
+are projection-scoped.  A unique unresolved-role guard plus repository CAS
+operations enforce one writer-owned change at a time.  Authorize/reauthorize
+operation IDs link to the existing auth command journal and therefore inherit
+its stable request-key replay, conflict, and first-response-loss lookup; this
+unit does not create a generic credential/runtime journal.  The existing binding
+update remains the source of accepted revision; refresh publication updates it
+only in the same writer transaction as the committed change.  No token/client
+secret/provider response is stored in SQLite.
 
 ## Owned files and interfaces
 
@@ -59,10 +64,11 @@ is stored in SQLite.
 
 1. Existing full suite remains green; fresh owner state opens with the exact
    extended manifest and current binding/action/backfill behavior unchanged.
-2. Source/target files are fixed beneath the verified state root, regular,
-   owner-only, `0600`, no-follow, bounded, and atomically replaced through a
-   same-directory temporary file; unsafe objects fail closed without chmod or
-   arbitrary cleanup.
+2. The state and `credentials` parent directories are verified owner-only
+   `0700`; source/target files are fixed beneath that root, regular, owner-only,
+   `0600`, no-follow, bounded, and atomically replaced through a same-directory
+   temporary file.  Unsafe objects fail closed without chmod or arbitrary
+   cleanup.
 3. Startup/profile verification checks both distinct configured accounts,
    exact role/policy/granted scopes, state/projection/binding/credential
    revisions, and publishes only closed metadata.  `AccessSnapshot` contains
@@ -71,8 +77,11 @@ is stored in SQLite.
 4. A same-role refresh serializes, persists requesting/validated/committed (or
    controlled attention) metadata, never serves an uncommitted candidate, and
    cannot overwrite a newer revision.  Other-role work remains independent;
-   network callbacks run outside SQLite transactions.
-5. Injected file/fsync/replace/DB-CAS failures retain either the previous
+   network callbacks run outside SQLite transactions.  Expiry and observation
+   times come from one owner-observed UTC clock, have bounded ranges, and cannot
+   be backdated by provider input.
+5. Injected file/fsync/replace/DB-CAS failures and subprocess termination at
+   each replace/CAS boundary retain either the previous
    accepted state or a durable attention state.  Restart never guesses a
    successful refresh, adopts an arbitrary credential file, retries OAuth, or
    clears jobs/unknown insert state.
