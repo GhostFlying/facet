@@ -9,7 +9,18 @@ from facet.contracts import ProviderId, Role
 
 from .retry import execute
 
-__all__ = ("TargetInsertResult", "TargetAdapter", "GmailTarget")
+__all__ = ("TargetProfile", "TargetInsertResult", "TargetAdapter", "GmailTarget")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class TargetProfile:
+    account: str
+    history_id: ProviderId
+    messages_total: int
+    threads_total: int
+
+    def __repr__(self) -> str:
+        return "<target profile>"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -32,7 +43,13 @@ class TargetAdapter:
         self._service = service
 
     def profile(self):
-        return execute(self._service.users().getProfile(userId="me"), self.role)
+        value = execute(self._service.users().getProfile(userId="me"), self.role)
+        return TargetProfile(
+            value["emailAddress"],
+            ProviderId(value["historyId"]),
+            int(value.get("messagesTotal", 0)),
+            int(value.get("threadsTotal", 0)),
+        )
 
     def insert(
         self,
