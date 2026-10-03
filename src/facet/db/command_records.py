@@ -14,6 +14,7 @@ from facet.contracts import (
     OperationState,
     PreviewPurpose,
     ProjectionId,
+    ProviderId,
     Revision,
     Role,
     Sha256Hex,
@@ -283,6 +284,45 @@ class BackfillPayloadRow(_Record):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class BackfillPreviewRequest(_Record):
+    operation_id: LocalId
+    request_nonce: LocalId
+    window_start: Timestamp
+    window_end: Timestamp
+    discovery_cutoff: Timestamp
+    scope_digest: Sha256Hex
+    expires_at: Timestamp
+    invalidating_revision: Revision
+    accepted_at: Timestamp
+
+    def _validate(self):
+        if (
+            self.window_start.value >= self.window_end.value
+            or self.discovery_cutoff.value > self.window_end.value
+            or self.expires_at.value < self.window_end.value
+        ):
+            _fail()
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class BackfillStartRequest(_Record):
+    operation_id: LocalId
+    request_nonce: LocalId
+    preview_operation_id: LocalId
+    epoch_id: LocalId
+    fence_history_id: ProviderId
+    fence_recorded_at: Timestamp
+    accepted_at: Timestamp
+
+    def _validate(self):
+        if (
+            not self.fence_history_id.value
+            or self.accepted_at.value < self.fence_recorded_at.value
+        ):
+            _fail()
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class BootstrapOperationSeed(_Record):
     operation_id: LocalId
     namespace: LocalId
@@ -402,6 +442,8 @@ _RECORD_TYPES = frozenset(
         BootstrapPayloadRow,
         AuthPayloadRow,
         BackfillPayloadRow,
+        BackfillPreviewRequest,
+        BackfillStartRequest,
         BootstrapOperationSeed,
         FreshCommandBootstrap,
         BootstrapInspection,

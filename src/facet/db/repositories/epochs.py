@@ -215,7 +215,7 @@ def _backfill_decision(uow, projection_id, epoch):
         or epoch.discovery_cutoff != payload.discovery_cutoff
         or epoch.fence_history_id is None
         or epoch.fence_recorded_at is None
-        or epoch.fence_recorded_at != payload.discovery_cutoff
+        or epoch.fence_recorded_at.value < payload.discovery_cutoff.value
         or epoch.fence_history_id.value == ""
     ):
         _conflict()
@@ -257,8 +257,10 @@ def _backfill_decision(uow, projection_id, epoch):
         or snapshot is None
         or not snapshot.sealed
         or projection.ruleset_revision != payload.ruleset_revision
-        or operation.expected_config_revision != projection.config_revision
         or len(runtime) != 1
+        or preview.expected_config_revision != projection.config_revision
+        or preview.expected_binding_revision.value != runtime[0][0]
+        or operation.expected_config_revision != projection.config_revision
         or operation.expected_binding_revision.value != runtime[0][0]
         or checkpoint is None
         or checkpoint.cursor is not None

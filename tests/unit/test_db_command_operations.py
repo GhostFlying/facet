@@ -1,121 +1,79 @@
-"""M2 backfill operation journal: typed replay and preview lineage guards."""
+"""M2 owner transaction: typed preview/start lineage and replay guards."""
 
 from dataclasses import replace
 from datetime import timedelta
 
 import pytest
+from fakes.privacy import inspect_files, inspect_sqlite, markers
 from test_command_bootstrap_storage import storage
+from test_db_history import poll
 from test_db_schema import NOW, P, lid
 
 from facet.contracts import (
-    Count,
     EpochKind,
-    EpochState,
     ErrorCode,
-    OperationState,
-    PartitionProgress,
-    PartitionState,
-    PreviewPurpose,
     ProviderId,
     Revision,
     Sha256Hex,
     Timestamp,
 )
-from facet.contracts.records import (
-    EpochDecisionRefBackfillStart,
-    PartitionRefSourceWindow,
-)
-from facet.db.codecs import StorageFailure
-from facet.db.command_records import (
-    BackfillPayloadRow,
-    LocalCommandKind,
-    OperationRow,
-)
-from facet.db.command_store import (
-    _backfill_digest,
-    _find_backfill,
-    _insert_backfill,
-)
-from facet.db.keys import partition_key
-from facet.db.models import EpochPartitionRow, EpochRow
-from facet.db.repositories import epochs
+from facet.db.codecs import PollOrigin, StorageFailure
+from facet.db.command_records import BackfillPreviewRequest, BackfillStartRequest
+from facet.db.command_store import _find_backfill, preview_backfill, start_backfill
+from facet.db.models import RevisionGuard
+from facet.db.repositories import history
 
 
-def operation(command, operation_id, nonce, preview=None, *, confirmation=False):
-    return OperationRow(
-        P,
-        operation_id,
-        lid(3),
-        nonce,
-        command,
-        1,
-        1,
-        Sha256Hex("0" * 64),
-        OperationState.ACCEPTED,
-        Revision(1),
+def preview_request(n, *, scope="a" * 64):
+    return BackfillPreviewRequest(
+        lid(n),
+        lid(n + 1),
+        Timestamp(NOW.value - timedelta(days=180)),
         NOW,
-        NOW,
-        None,
-        None,
-        False,
-        Revision(1),
-        Revision(0),
-        preview,
-        confirmation,
-        False,
-    )
-
-
-def payload(operation_id, *, preview=None, scope="a" * 64):
-    end = NOW
-    start = Timestamp(NOW.value - timedelta(days=180))
-    return BackfillPayloadRow(
-        P,
-        operation_id,
-        PreviewPurpose.START_BACKFILL,
-        preview,
-        Revision(0),
-        start,
-        end,
-        end,
+        Timestamp(NOW.value - timedelta(minutes=1)),
         Sha256Hex(scope),
         Timestamp(NOW.value + timedelta(days=1)),
         Revision(0),
+        NOW,
     )
 
 
-def sealed_operation(command, operation_id, nonce, preview=None, *, confirmation=False):
-    row = operation(command, operation_id, nonce, preview, confirmation=confirmation)
-    child = payload(operation_id, preview=preview)
-    return replace(row, digest=_backfill_digest(row, child)), child
+def start_request(n, preview_id, *, fence_at=None, accepted_at=None, history_id="H0"):
+    fence_at = fence_at or Timestamp(NOW.value + timedelta(minutes=2))
+    accepted_at = accepted_at or Timestamp(NOW.value + timedelta(minutes=3))
+    return BackfillStartRequest(
+        lid(n),
+        lid(n + 1),
+        preview_id,
+        lid(n + 2),
+        ProviderId(history_id),
+        fence_at,
+        accepted_at,
+    )
 
 
-def test_preview_insert_lookup_and_same_key_conflict_is_metadata_only():
+def test_preview_request_replay_and_conflict_are_metadata_only():
     with storage() as (_, _, connection, session, _, *_):
-        preview, child = sealed_operation(
-            LocalCommandKind.BACKFILL_PREVIEW, lid(100), lid(101)
-        )
         with session.transaction() as uow:
-            _insert_backfill(uow, P, preview, child)
-            assert _find_backfill(uow, P, lid(3), lid(101)) == (preview, child)
-        replay_operation = replace(preview, operation_id=lid(102))
-        replay_child = replace(child, operation_id=replay_operation.operation_id)
-        replay_operation = replace(
-            replay_operation, digest=_backfill_digest(replay_operation, replay_child)
-        )
+            preview = preview_backfill(uow, P, preview_request(100))
+            assert _find_backfill(uow, P, lid(3), lid(101))[0] == preview
         with session.transaction() as uow:
-            assert _insert_backfill(uow, P, replay_operation, replay_child) == preview
-        assert connection.execute("SELECT COUNT(*) FROM operations").fetchone() == (3,)
+            assert (
+                preview_backfill(
+                    uow, P, replace(preview_request(102), request_nonce=lid(101))
+                )
+                == preview
+            )
         before = connection.execute(
             "SELECT revision,updated_at,digest FROM operations WHERE operation_id=?",
             (preview.operation_id.value,),
         ).fetchone()
         with pytest.raises(StorageFailure) as caught, session.transaction() as uow:
-            changed = replace(child, scope_digest=Sha256Hex("b" * 64))
-            changed_operation = replace(
-                preview, digest=_backfill_digest(preview, changed)
+            preview_backfill(
+                uow,
+                P,
+                replace(preview_request(104, scope="b" * 64), request_nonce=lid(101)),
             )
-            _insert_backfill(uow, P, changed_operation, changed)
         assert caught.value.code is ErrorCode.REQUEST_CONFLICT
         assert (
             connection.execute(
@@ -125,92 +83,108 @@ def test_preview_insert_lookup_and_same_key_conflict_is_metadata_only():
             ).fetchone()
             == before
         )
+        assert connection.execute("SELECT COUNT(*) FROM epochs").fetchone() == (0,)
+        assert connection.execute("SELECT COUNT(*) FROM history_polls").fetchone() == (
+            0,
+        )
+        assert connection.execute("SELECT COUNT(*) FROM sync_jobs").fetchone() == (0,)
 
 
-def test_start_requires_existing_preview_and_exact_scope_lineage():
+def test_start_is_one_owner_transaction_and_replays_lost_response():
     with storage() as (_, _, connection, session, _, *_):
-        preview, preview_child = sealed_operation(
-            LocalCommandKind.BACKFILL_PREVIEW, lid(110), lid(111)
-        )
-        start, start_child = sealed_operation(
-            LocalCommandKind.BACKFILL_START,
-            lid(112),
-            lid(113),
-            preview=preview.operation_id,
-            confirmation=True,
-        )
         with session.transaction() as uow:
-            _insert_backfill(uow, P, preview, preview_child)
-            _insert_backfill(uow, P, start, start_child)
+            preview = preview_backfill(uow, P, preview_request(110))
+            request = start_request(112, preview.operation_id)
+            start, epoch = start_backfill(uow, P, request)
         assert connection.execute(
             "SELECT COUNT(*) FROM operation_backfill"
         ).fetchone() == (2,)
+        assert connection.execute("SELECT COUNT(*) FROM epochs").fetchone() == (1,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM epoch_partitions"
+        ).fetchone() == (1,)
+        assert epoch.decision.preview_id == preview.operation_id
+        assert epoch.fence_recorded_at.value > epoch.discovery_cutoff.value
+        replay_request = replace(request, operation_id=lid(116), epoch_id=lid(118))
         with session.transaction() as uow:
-            with pytest.raises(StorageFailure) as caught:
-                _insert_backfill(
-                    uow,
-                    P,
-                    replace(
-                        start,
-                        operation_id=lid(114),
-                        request_nonce=lid(115),
-                        expected_preview_id=lid(999),
-                    ),
-                    replace(start_child, operation_id=lid(114)),
-                )
-            assert caught.value.code is ErrorCode.INVALID_INPUT
-
-
-def test_journal_backed_initial_epoch_requires_real_h0_and_preview():
-    with storage() as (_, _, connection, session, _, *_):
-        preview, preview_child = sealed_operation(
-            LocalCommandKind.BACKFILL_PREVIEW, lid(120), lid(121)
-        )
-        start, start_child = sealed_operation(
-            LocalCommandKind.BACKFILL_START,
-            lid(122),
-            lid(123),
-            preview=preview.operation_id,
-            confirmation=True,
-        )
-        with session.transaction() as uow:
-            _insert_backfill(uow, P, preview, preview_child)
-            _insert_backfill(uow, P, start, start_child)
-        epoch = EpochRow(
-            P,
-            lid(124),
-            EpochKind.INITIAL_BACKFILL,
-            EpochState.PREPARED,
-            Revision(0),
-            NOW,
-            start_child.window_start,
-            start_child.window_end,
-            start_child.discovery_cutoff,
-            EpochDecisionRefBackfillStart(
-                "backfill_start", start.operation_id, preview.operation_id, Revision(0)
-            ),
-            None,
-            None,
-            ProviderId("H0"),
-            NOW,
-            None,
-            False,
-            None,
-        )
-        ref = PartitionRefSourceWindow("source_window")
-        partition = EpochPartitionRow(
-            P,
-            epoch.epoch_id,
-            partition_key(P, ref),
-            PartitionProgress(
-                ref, PartitionState.NOT_STARTED, Count(0), Count(0), None, None
-            ),
-            Revision(0),
-        )
-        with session.transaction() as uow:
-            receipt = epochs.start_epoch(uow, P, epoch, (partition,))
-        assert receipt.object_id == epoch.epoch_id
+            replay, replay_epoch = start_backfill(uow, P, replay_request)
+        assert replay.operation_id == start.operation_id
+        assert replay_epoch.epoch_id == epoch.epoch_id
         assert connection.execute("SELECT COUNT(*) FROM epochs").fetchone() == (1,)
         assert connection.execute("SELECT fence_history_id FROM epochs").fetchone() == (
             "H0",
         )
+
+
+def test_start_rejects_invalid_fence_without_publishing():
+    with storage() as (_, _, connection, session, _, *_):
+        with session.transaction() as uow:
+            preview = preview_backfill(uow, P, preview_request(120))
+        with pytest.raises(ValueError):
+            start_request(122, preview.operation_id, history_id="")
+        assert connection.execute("SELECT COUNT(*) FROM epochs").fetchone() == (0,)
+
+
+def test_start_rolls_back_operation_and_h0_when_epoch_guard_fails():
+    with storage() as (_, _, connection, session, _, *_):
+        with session.transaction() as uow:
+            preview = preview_backfill(uow, P, preview_request(130))
+        # The request is syntactically valid but its fence predates the
+        # discovery cutoff.  Epoch validation runs after the journal insert;
+        # the owner transaction must remove both the start child and epoch.
+        early_fence = Timestamp(NOW.value - timedelta(minutes=2))
+        request = start_request(132, preview.operation_id, fence_at=early_fence)
+        with pytest.raises(StorageFailure) as caught, session.transaction() as uow:
+            start_backfill(uow, P, request)
+        assert caught.value.code is ErrorCode.REQUEST_CONFLICT
+        assert connection.execute(
+            "SELECT COUNT(*) FROM operations WHERE command='backfill_start'"
+        ).fetchone() == (0,)
+        assert connection.execute("SELECT COUNT(*) FROM epochs").fetchone() == (0,)
+        assert connection.execute(
+            "SELECT cursor,active_poll_id FROM history_checkpoints"
+        ).fetchone() == (None, None)
+
+
+def test_start_error_is_fixed_and_private_h0_text_stays_out_of_metadata():
+    sentinel = "SYNTHETIC_PRIVATE_PROVIDER_EXCEPTION"
+    with storage() as (root, _, connection, session, _, *_):
+        with session.transaction() as uow:
+            preview = preview_backfill(uow, P, preview_request(140))
+        request = start_request(
+            142,
+            preview.operation_id,
+            fence_at=Timestamp(NOW.value - timedelta(minutes=2)),
+            history_id=sentinel,
+        )
+        with pytest.raises(StorageFailure) as caught, session.transaction() as uow:
+            start_backfill(uow, P, request)
+        assert caught.value.code is ErrorCode.REQUEST_CONFLICT
+        assert str(caught.value) == ErrorCode.REQUEST_CONFLICT.value
+        assert sentinel not in str(caught.value)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM epochs WHERE fence_history_id=?", (sentinel,)
+        ).fetchone() == (0,)
+        inspect_sqlite(connection, markers())
+        inspect_files(
+            root, [path for path in root.iterdir() if path.is_file()], markers()
+        )
+
+
+def test_initial_history_poll_consumes_owner_committed_h0_epoch():
+    with storage() as (_, _, connection, session, _, *_):
+        with session.transaction() as uow:
+            preview = preview_backfill(uow, P, preview_request(150))
+            _, epoch = start_backfill(uow, P, start_request(152, preview.operation_id))
+        assert epoch.kind is EpochKind.INITIAL_BACKFILL
+        value = poll(
+            155,
+            origin=PollOrigin.INITIAL_EPOCH,
+            origin_epoch_id=epoch.epoch_id,
+            cursor=epoch.fence_history_id,
+        )
+        with session.transaction() as uow:
+            history.begin_history_poll(uow, P, value, RevisionGuard(Revision(0)))
+        assert connection.execute(
+            "SELECT active_poll_id,cursor FROM history_checkpoints"
+        ).fetchone() == (value.poll_id.value, None)

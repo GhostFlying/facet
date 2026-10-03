@@ -3,22 +3,32 @@
 import hashlib
 import sqlite3
 import struct
-from dataclasses import fields
+from dataclasses import fields, replace
 
 from facet.contracts import (
     Count,
+    EpochKind,
+    EpochState,
     ErrorCode,
     LocalId,
     OperationState,
+    PartitionProgress,
+    PartitionState,
     PreviewPurpose,
     ProjectionId,
     Revision,
     Sha256Hex,
 )
+from facet.contracts.records import (
+    EpochDecisionRefBackfillStart,
+    PartitionRefSourceWindow,
+)
 
 from .codecs import encode_scalar, sqlite_failure, timestamp_from_sql
 from .command_records import (
     BackfillPayloadRow,
+    BackfillPreviewRequest,
+    BackfillStartRequest,
     BootstrapCommand,
     BootstrapPayloadRow,
     FreshCommandBootstrap,
@@ -301,22 +311,211 @@ def _same_backfill_request(existing, requested):
     operation, payload = requested
     if old_operation is None or old_payload is None:
         return False
-    if old_operation.digest != operation.digest:
-        return False
-    operation_fields = tuple(
-        field.name
-        for field in fields(operation)
-        if field.name not in {"operation_id", "digest"}
+    return old_operation.digest == operation.digest
+
+
+def _backfill_guards(owner, projection_id):
+    """Read the current owner-bound projection guards and sealed ruleset."""
+    from .repositories.base import _get, _query
+
+    projection = _get(owner, projection_id, "projections", ())
+    if projection is None:
+        _fail(ErrorCode.OWNER_UNAVAILABLE)
+    ruleset = _get(
+        owner, projection_id, "rulesets", (("revision", projection.ruleset_revision),)
     )
-    payload_fields = tuple(
-        field.name for field in fields(payload) if field.name != "operation_id"
+    if ruleset is None or not ruleset.sealed:
+        _fail(ErrorCode.PREVIEW_INVALID)
+    runtime = _query(
+        owner,
+        "SELECT binding_guard FROM command_runtime WHERE projection_id=? LIMIT 2",
+        (projection_id.value,),
+        maximum=1,
     )
-    return all(
-        getattr(old_operation, name) == getattr(operation, name)
-        for name in operation_fields
-    ) and all(
-        getattr(old_payload, name) == getattr(payload, name) for name in payload_fields
+    bindings = _query(
+        owner,
+        "SELECT binding_revision FROM bindings WHERE projection_id=? LIMIT 3",
+        (projection_id.value,),
+        maximum=2,
     )
+    if len(runtime) != 1 or len(bindings) != 2:
+        _fail(ErrorCode.OWNER_UNAVAILABLE)
+    binding_guard = runtime[0][0]
+    if any(row[0] != binding_guard for row in bindings):
+        _fail(ErrorCode.BINDING_MISMATCH)
+    return projection, Revision(binding_guard), ruleset
+
+
+def preview_backfill(owner, projection_id, request):
+    """Persist a guarded typed backfill preview in the active owner UoW."""
+    from .transactions import UnitOfWork
+
+    if type(owner) is not UnitOfWork or type(projection_id) is not ProjectionId:
+        _fail(ErrorCode.INVALID_INPUT)
+    if type(request) is not BackfillPreviewRequest:
+        _fail(ErrorCode.INVALID_INPUT)
+    owner._check()
+    projection, binding_revision, _ = _backfill_guards(owner, projection_id)
+    operation = OperationRow(
+        projection_id,
+        request.operation_id,
+        projection.request_namespace,
+        request.request_nonce,
+        LocalCommandKind.BACKFILL_PREVIEW,
+        1,
+        1,
+        Sha256Hex("0" * 64),
+        OperationState.ACCEPTED,
+        Revision(1),
+        request.accepted_at,
+        request.accepted_at,
+        None,
+        None,
+        False,
+        binding_revision,
+        projection.config_revision,
+        None,
+        False,
+        False,
+    )
+    payload = BackfillPayloadRow(
+        projection_id,
+        request.operation_id,
+        PreviewPurpose.START_BACKFILL,
+        None,
+        projection.ruleset_revision,
+        request.window_start,
+        request.window_end,
+        request.discovery_cutoff,
+        request.scope_digest,
+        request.expires_at,
+        request.invalidating_revision,
+    )
+    return _insert_backfill(
+        owner,
+        projection_id,
+        replace(operation, digest=_backfill_digest(operation, payload)),
+        payload,
+    )
+
+
+def _existing_backfill_epoch(owner, projection_id, operation_id):
+    from .repositories.base import _get
+
+    rows = _owner_fetchall(
+        owner,
+        "SELECT epoch_id FROM epochs WHERE projection_id=? AND operation_id=? LIMIT 2",
+        (projection_id.value, operation_id.value),
+    )
+    if len(rows) > 1:
+        _fail(ErrorCode.CONSISTENCY_FAILURE)
+    if not rows:
+        return None
+    return _get(owner, projection_id, "epochs", (("epoch_id", LocalId(rows[0][0])),))
+
+
+def start_backfill(owner, projection_id, request):
+    """Atomically accept a start request and publish its initial epoch/H0."""
+    from .keys import partition_key
+    from .models import EpochPartitionRow, EpochRow
+    from .repositories import epochs
+    from .transactions import UnitOfWork
+
+    if type(owner) is not UnitOfWork or type(projection_id) is not ProjectionId:
+        _fail(ErrorCode.INVALID_INPUT)
+    if type(request) is not BackfillStartRequest:
+        _fail(ErrorCode.INVALID_INPUT)
+    owner._check()
+    projection, binding_revision, _ = _backfill_guards(owner, projection_id)
+    preview, preview_payload = _find_backfill_by_id(
+        owner, projection_id, request.preview_operation_id
+    )
+    if (
+        preview is None
+        or preview.command is not LocalCommandKind.BACKFILL_PREVIEW
+        or preview_payload is None
+        or preview.expected_binding_revision != binding_revision
+        or preview.expected_config_revision != projection.config_revision
+        or preview_payload.ruleset_revision != projection.ruleset_revision
+        or preview_payload.expires_at.value < request.accepted_at.value
+    ):
+        _fail(ErrorCode.PREVIEW_INVALID)
+    operation = OperationRow(
+        projection_id,
+        request.operation_id,
+        projection.request_namespace,
+        request.request_nonce,
+        LocalCommandKind.BACKFILL_START,
+        1,
+        1,
+        Sha256Hex("0" * 64),
+        OperationState.ACCEPTED,
+        Revision(1),
+        request.accepted_at,
+        request.accepted_at,
+        None,
+        None,
+        False,
+        binding_revision,
+        projection.config_revision,
+        request.preview_operation_id,
+        True,
+        False,
+    )
+    payload = replace(
+        preview_payload,
+        operation_id=request.operation_id,
+        preview_operation_id=request.preview_operation_id,
+    )
+    operation = replace(operation, digest=_backfill_digest(operation, payload))
+    operation = _insert_backfill(owner, projection_id, operation, payload)
+    existing_epoch = _existing_backfill_epoch(
+        owner, projection_id, operation.operation_id
+    )
+    if existing_epoch is not None:
+        if (
+            existing_epoch.fence_history_id != request.fence_history_id
+            or existing_epoch.fence_recorded_at != request.fence_recorded_at
+        ):
+            _fail(ErrorCode.REQUEST_CONFLICT)
+        return operation, existing_epoch
+    decision = EpochDecisionRefBackfillStart(
+        "backfill_start",
+        operation.operation_id,
+        request.preview_operation_id,
+        payload.ruleset_revision,
+    )
+    epoch = EpochRow(
+        projection_id,
+        request.epoch_id,
+        EpochKind.INITIAL_BACKFILL,
+        EpochState.PREPARED,
+        Revision(0),
+        request.accepted_at,
+        payload.window_start,
+        payload.window_end,
+        payload.discovery_cutoff,
+        decision,
+        None,
+        None,
+        request.fence_history_id,
+        request.fence_recorded_at,
+        None,
+        False,
+        None,
+    )
+    partition_ref = PartitionRefSourceWindow("source_window")
+    partition = EpochPartitionRow(
+        projection_id,
+        request.epoch_id,
+        partition_key(projection_id, partition_ref),
+        PartitionProgress(
+            partition_ref, PartitionState.NOT_STARTED, Count(0), Count(0), None, None
+        ),
+        Revision(0),
+    )
+    epochs.start_epoch(owner, projection_id, epoch, (partition,))
+    return operation, epoch
 
 
 def _boolean(value):
