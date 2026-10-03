@@ -55,8 +55,9 @@ Files owned by this slice:
    verify before readiness is reported.
 4. Action label values are private typed IDs. A label-added event selects the
    latest valid external sender from typed message facts; own addresses,
-   malformed facts, removed labels, duplicate keys, and unknown labels produce
-   a typed attention/no-op. No raw/body/subject/provider payload is accepted.
+   malformed facts, removed labels, duplicate typed facts, and unknown labels
+   produce a typed attention/no-op. No raw/body/subject/provider payload is
+   accepted.
 5. Privacy tests scan database, logs, stdout/stderr and temporary files for
    synthetic credential/body/provider sentinels.
 
