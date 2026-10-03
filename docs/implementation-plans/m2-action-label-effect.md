@@ -47,6 +47,7 @@ source of truth or silently classify a no-op as success.
 | --- | --- |
 | `docs/implementation-plans/m2-action-label-effect.md` | this plan and exact handoff evidence |
 | `src/facet/projection/action_consumer.py` | typed consumer/orchestration; no provider calls, raw data or generic registry |
+| `src/facet/projection/actions.py` | add explicit draft state to typed message facts and exclude drafts before selecting the latest external sender |
 | `src/facet/db/repositories/actions.py` | release one fixed compiled `ActionLabelProducer` effect entry point and keep all relational checks inside the existing owner boundary |
 | `src/facet/db/repositories/events.py` | permit a completed label action to finalize its source event as `CONSUMED` without inventing a projection job; preserve the existing guard for every other no-job event |
 | `tests/unit/test_projection_action_consumer.py` | synthetic source facts, rule/action/blacklist decisions and attention routing |
@@ -60,13 +61,26 @@ instead of bypassing it.
 
 ## Public typed boundary
 
-The consumer accepts one persisted `SourceEventRow`, a fixed
+The consumer accepts the owner's session, projection ID, persisted event ID
+and event revision guard, corresponding `RESOLVE_EVENT` job ID and job revision
+guard, and an existing authorized expansion epoch ID for allow actions; a fixed
 `PrivateActionLabelMap`, an `ActionSourceReader` returning typed
 `ActionMessageFact` values, configured own addresses, and the current
 projection/rule context. It returns a closed result containing either an
 executed action receipt or a typed attention code. It must validate the event
-is a label-added event for the requested thread and use its persisted
-`observed_at` as the action effective time.
+is a label event for the requested thread. Action `observed_at` is the original
+persisted event time; a newly published rule's `effective_at`, action execution
+time and selected-thread admission time are the owner-captured execution time,
+never the older event time. Preserve earlier effective times for already enabled
+rules. The epoch is looked up, not fabricated: it must be a nonterminal existing
+authorized epoch of this projection. This unit does not claim to create the
+continuous runtime's future epoch contexts.
+
+`ActionMessageFact` gains `is_draft: bool = False` for compatibility with
+existing typed readers. The producer excludes explicit drafts; an empty eligible
+external set yields attention. Readers must supply genuine mailbox draft state;
+this unit tests that contract with synthetic typed facts rather than claiming a
+Gmail reader exists.
 
 For `AI/AddSender`, normalize the selected sender exactly and publish an
 `ALLOW_SENDER` rule. For `AI/AddDomain`, use the existing PSL/IDNA
@@ -78,16 +92,44 @@ thread and creates one `EXPAND_THREAD` job guarded by its generation. Existing
 active authorization is not duplicated; replay returns the repository's
 stable receipt. No historical matching threads are scanned.
 
-The source event is classified only after the effect or attention decision is
-ready. Because the action repository's consumed scope cannot be mutated again,
-the successful effect and event finalization are two short owner transactions:
-the first registers/completes the action and creates any allow expansion job;
-the second marks the exact label event `CONSUMED` (with that job for allow
-actions, or no job only when the completed blacklist action is found). A
-restart between them replays the finalization by stable event/action keys.
-`NEEDS_ATTENTION` uses a fixed `ErrorCode` and no business rows. A
-provider/source reader exception is a controlled attention result; raw
-exception text and source headers never cross the boundary.
+The exact lifecycle uses the existing repositories and no transaction spans
+source reads:
+
+1. Lookup persisted event and its exact resolve job by stable event key; check
+   projection, kind, revision and subject. Lookup action by `(projection,
+   history_record_id, label_id, source_thread_id)` BEFORE reading source facts.
+   An already executed action goes straight to finalization, with no learning,
+   new rule or re-admission. A terminal event/job returns its existing result.
+2. Claim a queued/retry-wait resolve job with `jobs.claim`, a current owner-run
+   `Claim(PREPARING)` and the persisted job revision. A restart encountering an
+   old-owner claim on this exact `RESOLVE_EVENT` job uses guarded `defer_job`
+   to retry-wait, then obtains a fresh claim. This is local non-insert work;
+   there is no generic claim reset, inserted-mail retry or cursor-reset API.
+3. Read typed source facts outside a transaction and calculate the decision.
+   In the success transaction recheck the exact event/job/claim and classify
+   `PENDING -> RESOLVED` with the event revision guard, BEFORE `register_action`.
+   Then register, apply rule/thread/job effects and `complete_action` LAST;
+   nothing mutates after its consumed scope. All these business effects commit
+   together. For attention, classify the event `NEEDS_ATTENTION` and defer the
+   claimed resolve job to `needs_attention`, with fixed codes and no rule/job
+   disclosure effects. Removed/unknown labels take this branch without reading
+   source facts.
+4. In a fresh owner transaction finalize an executed action's event as
+   `CONSUMED`, then `jobs.complete_noninsert_job` using the currently persisted
+   claimed job revision. Finalization checks the action is `EXECUTED` and matches
+   the exact event ID, projection, history record, label and source thread. The
+   no-job exception additionally requires `kind == BLACKLIST`; it never accepts
+   another completed action. Allow finalization identifies its durable expansion
+   job by the selected thread/generation/epoch stable key; it does not allocate a
+   second job. A crash after step 3 is resumed by the lookups in step 1; later stop
+   generations are not revived. The implementation must return controlled
+   attention if an old allow effect can no longer satisfy current generation
+   guards rather than replaying its business effect.
+
+Source reader errors are sanitized to fixed attention codes. The consumer has
+no direct Gmail API calls; the injected reader may perform a separately reviewed
+source read, always outside the transactions. Raw exception text and source
+headers never cross the result/persistence boundary.
 
 The fixed compiled producer inventory may contain exactly the shipping
 `ActionLabelProducer` type. There is no registration API, import-by-name,
@@ -109,6 +151,10 @@ callback, environment switch or caller-supplied producer class.
 - A completed blacklist action can finalize its label event without a fake
   projection job; a non-label or pending/unknown no-job consumption remains
   `OWNER_UNAVAILABLE`.
+- Inject restart between claim/read, before effect commit, and between effect
+  commit/finalization. The resolve job is eventually completed or visibly in
+  attention, never orphaned queued/claimed after a reported terminal success;
+  an executed action is inspected before any refreshed source facts are learned.
 - No body, subject, full headers, attachment, raw bytes, credentials, private
   address or provider error appears in repr/str, logs, SQLite diagnostic fields
   or test-facing public result values.
