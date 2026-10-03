@@ -296,9 +296,37 @@ class SourceAdapter:
         boundary as a controlled ``ProviderFailure``.  Metadata failures are
         represented per item so a selected message is never silently dropped.
         """
-        account = source_account or self._source_account
-        binding = binding_revision or self._binding_revision
-        credential = credential_revision or self._credential_revision
+        if (
+            (
+                self._source_account is not None
+                and source_account is not None
+                and source_account != self._source_account
+            )
+            or (
+                self._binding_revision is not None
+                and binding_revision is not None
+                and binding_revision != self._binding_revision
+            )
+            or (
+                self._credential_revision is not None
+                and credential_revision is not None
+                and credential_revision != self._credential_revision
+            )
+        ):
+            raise ProviderFailure(ErrorCode.BINDING_MISMATCH, self.role)
+        account = (
+            self._source_account if self._source_account is not None else source_account
+        )
+        binding = (
+            self._binding_revision
+            if self._binding_revision is not None
+            else binding_revision
+        )
+        credential = (
+            self._credential_revision
+            if self._credential_revision is not None
+            else credential_revision
+        )
         if type(account) is not PrivateAddress:
             raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
         if type(binding) is not Revision or type(credential) is not Revision:

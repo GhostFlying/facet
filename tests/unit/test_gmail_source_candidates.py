@@ -2,8 +2,16 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from facet.contracts import PolicyVersion, ProviderId, Revision, Role, Timestamp
+from facet.contracts import (
+    ErrorCode,
+    PolicyVersion,
+    ProviderId,
+    Revision,
+    Role,
+    Timestamp,
+)
 from facet.db.codecs import PrivateAddress
+from facet.gmail.retry import ProviderFailure
 from facet.gmail.source import (
     CandidateAttentionReason,
     SourceAdapter,
@@ -70,6 +78,16 @@ def test_candidate_default_is_unknown_and_metadata_is_not_exposed(gmail_controll
     assert item.candidate.evidence is None
     assert result.next_page_token is None
     assert "Sender" not in repr(item)
+
+
+def test_constructor_binding_cannot_be_overridden(gmail_controller):
+    with pytest.raises(ProviderFailure) as error:
+        _adapter(gmail_controller).discover_candidates(
+            window_start=datetime(2026, 1, 1, tzinfo=UTC),
+            window_end=datetime(2026, 7, 1, tzinfo=UTC),
+            source_account=PrivateAddress("other@example.invalid"),
+        )
+    assert error.value.code is ErrorCode.BINDING_MISMATCH
 
 
 def test_producer_attestation_is_bound_to_candidate(gmail_controller):
