@@ -198,6 +198,8 @@ class ActionLabelProducer:
             _fail()
         if any(type(fact) is not ActionMessageFact for fact in facts):
             _fail()
+        if any(fact.source_thread_id != event.source_thread_id for fact in facts):
+            _fail(ErrorCode.CONSISTENCY_FAILURE)
         fact_keys = {
             (
                 fact.source_message_id,

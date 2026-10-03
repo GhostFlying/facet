@@ -374,6 +374,29 @@ def test_action_producer_requires_explicit_source_thread_context():
     assert caught.value.code is ErrorCode.INVALID_INPUT
 
 
+def test_action_producer_rejects_foreign_thread_facts():
+    labels = PrivateActionLabelMap(
+        pid("add-sender"), pid("add-domain"), pid("blacklist")
+    )
+    foreign = ActionMessageFact(
+        pid("message"), pid("other-thread"), PrivateAddress("bank@example.invalid"), NOW
+    )
+
+    class Source:
+        def get_thread_facts(self, source_thread_id):
+            assert source_thread_id == pid("thread")
+            return (foreign,)
+
+    with pytest.raises(StorageFailure) as caught:
+        ActionLabelProducer().consume(
+            event(labels.add_sender_label_id),
+            labels,
+            Source(),
+            (AccountAddress("source@example.invalid"),),
+        )
+    assert caught.value.code is ErrorCode.CONSISTENCY_FAILURE
+
+
 def test_binding_publication_rejects_row_shaped_values_before_sql(trusted_state_parent):
     config = initial_template("source@example.invalid", "target@example.invalid")
     owner = StateOwner.create(
