@@ -18,22 +18,22 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | P1-02 test foundations | Reviewed and integrated, including mandatory CT | PR #12 exact `1b7cd58`; independent review, candidate/main CI and 92 core-compatibility cases passed; Issue #5 closed, later feature-consumer tests remain |
 | M1-01 package/config/CLI foundation | Reviewed and integrated | PR #11 exact `b1e4ae0`; 287 offline tests, independent whole/closure reviews, 3.12/3.13 candidate/main CI and installed-wheel checks passed; not complete init/CLI/G1 |
 | M1-02 persistence | Finite SQL/DB21/action library and combined input accepted, unmerged; whole gate open | Corrected `c0bb4b0` and normal carry `a9c4e36` independently accepted with fresh exact CI; combined 1625 full tests and wheel passed; PR #15 remains Draft/open/unmerged, historical `62d75c0`/`2466834` HOLDs retained; actual provider/RV11, released migration source, restore and whole DB-01..28 remain |
-| M1-03 writer/runtime/CLI | Bounded OS foundation and corrected Thread harness integrated; full runtime open | PR #20 exact `ea80db2` and PR #22 exact `befe278` actually merged after nonauthor review and candidate/main dual-Python CI; corrected harness retains production OS bytes, 150 focused/758 full tests; no-state bootstrap source separately released, not accepted provider/actor/receipt/credential integration or running daemon |
+| M1-03 writer/runtime/CLI | Bounded writer foundation and corrected Thread harness integrated; production sync owner open | PR #20 exact `ea80db2` and PR #22 exact `befe278` actually merged after nonauthor review and candidate/main dual-Python CI; corrected harness retains production OS bytes, 150 focused/758 full tests; no-state bootstrap source separately released, not accepted provider/actor/credential integration |
 | M1-04 OAuth/binding | Early pure values/codec/client parser integrated; full package open | PR #18 actually merged exact `ff77e63`; 120 OP/608 full tests, independent source/head review, wheel and candidate/main 3.12/3.13 CI passed; actual OAuth/profile/files/publication remain |
 | M1-05 public status/privacy | Early pure/logging library integrated; full consumer gate open | PR #16 actually merged exact `f209fbe`, independent review and candidate/main CI passed with 488 offline tests; actual DB/auth/runtime/HTTP/DOM/Compose consumers still pending |
 | M1-06 authentication/initialization | r2 design approved; not implemented | Trusted production source-path evidence/registry, actual dependencies and complete init/doctor/G1 remain; all-unknown is not final acceptance |
 | M1 foundation as a whole | Incomplete | Full persistence, process/view/credential ownership, init/doctor/config apply, authenticated bindings and real status consumers remain; G1 has not passed |
-| M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
-| M3 admission/backfill | Not implemented | Rules/authenticity, preview, fixed six-month discovery, durable backfill |
-| M4 sync + Dashboard alpha | Not implemented | History/gap recovery, reconcile, aggregate read-only Web UI |
-| M5 action labels | Not implemented | Learning, legacy handling, idempotent commands, BlackList cancellation |
-| M6 self-hosted v0.1 | Not implemented | One-command Compose, Actions GHCR image, Nginx, backup/restore, bilingual docs, live/deployment/72-hour gates |
+| M2 automated projection core | Not implemented | Production adapter/worker, six-month discovery/backfill, History polling/pagination/cursor, action-label rule events, fidelity, intent/recovery and restart |
+| M3 continuous recovery and Dashboard alpha | Not implemented | History gap recovery, reconcile/audit, aggregate read-only Web UI and status diagnostics |
+| M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
+| M5 self-hosted delivery | Not implemented | One-command Compose, Actions GHCR image, Nginx and bilingual operations docs |
+| M6 real deployment and v0.1 | Not implemented | Backup/restore, live Gmail, selected host and 72-hour evidence |
 
 Both `facet` and the isolated `facet_spike` are now packaged for Python 3.12+.
 Production imports/CLI never adopt spike cursors/tokens. The foundation tests cover
 closed types, strict YAML, no-follow private reads and real CLI subprocess
 JSON/exit/privacy/zero-effect behavior, alongside all existing spike tests. They
-do not verify a production daemon, trusted admission, backfill or rendered Dashboard.
+do not verify a production sync process, trusted admission, backfill, History ingestion or rendered Dashboard.
 
 The integrated M1-05 early library adds independent allowlisted public models, a closed
 error catalogue/serializer and fail-closed structured logging. It does not expose
@@ -49,6 +49,14 @@ The user's latest model policy on 2026-10-02 permits only Sol high/xhigh or Luna
 for prospective tasks. Complex design and high-risk independent review use Sol
 xhigh; Astra receives no new work or reactivation. Earlier authorized reviews
 retain their actual model/reviewer/SHA attribution. G1-G6 remain incomplete.
+
+本次交付顺序已按用户 2026-10-03 的纠偏决定更新：第一条产品能力是自动
+discovery、固定六个月 backfill、History 全分页/cursor/事件去重、readonly action-label
+规则更新和可恢复投影；不以手动选择 thread 或 one-shot 复制为入口。产品没有同步延迟
+承诺。支持运行模型是官方 Docker image 内一个前台 sync/writer 进程；runtime/native/
+read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四路、实时优先、
+公平调度和复杂 raw budget 不再是第一交付或 milestone gate。它们不代表已删除的代码，
+而是从当前关键路径移除的工程方案。
 
 ## Active implementation record
 

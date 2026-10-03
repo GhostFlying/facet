@@ -1,9 +1,11 @@
 # Facet 项目开发计划
 
-日期：2026-10-02
+日期：2026-10-03
 
 状态：Phase 0 完成；用户已于 2026-10-02 批准 Phase 1 G0（精确 `caba7c7`），
-总计划 PR #2 已 merged；执行基础开始推进，生产能力与 G1-G6 仍未实现/验收。
+总计划 PR #2 已 merged。2026-10-03 根据用户纠偏重排第一条产品交付：第一期主线是
+自动 discovery/backfill、History 增量、手工 action-label 规则更新和可恢复投影；生产能力与
+G1-G6 仍未实现/验收。
 
 目标：交付可自托管的 Gmail 选择性投影服务，并为后续数据源保留清晰的扩展位置。
 
@@ -24,12 +26,12 @@ authority 改变重新提交用户 review。
 
 | 项目 | Phase 1 决定 |
 | --- | --- |
-| 运行方式 | 单用户、自托管、单进程、Docker Compose、SQLite |
+| 运行方式 | 单用户、自托管、Docker 提供的 image 内单个前台 sync/HTTP 进程、SQLite；容器外运行环境不在 Facet 保证范围 |
 | 数据源和目标 | 一对不同的 Gmail 账号；source 为唯一事实来源 |
 | 投影单位 | 一封邮件命中后，整个 source thread 纳入跟踪 |
 | 初始历史 | 最近六个月内命中的 thread，复制其完整历史 |
-| 后续同步 | History polling，包含用户从 source 发出的回复 |
-| 默认 source 权限 | `gmail.readonly`；支持 CLI 和观察手工 action labels |
+| 后续同步 | 第一阶段即包含 History polling、完整分页/cursor、事件持久化去重和用户从 source 发出的回复 |
+| 默认 source 权限 | `gmail.readonly`；第一阶段只读观察手工 action labels 并更新规则 |
 | 便利模式 | 显式开启 `gmail.modify`，自动维护 action labels |
 | target 权限 | `gmail.insert` 和 `gmail.readonly`，用于写入、回读和恢复 |
 | 目标邮箱展示 | 默认只在 All Mail；专用标签和 Inbox 设置为可选项 |
@@ -43,7 +45,7 @@ authority 改变重新提交用户 review。
 | 内容存储 | DB 只保存必要 metadata 和状态；默认 raw 仅驻内存，不建立磁盘 spool |
 | 镜像交付 | Actions 发布 public `ghcr.io/ghostflying/facet`；main full-SHA 自动发布，PR 只构建，正式版本 tag 另确认 |
 
-Facet 的验收终点是邮件被正确写入 target，并能通过 Gmail API 和 Gmail UI 回读。AI connector 兼容性可以作为外部使用报告，但不阻塞开发或发布，也不计入 Facet 同步延迟。
+Facet 的验收终点是邮件被正确写入 target，并能通过 Gmail API 和 Gmail UI 回读。AI connector 兼容性可以作为外部使用报告，但不阻塞开发或发布。产品没有同步延迟承诺；不设置 P95、轮询间隔或端到端时限 gate。
 
 ## Phase 0 结论和覆盖边界
 
@@ -60,10 +62,10 @@ Phase 0 验证了数据面的可行性。六个月 backfill、长期运行、His
 第一期包含以下完整使用路径：
 
 1. 初始化本地配置和数据库，通过 Desktop OAuth 分别授权 source 和 target。
-2. 预览初始规则命中的 thread 数量和完整 thread 披露范围，显式启动 backfill。
-3. 从最近六个月的命中邮件发现 thread，复制其全部可用消息。
-4. 用 History 增量同步已跟踪 thread，并按规则纳入新的 thread。
-5. 用 CLI 或 `AI/AddSender`、`AI/AddDomain`、`AI/BlackList` 调整规则。
+2. 预览初始规则命中的范围和完整 thread 披露语义，用户明确启动 backfill；不要求逐个选择 thread。
+3. 从最近六个月的命中邮件自动 discovery，复制每个纳入 thread 的全部可用消息。
+4. 第一阶段持续消费 History：分页、cursor、事件持久化/去重，处理 `messagesAdded` 和 action-label 事件，自动创建规则或 projection jobs。
+5. 用 CLI 或只读观察 `AI/AddSender`、`AI/AddDomain`、`AI/BlackList` 调整规则；便利 label 清理后移。
 6. 在断网、限流、重启和授权故障后保留工作，恢复后继续。
 7. 用 Web Dashboard、status、doctor、审计记录和定期校对说明当前进度、异常与缺失。
 8. 通过 Compose 长期运行，按文档备份、恢复和升级。
@@ -77,12 +79,12 @@ foundation 是阶段性基础；G6 要求真实可维护的全套命令及容器
 
 ## 工程架构
 
-采用 Python 3.12 及以上、Google 官方 Python 客户端、SQLite 和一个后台调度进程。现有 `facet_spike` 保留为实验工具；正式服务放在 `src/facet/`，只迁移已验证且经过测试的 OAuth、账号检查和 MIME 分析逻辑。
+采用 Python 3.12 及以上、Google 官方 Python 客户端、SQLite 和 Docker image 内一个前台进程。Docker/Compose 负责生命周期和 restart；不实现独立 daemon、IPC、宿主机 service 安装或 request-receipt broker。容器外 Python/native/runtime 由使用方负责，Facet 不提供额外保证。现有 `facet_spike` 保留为实验工具；正式服务放在 `src/facet/`，只迁移已验证且经过测试的 OAuth、账号检查和 MIME 分析逻辑。
 
 ```text
 Source Gmail
     |
-    +-- discovery 和 History poller
+    +-- discovery、backfill 和 History poller
     |          |
     |          v
     |    SQLite events / rules / jobs / mappings / audit
@@ -92,7 +94,7 @@ Source Gmail
                            +-- reconcile <--+
 ```
 
-SQLite 保存业务状态和 provenance。Poller 先将事件持久化为 jobs，再推进 History cursor。Worker 按 thread 串行执行，跨 thread 有限并发；target 故障不阻止 source 事件持续入库。Reconcile 比较状态和 ID 集合，按需补齐，不做全量重复复制。
+SQLite 保存业务状态和 provenance。Poller 先将事件持久化为 jobs，再推进 History cursor。Worker 按 thread 串行执行；第一阶段不把跨 thread 并发、公平调度或复杂 raw budget 作为交付前置，只保留 raw 仅内存和基本上限。Target 故障不阻止 source 事件持久入库。Reconcile 和高吞吐优化属于后续运维增强，不改变核心去重和恢复语义。
 
 第一期只运行一对账号、一个 projection。数据库使用 `projection_id` 和明确的 source/target binding，为以后扩展保留隔离能力；本期不建立通用 provider 框架。
 
@@ -115,29 +117,29 @@ H0 消费和 gap 恢复能力，并受单独 Gmail 操作范围授权。
 
 验收：错误账号、token 对调、source 等于 target、无效配置和第二个写入进程均被拒绝；数据库约束与迁移可以重复执行；规则边界与伪造 authentication header 的测试通过。Doctor 和首次 preview 提示 target 的既有内容与缺失的 action labels；只读模式缺少 action labels 时，CLI 规则管理仍可使用。
 
-### M2 持久化邮件和 thread 投影
+### M2 自动 discovery、backfill、History 增量和投影核心（第一条可用产品能力）
 
-交付：raw payload 内存传递、逐 thread worker、source 到 target 映射、目标回读、insert intent 与 pending recovery、retry 和错误分类。不建立 DB 内容缓存或磁盘 spool，重启后重新从 source 获取 raw。
+交付：source/target adapter、自动 discovery、固定六个月 backfill、History polling 全分页和 cursor、事件持久化/去重、`messagesAdded` 与 action-label 事件、规则更新和 projection jobs、raw payload 内存传递、逐 thread worker、source 到 target 映射、目标回读、insert intent 与 pending recovery、restart continuation。不建立 DB 内容缓存或磁盘 spool，重启后重新从 source 获取 raw。
 
 范围：`src/facet/projection/worker.py`、`fidelity.py`、`recovery.py`、`src/facet/gmail/source.py`、`target.py`、`retry.py`，以及 DB repositories。
 
 验收：普通邮件、HTML、内嵌图片、附件和非 ASCII 头部保真；正常恢复不产生重复；insert 后崩溃能恢复唯一候选；多个或不匹配候选进入待处理状态；真实回复和 sender 变化的会话保留内容。Thread fallback 只对已确认的 threading 错误执行，并保存实际 target thread 集合。DB、journal、日志和运行文件不保存完整邮件、正文或附件；source 删除后的恢复限制有明确状态。
 
-此阶段提供手动选定 thread 的最小可用投影，不自动启动大规模历史复制。
+此阶段直接提供自动 discovery/backfill 和持续增量投影；不以手动选定 thread 或 one-shot 复制作为交付路径。用户通过 preview/start 一次性确认披露范围，之后由规则和 History 自动处理。
 
-### M3 规则和六个月 backfill
+### M3 History gap、校对、Dashboard 和长期运行增强
 
-交付：sender 和 domain 规范化、PSL 域名提取、admission policy、候选 discovery、持久 backfill 队列、预览、暂停与恢复。
+交付：History 404/gap recovery、source reconcile、target audit、只读 Web Dashboard、基础 queue/recovery/doctor 汇总和长期运行状态。
 
 范围：`src/facet/projection/rules.py`、`authenticity.py`、`admission.py`、`backfill.py`、规则和 backfill CLI。
 
-验收：最近三个月有命中、首封九个月前的 thread 被完整投影；九个月前即无后续命中的 thread 不进入初始 backfill；相似恶意域名被排除；不可信或不明确的发件人进入 review；分页中断可重扫并去重；新增规则不会隐式扩大历史披露。
+验收：History 404 不静默丢事件；恢复窗口、effective_at 和 generation 受控；source/target 缺失和重复有明确报告；Dashboard 只返回聚合状态，不含邮件细节；新增规则不会隐式扩大历史披露。
 
-Discovery 前记录初始化 History cursor。大量真实 backfill 的使用验证在 M4 可消费该 cursor 后执行，避免将尚未实现的增量恢复当成已完成能力。
+M2 已经交付初始 H0、History 消费和自动 backfill；M3 只补 gap、校对和可观察性，不再把 History polling 视为后置能力。
 
-### M4 History daemon 和定期校对
+### M4 完整维护 CLI、审计/受限修复和 action-label 便利模式
 
-交付：30 秒 polling、History 分页和事件去重、无缝初始化、实时优先调度、History 404 恢复、每日 source 校对、每周 target 存在性校对、按需 target audit，以及只读 Web Dashboard。
+交付：完整维护 CLI（queue/review/recovery/audit/repair、backup/restore/migrate/upgrade）、更完整的 offline doctor/status、BlackList 竞争和受限修复、`gmail.modify` 便利 label 清理。第一阶段只读 action-label 观察与规则更新已在 M2 完成。
 
 范围：`src/facet/projection/history.py`、`reconcile.py`、`src/facet/runtime.py`、`src/facet/status/`、`src/facet/web/`、静态页面和同步状态 CLI。
 
@@ -147,9 +149,9 @@ Dashboard 验收：显示状态、已完成数量、历史进度、积压、异�
 
 M4 完成后，形成可通过 CLI 配置、带只读 Dashboard、可长期同步的 Gmail alpha。
 
-### M5 Gmail 规则学习
+### M5 自托管交付、Compose 和 Actions 镜像
 
-交付：三种 action labels、按 History record 和 thread 聚合命令、own-address 排除、BlackList 停止 tracking、只读和便利两种模式。
+交付：非 root Docker image、Compose、Nginx 示例、GHCR main-SHA 发布、SBOM/provenance、双架构验证和双语运维文档。高吞吐调度和复杂 raw budget不属于前置关键路径。
 
 范围：`src/facet/projection/actions.py`、`src/facet/gmail/labels.py`、CLI review 和 mode 切换。
 
@@ -157,7 +159,7 @@ M4 完成后，形成可通过 CLI 配置、带只读 Dashboard、可长期同�
 
 现有 Apps Script 留下的 action labels 作为 legacy 记录展示，首次启动默认不执行；用户可以明确导入，或移除再添加以触发新命令。
 
-### M6 自托管交付和 v0.1 验收
+### M6 真实 Gmail、部署、备份恢复和 v0.1 验收
 
 完整 CLI 随镜像交付，exec/one-off 维护不要求 host Python。CLI-06/07/08 验收包含
 offline 故障维护、锁竞争、稳定 request key/首应答丢失、preview producer、受限
@@ -180,7 +182,7 @@ Release 仍需决定。公开源码不自动代表 package 已公开，必须实
 验收：全新环境可按文档完成授权和启动；本地磁盘 volume 中的 DB、凭据和 pending jobs 在重建容器后保留，raw 由 source 重新读取；备份恢复演练通过；授权撤销后不丢 jobs；大附件、磁盘压力和 target 故障不拖死无关 thread；日志和交付文件中没有正文、token 或私密测试数据；Dashboard 经 Nginx 可访问，UI、响应和诊断导出均通过隐私检查。
 
 在指定的自托管主机进行至少 72 小时使用验证，跨一次 restart、token refresh 和故障
-恢复，记录 Facet 同步延迟与异常。此时长是 v0.1 必需验收 gate，与仓库指令一致；
+恢复，记录 Facet 状态变化与异常（不形成延迟承诺）。此时长是 v0.1 必需验收 gate，与仓库指令一致；
 不是已验证的长期运行结果。修改这个 gate 需要明确产品决定。
 
 ## 测试计划
@@ -194,14 +196,14 @@ Release 仍需决定。公开源码不自动代表 package 已公开，必须实
 | Message-ID 缺失或重复 | 不能只凭 Message-ID 判定同一封；进入受限恢复或 review | M2 |
 | 六个月边界 | 用固定截止时间发现候选，纳入后复制完整 thread | M3 |
 | Domain 和真实性 | PSL、子域边界、认证来源、alignment 和未知结果均有覆盖 | M1 M3 |
-| 初始化和分页 crash | H0 之前 discovery 与 H0 之后 History 共同覆盖，事件可重放 | M3 M4 |
-| 收信和自己回复 | 自动投影；已 tracked thread 的后续 sender 变化保留 | M4 |
-| History 404 | 对 active threads 补漏，并恢复停机窗口内 admission | M4 |
-| 新规则和 reconcile | 未来生效与显式历史回扫边界不被校对绕过 | M3 M4 |
-| Action labels | 多 message 事件聚合；legacy labels 和重复执行受控 | M5 |
-| BlackList 竞争 | 未开始的 jobs 被取消；已经在途的 insert 可能完成并被记录 | M5 |
+| 初始化和分页 crash | H0 之前 discovery 与 H0 之后 History 共同覆盖，事件可重放 | M2 |
+| 收信和自己回复 | 自动投影；已 tracked thread 的后续 sender 变化保留 | M2 |
+| History 404 | 对 active threads 补漏，并恢复停机窗口内 admission | M3 |
+| 新规则和 reconcile | 未来生效与显式历史回扫边界不被校对绕过 | M2 M3 |
+| Action labels | 多 message 事件聚合；readonly 观察、effective_at/generation 和重复执行受控 | M2 |
+| BlackList 竞争 | 未开始的 jobs 被取消；已经在途的 insert 可能完成并被记录 | M4 |
 | 故障与部署 | 限流、失效凭据、磁盘满、退出和备份恢复都保留可解释状态 | M2 M6 |
-| Dashboard 统计 | 总量未知、重放、部分失败和快照过期都真实显示 | M3 M4 |
+| Dashboard 统计 | 总量未知、重放、部分失败和快照过期都真实显示 | M3 |
 | Dashboard 隐私 | HTTP、DOM、前端状态、诊断和导出中无邮件字段或原始错误 | M1 M4 M6 |
 | DB 内容边界 | 不保存 raw、正文、附件或完整 headers，重启重新取 source | M1 M2 M6 |
 
@@ -211,10 +213,7 @@ Release 仍需决定。公开源码不自动代表 package 已公开，必须实
 
 v0.1 发布须完成 M1 至 M6，公开已知限制，并留存真实 Gmail 验收证据。任何被选中但尚未投影的邮件必须能在队列、review 或明确终止状态中解释，不能静默消失。
 
-性能目标为正常 API、有效授权且没有积压时，新 source 消息到 target 插入并完成回读的 P95 小于 60 秒。记录 source 时间、事件被发现时间、入队时间、target 成功时间，分别报告 polling 延迟、排队时间和处理时间；历史 backfill 单独统计。第三方索引延迟不在指标内。
-
-实测前冻结 source 新消息时间定义、样本量及排除规则，不用历史 RFC Date 计算同步
-延迟；无样本/样本不足明确报告，不把目标值写成已测结果。
+产品没有同步延迟承诺。Dashboard/CLI 可以显示最后 poll、队列年龄和完成时间等诊断事实，但不把它们解释为 SLA、P95 目标或发布门槛。
 
 Dashboard 至少显示 source/target 角色的授权状态、权限模式、initialization 进度、最后成功 History 时间、队列深度、最老 job 年龄、tracked threads、成功邮件数、review 和异常分类数量、最近 reconcile 结果、资源状态与 schema version。账号地址、对象 IDs、邮件字段和本地路径仅按必要性保留在内部状态，不进入 Web 输出。
 

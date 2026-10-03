@@ -13,7 +13,8 @@ CLI 是 setup、规则/披露选择、故障处理和部署维护的完整入口
 本契约遵守 [产品契约](product-contract.md)、
 [Gmail 投影规格](gmail-projection-spec.md) 和
 [执行计划](phase-1-execution-plan.md)。命令、选项、JSON 与退出码由下列工作包
-实现并验收；内部 transport/锁协议仍由 P1-01/M1-03 ADR 决定，不在这里预设 IPC。
+实现并验收；内部 transport/锁协议仍由 P1-01/M1-03 ADR 决定。本契约使用 Docker
+前台进程和共享 writer lock，不引入 IPC。
 
 ## 调用和共同约束
 
@@ -27,20 +28,12 @@ selector 必须匹配该 binding，不能通过参数切换到另一个账号。
 仅用于已定义的 aggregate status/doctor 输出，使用独立 Dashboard allowlist DTO，
 不让 mutation 命令或任意内部结果套上 public 标志就成为公开导出。
 
-所有命令区分“已受理”和“已完成”。运行中的 mutation 通过 writer protocol 投递
-typed command，返回 durable operation receipt；`--wait` 在有界时间内等待结果。
-每个持久命令必须在发送前由 client 持有稳定 `--request-id <id>`：非 TTY 要求显式
-提供；TTY 可以安全生成，但须先落入 owner-only、本地 typed request journal，再
-发送。Journal 只存请求键、固定命令类别、payload digest、时间和 receipt/state，
-不存邮件内容、credentials 或任意参数/provider JSON。持久 preview 也遵守请求键
-规则，但预览本身无需同意复制。
-
-首个应答丢失时调用者可能尚无 receipt，因此 `operations show --request-id <id>`
-必须能查询，`operations list` 能恢复生成的本地键。Owner 在同一事务持久 request
-key、typed command 与效果/receipt，确认前后 crash 都可查。同键同 payload 返回
-原结果，同键不同 payload 拒绝；待处理的未知结果不再发送业务效果。等待超时或
-连接中断不能假定没执行；只有确认 owner 没受理时才用同键同 payload 重发。CLI
-不能直接绕过队列调用 insert，也不把 command 幂等性宣传为 Gmail exactly once。
+持久 mutation 使用稳定 `--request-id <id>` 作为本地幂等键：同键同 payload 不重复
+业务效果，同键不同 payload 拒绝。键、命令类别、payload digest 和状态只保存在
+owner-only 的 SQLite metadata 中，不保存邮件内容、credentials 或 provider JSON。
+命令可由前台 `facet run` 或 Docker one-off container 执行；不引入独立 daemon、IPC、
+request-receipt broker 或跨进程的 accepted/pending 协议。命令中断时重新使用同一个
+request key 查询本地状态，不能盲目创建第二个业务效果。
 
 扩大披露、重新插入、恢复 tracking、改变权限 mode、停止/恢复或替换维护状态的
 命令需显示具体 binding/范围、操作影响与 preview。TTY 可交互确认；非 TTY 不提示、
@@ -56,14 +49,14 @@ request keys 不进入日志或公开诊断；配置、凭据、backup 都是 ow
 | 类别 | 作用与所有权 | Gmail 依赖 |
 | --- | --- | --- |
 | O：离线读取 | 读 SQLite/config/cached snapshot；不取 DB writer 所有权 | 无；未知/stale profile 状态如实标注 |
-| C：持久命令 | daemon 运行时投递给唯一 writer；停机时按 ADR 持锁执行或明确要求启动 owner | 按命令分类，不因等待 token 丢请求 |
+| C：持久命令 | 前台 sync 运行时或 one-off container 取得唯一 writer lock；不经 IPC | 按命令分类，不因等待 token 丢请求 |
 | R：显式远端读取 | `--live`、preview、audit/recovery 检查；经绑定与 transport/refresh 协调 | 需要对应只读 scope；不 send/insert/delete |
 | W：受限业务写入 | durable jobs 经 worker、intent/generation/归属与授权检查后执行 | 仅获授权 insert 或便利 label mutation |
-| M：停机维护 | 必须停 daemon 并取得 writer lock；迁移/恢复不能与服务同时写 | inspect/backup/restore/migrate 不要求 Gmail 可用 |
+| M：停机维护 | 必须停止 sync container 并取得 writer lock；迁移/恢复不能与服务同时写 | inspect/backup/restore/migrate 不要求 Gmail 可用 |
 | A：OAuth 凭据操作 | 单账号 refresh/replacement 所有权；原子私密文件替换 | Desktop OAuth 用户交互；不调用任意邮箱 mutation |
 
-Running daemon 拒绝第二 writer；maintenance one-off container 也不能绕过锁。只读
-offline status/doctor 可以在 daemon 停止、token 失效或 Gmail 不可用时查看 pending
+Running sync process 拒绝第二 writer；maintenance one-off container 也不能绕过锁。只读
+offline status/doctor 可以在 sync 停止、token 失效或 Gmail 不可用时查看 pending
 work。`doctor --live` 额外执行受控远端检查，token refresh 仍经账号 manager/锁串行化；
 不能把其 Gmail 不可用误报成 DB 不可读。网络等待不持 DB 事务。
 
@@ -71,7 +64,7 @@ work。`doctor --live` 额外执行受控远端检查，token refresh 仍经账�
 binding 与 credentials 时取得协调的 credential ownership；并发 auth/reauth/
 refresh 必须等待或受控拒绝，不能使 DB snapshot 与 token/binding 跨版本，也不能
 restore 覆盖刚完成的 reauth。锁层次、取得顺序和 cache/reload 协议由 writer/auth
-ADR 统一规定并验证，不能由维护容器和 daemon 各自设计。运行中 A 类凭据替换经
+ADR 统一规定并验证，不能由维护容器和 sync container 各自设计。运行中 A 类凭据替换经
 同一账号 manager 协调或明确要求停机，不直接旁路写 token 文件。
 
 Offline restore/migration 验证 backup、schema 和已存 binding；缺少 live profile
@@ -90,17 +83,16 @@ bounded pagination 和受控失败；涉及对象的 `list/show` 只显示持久
 | `facet init`；`facet config init/validate/show` | 创建新私密配置/DB；拒绝覆盖 existing state；校验配置与存储；show 默认概览，私密值需 opt-in；O/C | M1-01、M1-02、M1-06；G1 |
 | `facet config apply --file <path>` | 有明确 diff/确认，只改变可变运行项；不可交换 binding、隐式重导 rules 或扩大 OAuth scope；C | M1-01、M1-03，M4-06 接入；G1/G4 |
 | `facet gmail auth/reauth <source|target> --port <port>`；`facet gmail auth-status` | 独立 Desktop flow、固定角色/scope、原子替换；reauth 保 binding/jobs，auth-status 默认离线；A/O | M1-04、M1-06；G1，真实 re-auth G6 |
-| `facet status`；`facet doctor [--live]`；`facet operations list/show --request-id <id>` | 本地汇总、诊断、durable request/receipt 结果；首次应答丢失仍可用 client key 查；默认 offline；O/R | M1-03/05/06、M4-04/06；G1/G4 |
-| `facet run`；`facet daemon status/pause/resume/shutdown` | 前台唯一 sync/HTTP owner；CLI 控制经 ADR；状态、暂停和有限 shutdown；O/C | M1-03、M4-06；G1/G4 |
+| `facet status`；`facet doctor [--live]` | 本地汇总和诊断；默认 offline；O/R | M1-03/05/06、M3/M4；G1/G4 |
+| `facet run` | Docker image 内前台唯一 sync/HTTP owner；由 Docker/Compose 负责生命周期；O/C | M1-03、M3；G1/G4 |
 | `facet rules list/show/add-sender/add-domain/remove`；`facet rules blacklist --sender <address> --thread <id>` | exact 规则、future effective_at；blacklist + 所选 thread stop，typed audit；O/C | M1-02/06、M3-01/03、M5-03；G3/G5 |
-| `facet gmail threads list/show/preview --thread <id>`；`facet gmail track --thread <id> --preview <id>`；`facet gmail stop --thread <id>` | Preview 可针对尚未 tracked 的 source thread 生成 scoped preview ID；明确纳入/停止；O/R/C→W | M2-05、M3-03、M5-03；G2/G3/G5 |
-| `facet backfill preview/start/status/pause/resume` | 固定 cutoff/H0/epoch、明确 start、历史暂停/恢复与进度；R/C→W/O | M3-02/03，M4-01/02 fencing；G3/G4 |
+| `facet backfill preview/start/status/pause/resume` | 固定 cutoff/H0/epoch、明确 start、自动 discovery/backfill、暂停/恢复与进度；R/C→W/O | M2、M3；G2/G3 |
 | `facet queue list/show`；`facet queue retry --job <id>` | 看互斥 job 状态、next attempt/error code；仅安全可重试 job 重新调度；O/C | M2-03/04/05、M4-06；G2/G4 |
-| `facet review list/show/preview --item <id>`；`facet review approve --item <id> --preview <id>`；`facet review reject --item <id>` | Preview 为特定可批准 admission item 生成 ID；approve 引用同 item/范围，其他类型不强制认领；O/C→W | M2-05、M3-01/03、M5-01/02；G2/G3/G5 |
+| `facet review list/show/preview --item <id>`；`facet review approve --item <id> --preview <id>`；`facet review reject --item <id>` | 仅处理认证未知、归属未知等异常 admission item；不作为常规逐 thread 入口；O/C→W | M2/M3/M4；G2/G3/G4 |
 | `facet reconcile --source/--target`；`facet reconcile status` | Durable source 补漏/target 存在性报告与进度；不删除或默认 reinsert；C/R | M4-03、M4-06；G4 |
 | `facet audit target --full`；`facet audit list/show` | 可恢复的全 target 检查、异常/未映射内容报告；metadata 输出；C/R/O | M4-03；G4 |
 | `facet repair preview/start/status --audit <id>` | 只修指定、已管理且确认 missing 的消息；不含 unmanaged/spike；R/C→W/O | M4-03、M2-04、M5-03；G4/G5，部署流程 G6 |
-| `facet recovery list/show/check/preview --job <id>` | Check 核验归属；preview 生成受限 retry 的 scope/risk ID，禁止分支则返回拒绝而不生成许可；默认不 insert；O/C/R | M2-04/05、M4-02；G2/G4 |
+| `facet recovery list/show/check/preview --job <id>` | Check 核验归属；preview 生成受限 retry 的 scope/risk ID，禁止分支则返回拒绝而不生成许可；默认不 insert；O/C/R | M2、M3；G2/G4 |
 | `facet recovery gap preview --gap <id> --since <UTC> --until <UTC>`；`facet recovery gap approve --gap <id> --preview <id>` | 无可信 coverage time 时，用户明确选择恢复 range，保存 typed decision；H1/fence、生效时间/generation 不绕过；R/C | M4-02、M3-03；G4，决定 D7 |
 | `facet recovery retry --job <id> --preview <id> --acknowledge-duplicate-risk` | 仅 ADR 允许、预算未超且范围明确的受限 retry；不可 force-bind；C→W | M2-04、M3-03；G2/G3，实际许可 D7 |
 | `facet gmail mode show/set`；`facet gmail labels status/setup` | 实际 scopes 校验、readonly/便利 mode；legacy 仅报告，便利 setup 需明确许可；O/C/R/W | M1-04、M5-02；G5 |
@@ -120,7 +112,7 @@ selected scope/preview 时拒绝；不能继续接受一个 `--yes` 就重插整
 只在首次初始化导入；config apply 不覆盖后续学习/删除的 DB 规则。
 
 Mutable operational options 的支持范围由 config ADR 列明；需要重启的变更返回
-`restart_required`，不能悄悄启动第二 daemon。Source/target identity 的变更、state
+`restart_required`，不能悄悄启动第二 sync process。Source/target identity 的变更、state
 目录迁移或不兼容 schema 不提供 `--force-rebind`/重建空库捷径，走受 review 的维护流程。
 
 Auth/reauth 使用 Desktop loopback，支持浏览器与 SSH 同端口转发。令牌 JSON、
@@ -136,19 +128,13 @@ expiry/unknown、mode 和 role，不把 token 文件存在当作 live OAuth 健�
 
 ## 服务、规则、thread 和 backfill
 
-`facet run` 前台运行，Compose/service manager 负责进程启动/restart；CLI 不安装
-systemd、修改宿主网络或拉取/替换容器。Shutdown 等效安全 SIGTERM：停领取、有限
-时间提交已知结果、unknown insert 留 recovery。收到 shutdown receipt 不代表立即
-全部停止，可继续查询 daemon/operation 状态。
+`facet run` 前台运行，Compose/Docker 负责进程启动和 restart；CLI 不安装 systemd、
+修改宿主网络或拉取/替换容器。停止容器等效安全 SIGTERM：停领取、提交已知结果、
+unknown insert 留 recovery。`backfill pause` 只暂停历史 jobs，History ingestion 仍
+可持久化；重启不重置 cursor 或复活 stopped generations。
 
-Daemon pause 停止领取新的 Gmail mutation 工作（target insert、便利 label 写入）；
-保留 History 读取/持久 ingestion、只读状态与必要 recovery 检查，防止纯粹暂停投影
-导致 cursor 失效。暂停状态持久保存，restart 不自行恢复写入。已在途 insert 可能
-完成，必须记录；resume 不重算历史 window、重置 cursor 或复活 stopped threads。
-`backfill pause` 只暂停历史 jobs，实时 tracking 继续；两类暂停在 CLI/JSON 中明确。
-
-Rules add 默认 prospectively effective；manual track/review approval 对当前 thread
-明确授权，未来新 thread 仍遵守 trusted authentication。Rules remove 不停止已 tracked
+Rules add 默认 prospectively effective；第一期通过 source History 读取用户手工 action
+labels 更新规则，不把逐个手动 track 作为常规入口。Rules remove 不停止已 tracked
 thread。Blacklist 用 exact sender + 当前 thread，取消 unstarted generation，不停止
 同域所有 thread、不删除历史；去掉 blacklist 不自动恢复 tracking。
 
@@ -158,17 +144,14 @@ message/thread 已知计数、旧历史/附件/参与者/own replies/Spam/Trash 
 规则或 generation 改变、scope 不匹配时需重新 preview，不复用过期选择。Preview
 可以保存必要 metadata/H0，但不 insert；bulk start 还需 H0 可消费/gap 能力与真实许可。
 
-`gmail threads preview --thread`、`review preview --item`、`backfill preview`、
-`repair preview --audit` 和 `recovery preview --job` 都是明确的 producer；输出本地
-scoped preview ID 和固定用途。一个用途的 ID 不能用于另一命令，IDs/范围不一致或
-过期时 guard 拒绝。示例先产生 thread 预览，再发唯一请求；下面均是计划中的接口：
+`backfill preview`、`repair preview --audit` 和 `recovery preview --job` 都是明确的
+producer；输出本地 scoped preview ID 和固定用途。一个用途的 ID 不能用于另一命令，
+IDs/范围不一致或过期时 guard 拒绝。自动 discovery 的 preview 解释规则、六个月窗口、
+完整 thread 持续披露与 backfill start 的确认，不暴露邮件细节。
 
 ```text
-facet gmail threads preview --thread <thread-id> --request-id <preview-request-key> --json
-facet gmail track --thread <thread-id> --preview <preview-id> --request-id <track-request-key> --yes --json
 facet recovery preview --job <job-id> --request-id <recovery-preview-key> --json
-facet recovery retry --job <job-id> --preview <recovery-preview-id> --request-id <retry-key> --acknowledge-duplicate-risk --yes --json
-facet operations show --request-id <track-request-key> --json
+facet backfill start --preview <preview-id> --request-id <backfill-key> --yes --json
 ```
 
 ## Queue、review、recovery 与 repair
@@ -203,7 +186,7 @@ Read-only target audit 不自动 repair。处理途中 source_missing/unknown ou
 
 ## Offline 备份、恢复和升级维护
 
-`backup create --destination <path>` 先确认 daemon 已停止并取得 writer lock，再用
+`backup create --destination <path>` 先确认 sync container 已停止并取得 writer lock，再用
 SQLite backup API 保存 DB 与配置/binding/credentials；不复制 raw，不仅复制 live
 主 DB。Destination 必须新建/空的指定备份位置，不覆盖任意已有目录。`backup verify`
 离线检查完整性、schema、成套文件与私密权限，不要求 Gmail 可用。
@@ -220,7 +203,7 @@ startup 自动完成受支持、安全的初始化/迁移，不要求每次 Comp
 复杂升级和不兼容 schema 按 maintenance plan/runbook 执行，不自动重建空库。
 
 Upgrade 是 host Compose + image 内 CLI 的完整操作路径：选择明确 target image
-digest→停止 daemon→旧版本 backup/verify→用新 image 的 maintenance check 和
+digest→停止 sync container→旧版本 backup/verify→用新 image 的 maintenance check 和
 migrate plan/apply→Compose 启动→status/doctor/health/provenance/state 检查。
 若 schema 无降级路径，rollback 使用旧 image + 成套备份；禁止只换旧 image 并忽略
 schema。CLI 不实现在线自更新、不自动执行 Docker daemon API；部署脚本和文档应
@@ -249,23 +232,22 @@ response。List 有 bounded `limit`/opaque continuation，稳定单位与 sample
 把 provider 原始 page token 或 raw row 直接返回。
 
 结果 envelope 包含 `schema_version`、固定 command name、`status`（completed /
-accepted / blocked / needs_attention）、受控 `code`、allowlisted `data`、typed
-warnings。异步命令的本地 operation receipt 用来查询进度，公开 profile 不输出它。
-Empty queue 和 unknown metrics 不混淆；unknown/stale 不用零/green 代替。`--wait`
-超时返回 accepted/pending receipt，不抹掉已受理工作。
+blocked / needs_attention）、受控 `code`、allowlisted `data`、typed warnings。长任务
+进度从本地聚合 status 查询，不引入异步 operation receipt 协议。Empty queue 和 unknown
+metrics 不混淆；unknown/stale 不用零/green 代替。
 
 | Exit code | 语义 | 自动化应做的事 |
 | --- | --- | --- |
-| 0 | 请求成功：结果 completed，或 durable command 已 accepted | 读取 status；accepted 仍需按 receipt 查询，不宣称业务完成 |
+| 0 | 请求成功：结果 completed，或本地 mutation 已持久化 | 读取 status；业务投影仍以 mapping/job 状态为准 |
 | 2 | 参数/config/schema 或请求格式错误 | 修正输入；不要重试 mailbox mutation |
 | 3 | 未确认/未授权、scope/binding/generation/preview guard 拒绝 | 提交缺失决定或新 preview；`--yes` 不能绕过 |
-| 4 | 锁冲突、owner 不可用、运行方式冲突或 wait timeout | 查看 receipt/daemon 状态；不要创建第二 writer 或盲重发 |
+| 4 | 锁冲突、sync owner 不可用或运行方式冲突 | 查看本地 status；不要创建第二 writer 或盲重发 |
 | 5 | Auth/network/rate-limit 等可恢复依赖不可用 | 保留 jobs，reauth/等待恢复；offline status/backup 仍应可用 |
 | 6 | 具体 work/检查需要 attention 或存在部分/终止失败 | 读取受控类别和 scope，按 review/recovery 处理 |
 | 7 | 持久化/内部一致性失败 | 停止相关写入/advance，按维护 runbook 恢复；不初始化空库 |
 
 `status/queue list` 成功展示 blocked work 时可退出 0，`doctor` 验证发现故障按上述
-类别返回非零。Mutating command 在结果未知时保 receipt/unknown 状态；不能用 exit
+类别返回非零。Mutating command 在结果未知时保本地 unknown 状态；不能用 exit
 5 就让客户端重新发 insert。stderr 不回显未过滤 exception；local details 仍不输出
 raw、body、subject、per-message addresses/headers、attachment names 或 credentials。
 
@@ -289,16 +271,16 @@ spool 或内容缓存。Backup 私密 credential 文件是成套备份的一部�
 | ID / gate | 实际端到端验收 | Owner |
 | --- | --- | --- |
 | CLI-01 / G1 | 新环境 init/config validate、绑定拒绝、auth-status/offline doctor、schema inspect；已有状态不覆盖，JSON/退出码与非 TTY guards 可测；spike 独立 | M1-01/03/04/05/06 |
-| CLI-02 / G2 | 未 tracked thread/review/recovery preview 能生成且引用用途/范围正确；track/stop、安全 retry、unknown recovery/review；首次 response 丢失时按 client key 查询/同键重放，不能假设已拿到 receipt；source_missing 可解释 | M2-04/05 |
-| CLI-03 / G3 | Rules effective_at、preview→明确 backfill start、pause/resume、选定 review approve；无 scope/过期 preview 不披露，初始化与 preview 零 insert | M3-01/02/03/04 |
-| CLI-04 / G4 | 运行 daemon 时命令唯一 writer、投递/执行/应答故障，status offline/Gmail down；未知 History gap 显式 range preview/approve 与 H1/effective_at/generation guards；reconcile/audit 可续、bounded repair；pause ingestion 和 mutation 边界正确 | M1-03、M4-02/03/04/06 |
-| CLI-05 / G5 | mode/实际 scope 检查、legacy report、readonly 零 source mutation、blacklist/stop generation、cleanup 重放；resume 不复活 stopped | M5-01/02/03 |
+| CLI-02 / G2 | 自动 discovery/backfill preview 能生成并引用规则/窗口；backfill start、History/action ingestion、unknown recovery/restart continuation；source_missing 可解释 | M2 |
+| CLI-03 / G3 | Rules effective_at、preview→明确 backfill start、pause/resume、History gap range guards；无 scope/过期 preview 不披露，初始化与 preview 零 insert | M3 |
+| CLI-04 / G4 | 前台 sync/one-off 命令共享唯一 writer lock，status offline/Gmail down；reconcile/audit 可续、bounded repair；pause ingestion 和 mutation 边界正确 | M1-03、M3/M4 |
+| CLI-05 / G5 | mode/实际 scope 检查、legacy report、readonly 零 source mutation、blacklist/stop generation、cleanup 重放；resume 不复活 stopped | M4 |
 | CLI-06 / G6 | 全套 CLI 可从 Compose image 执行；stop/one-off DB+credential 协调锁；backup/restore 与 auth/refresh 并发不跨版本；verify/migrate/check offline，invalid_grant 时仍能看 pending；无 host Python | M6-01/02/03/06 |
 | CLI-07 / G6 | 明确 target digest 的 upgrade/rollback、容器重建状态保留；真实 re-auth 后 jobs 继续，unknown intents 先恢复，再恢复写入 | M6-02/07/08 |
 | CLI-08 / 全阶段 | 注入 body/token/provider error、ID/address/path sentinels，分别检查 private/public CLI、stdout/stderr、logs/files；非 TTY 不隐式确认、request key 不能被不同 payload 复用 | P1-02、M1-05、各命令 owner |
 
 CLI-01 至 CLI-06 的逻辑先用 subprocess/fake Gmail 和合成 metadata 做 offline E2E，
-包含 daemon 停止、授权失效、DB 锁冲突、unknown insert、分页与磁盘故障；不只测试
+包含容器停止、授权失效、DB 锁冲突、unknown insert、分页与磁盘故障；不只测试
 parser/help 或直接调用内部 handler。Compose E2E 使用最终 image、非 root UID 和
 持久 volume，证明与本地 CLI 的 JSON/退出码/锁一致；不额外启动多个 sync owner。
 所有命令需要完整 help、参数错误与支持/拒绝状态的测试。
