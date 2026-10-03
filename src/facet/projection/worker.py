@@ -101,11 +101,20 @@ class ProjectionWorker:
                 self._defer(job, ErrorCode.INVALID_INPUT)
                 outcome = "deferred"
             except StorageFailure as error:
-                if error.code is not ErrorCode.GENERATION_STALE:
+                if error.code is ErrorCode.GENERATION_STALE:
+                    # stop_thread already cancelled unstarted jobs and prepared
+                    # attempts atomically. Never revive them with a retry.
+                    outcome = "cancelled"
+                elif error.code in {
+                    ErrorCode.DATABASE_UNAVAILABLE,
+                    ErrorCode.PERSISTENCE_FAILURE,
+                }:
                     raise
-                # stop_thread already cancelled unstarted jobs and prepared
-                # attempts atomically. Never revive them with a retry.
-                outcome = "cancelled"
+                else:
+                    # Repository conflicts are durable attention, not a reason
+                    # to leave a claimed job orphaned.
+                    self._defer(job, error.code)
+                    outcome = "deferred"
             counts[outcome] += 1
         return WorkerReceipt(**counts)
 
@@ -395,7 +404,9 @@ class ProjectionWorker:
                 date_header=facts.date_policy is DatePolicy.VALID_DATE_HEADER,
             )
         except ProviderFailure as error:
-            unknown = error.code is ErrorCode.NETWORK_UNAVAILABLE
+            unknown = error.code is ErrorCode.NETWORK_UNAVAILABLE or (
+                error.code is ErrorCode.INVALID_INPUT and error.status is None
+            )
             self._result(
                 attempt,
                 InsertState.PENDING_RECOVERY
@@ -422,6 +433,8 @@ class ProjectionWorker:
         )
         try:
             readback = self._target.readback(result.message_id)
+            if len(readback.raw) > self._max_raw_bytes:
+                raise ValueError("invalid_input")
             target_facts = inspect(readback.raw)
             valid = (
                 readback.message_id == result.message_id
@@ -441,7 +454,10 @@ class ProjectionWorker:
                 else Visibility.NORMAL
             )
             del readback
-        except (ProviderFailure, ValueError):
+        except ProviderFailure as error:
+            self._defer(job, error.code, error.retry_after_seconds)
+            return "deferred"
+        except ValueError:
             valid, visibility = False, Visibility.UNKNOWN
         if not valid or visibility is not Visibility.NORMAL:
             self._result(
