@@ -159,7 +159,7 @@ def assess_evidence(
     now: Timestamp,
     binding_revision: Revision,
     credential_revision: Revision,
-    policy_version: PolicyVersion | None = None,
+    policy_version: PolicyVersion,
 ) -> TrustAssessment:
     if evidence is None:
         return TrustAssessment(False, EvidenceReason.MISSING)
@@ -169,6 +169,7 @@ def assess_evidence(
         or type(now) is not Timestamp
         or type(binding_revision) is not Revision
         or type(credential_revision) is not Revision
+        or type(policy_version) is not PolicyVersion
     ):
         raise ValueError("invalid_input")
     if evidence.source_role is not Role.SOURCE:
@@ -177,7 +178,7 @@ def assess_evidence(
         return TrustAssessment(False, EvidenceReason.ACCOUNT_MISMATCH)
     if evidence.source_message_id != message_id:
         return TrustAssessment(False, EvidenceReason.MESSAGE_MISMATCH)
-    if policy_version is not None and evidence.policy_version != policy_version:
+    if evidence.policy_version != policy_version:
         return TrustAssessment(False, EvidenceReason.POLICY_MISMATCH)
     if (
         evidence.binding_revision != binding_revision
