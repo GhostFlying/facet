@@ -506,10 +506,13 @@ class SourceAdapter:
             .get(userId="me", id=thread_id.value, format="metadata"),
             self.role,
         )
-        return ThreadMetadata(
-            _id(value["id"]),
-            tuple(_message(item) for item in value.get("messages", ())),
-        )
+        try:
+            return ThreadMetadata(
+                _id(value["id"]),
+                tuple(_strict_message(item) for item in value.get("messages", ())),
+            )
+        except (KeyError, TypeError, ValueError):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
 
     def raw(self, message_id: ProviderId) -> bytes:
         value = execute(
@@ -568,7 +571,10 @@ def _strict_message(value: object) -> MessageMetadata:
     raw_internal_date = value.get("internalDate")
     if type(raw_internal_date) is not str or not raw_internal_date.isdigit():
         raise ValueError("invalid_input")
-    internal_date = datetime.fromtimestamp(int(raw_internal_date) / 1000, UTC)
+    try:
+        internal_date = datetime.fromtimestamp(int(raw_internal_date) / 1000, UTC)
+    except (OverflowError, OSError, ValueError):
+        raise ValueError("invalid_input") from None
     return MessageMetadata(
         _id(value["id"]),
         _id(value["threadId"]),
