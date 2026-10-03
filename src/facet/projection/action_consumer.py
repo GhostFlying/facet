@@ -151,7 +151,6 @@ def _action(uow, projection_id: ProjectionId, row) -> ActionCommandRow | None:
         projection_id,
         "action_commands",
         (
-            ("event_id", row.event_id),
             ("history_record_id", key.history_record_id),
             ("label_id", key.label_id),
             ("source_thread_id", row.event.source_thread_id),
@@ -228,6 +227,16 @@ class ActionEffectConsumer:
             prepared = self._prepare(owner, projection_id, event_id)
             if prepared is None:
                 continue
+            if (
+                prepared.action is not None
+                and prepared.action.event_id != prepared.event_id
+            ):
+                return self._attention(
+                    owner,
+                    projection_id,
+                    prepared,
+                    ErrorCode.REQUEST_CONFLICT,
+                )
             if (
                 prepared.action is not None
                 and prepared.action.state is ActionState.NEEDS_ATTENTION
@@ -462,6 +471,9 @@ class ActionEffectConsumer:
             elif action.kind is not activation.kind:
                 raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
             actions.register_action(uow, projection_id, action)
+            action = _action(uow, projection_id, event)
+            if action is None or action.event_id != prepared.event_id:
+                raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
             existing = actions._find_rule(
                 uow, projection_id, normalized.kind, normalized.storage_value.value
             )
@@ -756,6 +768,8 @@ class ActionEffectConsumer:
             job = reads.get_job(uow, projection_id, prepared.job_id)
             action = _action(uow, projection_id, event) if event is not None else None
             if event is None or job is None or action is None:
+                raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
+            if action.event_id != event.event_id:
                 raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
             if job.state is JobState.COMPLETED:
                 return ActionEffectResult(
