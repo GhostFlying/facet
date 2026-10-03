@@ -299,6 +299,8 @@ def test_target_adapter_has_insert_and_readback_only(gmail_controller):
     assert result.thread_id == ProviderId("target-thread")
     assert not hasattr(TargetAdapter, "send")
     assert not hasattr(TargetAdapter, "delete")
+    assert not hasattr(TargetAdapter, "message_metadata")
+    assert not hasattr(TargetAdapter, "thread_metadata")
 
 
 def test_provider_failures_are_closed_and_do_not_expose_wire_text(gmail_controller):

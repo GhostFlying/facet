@@ -80,22 +80,6 @@ class TargetAdapter:
             None if value.get("historyId") is None else ProviderId(value["historyId"]),
         )
 
-    def message_metadata(self, message_id: ProviderId):
-        return execute(
-            self._service.users()
-            .messages()
-            .get(userId="me", id=message_id.value, format="metadata"),
-            self.role,
-        )
-
-    def thread_metadata(self, thread_id: ProviderId):
-        return execute(
-            self._service.users()
-            .threads()
-            .get(userId="me", id=thread_id.value, format="metadata"),
-            self.role,
-        )
-
     def find_by_rfc_message_id(self, value: str):
         if type(value) is not str or not value:
             raise ValueError("invalid_input")

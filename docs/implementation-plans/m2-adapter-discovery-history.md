@@ -24,9 +24,10 @@ Compose, or raw disk cache are included.
 
 ## Acceptance tests
 
-- Adapter profile, discovery, History, message/thread metadata, raw retrieval,
-  target insert/readback and bounded candidate-search calls use typed Gmail
-  methods only; no send/forward/delete/label mutation operation is available.
+- Source profile, discovery, History, message/thread metadata and raw retrieval,
+  plus target profile, insert/readback candidate search, use typed Gmail methods
+  only; no send/forward/delete/label mutation operation is available.  Target
+  metadata mapping remains with the later projection worker.
 - Discovery computes a fixed UTC six-calendar-month boundary, persists H0 and
   the operation-backed epoch before provider discovery, admits a recent message
   and enqueues complete non-draft thread expansion/message work including older
