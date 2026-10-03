@@ -120,6 +120,8 @@ def test_manual_public_suffix_or_foreign_policy_values_are_rejected() -> None:
 
     with pytest.raises(SuffixInputError):
         CanonicalDomain("co.uk", "co.uk")
+    with pytest.raises(SuffixInputError):
+        CanonicalDomain("bücher.de", "bücher.de")
 
 
 def test_rule_set_rejects_foreign_policy_and_unbounded_count() -> None:
