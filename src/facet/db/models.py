@@ -160,6 +160,39 @@ class BindingRevisionRow(_Record):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class CredentialChangeRow(_Record):
+    """Metadata-only credential replacement state.
+
+    Secret material is intentionally absent.  String fields are closed by the
+    fresh-v2 SQL catalogue and by the credential repository before writes.
+    """
+
+    projection_id: ProjectionId
+    state_instance_id: LocalId
+    change_id: LocalId
+    role: Role
+    kind: str
+    phase: str
+    old_revision: Revision
+    new_revision: Revision
+    binding_revision: Revision
+    scope_policy_revision: Revision
+    operation_id: LocalId | None
+    supersedes_change_id: LocalId | None
+    envelope_digest: Sha256Hex | None
+    scope_policy: str
+    grant_kind: str | None
+    granted_scopes: str | None
+    grant_parent_revision: Revision | None
+    grant_observed_at: Timestamp | None
+    profile_verified_at: Timestamp
+    expires_at: Timestamp
+    started_at: Timestamp
+    updated_at: Timestamp
+    error: ErrorCode | None
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class RuleRow(_Record):
     projection_id: ProjectionId
     rule_id: LocalId
@@ -673,6 +706,7 @@ _ROW_TYPES = frozenset(
         ProjectionRow,
         BindingRow,
         BindingRevisionRow,
+        CredentialChangeRow,
         RuleRow,
         RuleRevisionRow,
         RulesetRow,

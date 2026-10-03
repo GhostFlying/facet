@@ -82,6 +82,7 @@ def test_exact_inventory_and_required_fields():
         "GrantEvidence",
         "ProviderSecret",
         "CredentialEnvelope",
+        "AccessSnapshot",
         "CredentialCodecError",
         "policy_scopes",
     }
@@ -114,7 +115,7 @@ def test_exact_inventory_and_required_fields():
         "refresh_token",
         "expires_at",
     )
-    for deferred in ("AccessSnapshot", "VerifiedProfile", "CredentialChange"):
+    for deferred in ("VerifiedProfile", "CredentialChange"):
         assert not hasattr(models, deferred)
     value = envelope()
     assert SENTINEL not in str(value) + repr(value) + repr(value.secret)

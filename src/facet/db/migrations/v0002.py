@@ -1,5 +1,9 @@
 """Fixed fresh-v2 command catalogue; not an existing-state migration step."""
 
+# The compiled SQL catalogue below intentionally keeps each predicate readable
+# as provider-independent SQL; its long literals are not Python expressions.
+# ruff: noqa: E501
+
 from . import v0001
 
 VERSION = 2
@@ -328,4 +332,81 @@ _BINDING_GUARD = (
     "WHERE projection_id=OLD.projection_id; END"
 )
 
-STATEMENTS = _TABLES + _INDEXES + _PAYLOAD_GUARDS + _IMMUTABILITY + (_BINDING_GUARD,)
+# Credential replacement metadata is deliberately a fresh-v2 extension.  It
+# contains no secret/provider fields; the manager keeps those in the fixed
+# owner-only role files.  The SQL is compiled here rather than assembled from
+# configuration or arbitrary model dictionaries.
+_CREDENTIAL_CHANGE_TABLE = """CREATE TABLE credential_changes(
+projection_id TEXT NOT NULL CHECK(length(CAST(projection_id AS BLOB)) BETWEEN 1 AND 64 AND projection_id NOT GLOB '*[^A-Za-z0-9_-]*'),
+state_instance_id TEXT NOT NULL CHECK(length(CAST(state_instance_id AS BLOB))=32 AND state_instance_id NOT GLOB '*[^0-9a-f]*'),
+change_id TEXT NOT NULL CHECK(length(CAST(change_id AS BLOB))=32 AND change_id NOT GLOB '*[^0-9a-f]*'),
+role TEXT NOT NULL CHECK(role IN('source','target')),
+kind TEXT NOT NULL CHECK(kind IN('authorize','reauthorize','refresh')),
+phase TEXT NOT NULL CHECK(phase IN('requesting','validated','committed','abandoned','attention')),
+old_revision INTEGER NOT NULL CHECK(old_revision BETWEEN 0 AND 9223372036854775807),
+new_revision INTEGER NOT NULL CHECK(new_revision BETWEEN 1 AND 9223372036854775807),
+binding_revision INTEGER NOT NULL CHECK(binding_revision BETWEEN 1 AND 9223372036854775807),
+scope_policy_revision INTEGER NOT NULL CHECK(scope_policy_revision BETWEEN 1 AND 9223372036854775807),
+operation_id TEXT CHECK(operation_id IS NULL OR (length(CAST(operation_id AS BLOB))=32 AND operation_id NOT GLOB '*[^0-9a-f]*')),
+supersedes_change_id TEXT CHECK(supersedes_change_id IS NULL OR (length(CAST(supersedes_change_id AS BLOB))=32 AND supersedes_change_id NOT GLOB '*[^0-9a-f]*')),
+envelope_digest TEXT CHECK(envelope_digest IS NULL OR (length(CAST(envelope_digest AS BLOB))=64 AND envelope_digest NOT GLOB '*[^0-9a-f]*')),
+scope_policy TEXT NOT NULL CHECK(scope_policy IN('source_readonly','source_convenience','target_default','target_labels')),
+grant_kind TEXT CHECK(grant_kind IS NULL OR grant_kind IN('authorization_explicit','authorization_omitted_equal','refresh_explicit','refresh_omitted_inherited')),
+granted_scopes TEXT CHECK(granted_scopes IS NULL OR length(CAST(granted_scopes AS BLOB)) BETWEEN 1 AND 128),
+grant_parent_revision INTEGER CHECK(grant_parent_revision IS NULL OR grant_parent_revision BETWEEN 1 AND 9223372036854775807),
+grant_observed_at INTEGER CHECK(grant_observed_at IS NULL OR grant_observed_at BETWEEN -62135596800000000 AND 253402300799999999),
+profile_verified_at INTEGER NOT NULL CHECK(profile_verified_at BETWEEN -62135596800000000 AND 253402300799999999),
+expires_at INTEGER NOT NULL CHECK(expires_at BETWEEN -62135596800000000 AND 253402300799999999),
+started_at INTEGER NOT NULL CHECK(started_at BETWEEN -62135596800000000 AND 253402300799999999),
+updated_at INTEGER NOT NULL CHECK(updated_at BETWEEN -62135596800000000 AND 253402300799999999),
+error TEXT CHECK(error IS NULL OR error IN('invalid_input','unsupported_version','request_conflict','request_not_received','request_outcome_unknown','request_lineage_mismatch','confirmation_required','scope_required','binding_mismatch','binding_pending','preview_invalid','generation_stale','owner_unavailable','owner_busy','maintenance_incomplete','wait_timeout','source_auth_required','target_auth_required','source_rate_limited','target_rate_limited','network_unavailable','target_storage_full','insert_result_unknown','duplicate_candidates','attribution_unknown','fidelity_mismatch','source_missing','target_missing','database_unavailable','persistence_failure','consistency_failure','maintenance_required')),
+PRIMARY KEY(projection_id,change_id),
+FOREIGN KEY(projection_id) REFERENCES projections(projection_id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+FOREIGN KEY(projection_id,role,binding_revision) REFERENCES binding_revisions(projection_id,role,binding_revision) ON DELETE RESTRICT ON UPDATE RESTRICT,
+CHECK(new_revision=old_revision+1),
+CHECK((kind='authorize' AND old_revision=0) OR (kind IN('reauthorize','refresh') AND old_revision>=1)),
+CHECK(updated_at>=started_at),
+CHECK((phase='requesting' AND envelope_digest IS NULL AND grant_kind IS NULL AND error IS NULL) OR
+      (phase='validated' AND envelope_digest IS NOT NULL AND grant_kind IS NOT NULL AND error IS NULL) OR
+      (phase='committed' AND envelope_digest IS NOT NULL AND grant_kind IS NOT NULL AND error IS NULL) OR
+      (phase='abandoned' AND error IS NOT NULL) OR
+      (phase='attention' AND error IS NOT NULL))
+) STRICT"""
+
+_CREDENTIAL_CHANGE_INDEX = (
+    "CREATE UNIQUE INDEX credential_changes_open_role "
+    "ON credential_changes(projection_id,role) "
+    "WHERE phase IN('requesting','validated','attention')"
+)
+
+_CREDENTIAL_CHANGE_GUARDS = (
+    "CREATE TRIGGER credential_changes_lineage BEFORE INSERT ON credential_changes "
+    "WHEN NOT EXISTS(SELECT 1 FROM projections p WHERE "
+    "p.projection_id=NEW.projection_id AND p.state_instance_id=NEW.state_instance_id) "
+    "BEGIN SELECT RAISE(ABORT,'consistency_failure'); END",
+    "CREATE TRIGGER credential_changes_operation BEFORE INSERT ON credential_changes "
+    "WHEN NEW.operation_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM operations o "
+    "WHERE o.projection_id=NEW.projection_id AND o.operation_id=NEW.operation_id "
+    "AND o.command IN('auth_authorize','auth_reauthorize')) "
+    "BEGIN SELECT RAISE(ABORT,'consistency_failure'); END",
+    "CREATE TRIGGER credential_changes_immutable BEFORE UPDATE ON credential_changes "
+    "WHEN NEW.projection_id IS NOT OLD.projection_id OR NEW.state_instance_id IS NOT OLD.state_instance_id "
+    "OR NEW.change_id IS NOT OLD.change_id OR NEW.role IS NOT OLD.role OR NEW.kind IS NOT OLD.kind "
+    "OR NEW.old_revision IS NOT OLD.old_revision OR NEW.new_revision IS NOT OLD.new_revision "
+    "OR NEW.binding_revision IS NOT OLD.binding_revision OR NEW.scope_policy_revision IS NOT OLD.scope_policy_revision "
+    "OR NEW.operation_id IS NOT OLD.operation_id OR NEW.supersedes_change_id IS NOT OLD.supersedes_change_id "
+    "OR NEW.started_at IS NOT OLD.started_at BEGIN SELECT RAISE(ABORT,'consistency_failure'); END",
+    "CREATE TRIGGER credential_changes_delete BEFORE DELETE ON credential_changes "
+    "BEGIN SELECT RAISE(ABORT,'consistency_failure'); END",
+)
+
+STATEMENTS = (
+    _TABLES
+    + (_CREDENTIAL_CHANGE_TABLE,)
+    + _INDEXES
+    + (_CREDENTIAL_CHANGE_INDEX,)
+    + _PAYLOAD_GUARDS
+    + _IMMUTABILITY
+    + (_BINDING_GUARD,)
+    + _CREDENTIAL_CHANGE_GUARDS
+)

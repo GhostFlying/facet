@@ -35,6 +35,7 @@ def scalar(annotation):
         codecs.PrivateAddress: codecs.PrivateAddress("synthetic@example.invalid"),
         codecs.RuleValue: codecs.RuleValue("example.invalid"),
         bool: False,
+        str: "synthetic-metadata",
     }
     if annotation in values:
         return values[annotation]
@@ -90,7 +91,7 @@ def allocated_row(table):
 
 
 @pytest.mark.parametrize("table", tuple(ROW_CLASSES))
-def test_all_32_closed_row_families_sql_roundtrip(table):
+def test_all_closed_row_families_sql_roundtrip(table):
     value = allocated_row(table)
     assert _decode_row(table, _encode_row(table, value)) == value
 

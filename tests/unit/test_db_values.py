@@ -209,7 +209,7 @@ def test_registered_read_cursor_has_exact_table_projection_and_signed_time():
 
 
 def test_row_inventory_is_closed_required_nullable_and_immutable():
-    assert len(models._ROW_TYPES) == 32
+    assert len(models._ROW_TYPES) == 33
     for cls in models._ROW_TYPES:
         assert dataclasses.is_dataclass(cls)
         assert cls.__dataclass_params__.frozen
