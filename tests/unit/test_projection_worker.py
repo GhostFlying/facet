@@ -284,6 +284,20 @@ def test_worker_expands_inserts_reads_back_and_maps(gmail_controller, monkeypatc
                 "inserted-2",
             }
             assert worker.run(max_jobs=5).processed == 0
+            config = initial_template(
+                "source@example.invalid", "target@example.invalid"
+            )
+            owner.close()
+            reopened = StateOwner.open(Path(root) / "state", config)
+            try:
+                replay = ProjectionWorker(reopened, source, target)
+                assert replay.run(max_jobs=5).processed == 0
+                assert gmail_controller.identifiers("target") == (
+                    "inserted-1",
+                    "inserted-2",
+                )
+            finally:
+                reopened.close()
             for path in (owner.database_path, Path(str(owner.database_path) + "-wal")):
                 if path.exists():
                     assert b"SENTINEL" not in path.read_bytes()
