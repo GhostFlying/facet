@@ -49,6 +49,7 @@ class CanonicalSender:
             or type(self.domain) is not CanonicalDomain
             or not self.local
             or len(self.local.encode("utf-8")) > 320
+            or len(self.value.encode("utf-8")) > 320
             or any(unicodedata.category(c) in {"Cc", "Cs"} for c in self.local)
             or not _SENDER_RE.fullmatch(self.value)
             or any(char in self.local for char in "*?[]")
