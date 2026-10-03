@@ -46,7 +46,7 @@ the existing M2 `DiscoveryCandidate` shape: one valid From address,
 `VerifiedSourceEvidence | None`. An attention item carries only source
 message/thread IDs and a closed redacted reason (`missing_metadata`,
 `multiple_from`, `malformed_from`, `unsupported_labels`, or
-`provider_failure`). Exactly one candidate or attention item is present for
+`invalid_metadata`, `provider_failure`). Exactly one candidate or attention item is present for
 every discovered ID; the adapter never drops a selected item, guesses a
 sender, or turns malformed data into trusted evidence. Provider failures that
 prevent page enumeration remain a page-level controlled failure with the
