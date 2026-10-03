@@ -108,6 +108,7 @@ class ProjectionWorker:
                 elif error.code in {
                     ErrorCode.DATABASE_UNAVAILABLE,
                     ErrorCode.PERSISTENCE_FAILURE,
+                    ErrorCode.CONSISTENCY_FAILURE,
                 }:
                     raise
                 else:
