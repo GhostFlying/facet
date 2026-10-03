@@ -83,6 +83,25 @@ class ProfileReader(Protocol):
         """Read only the provider profile using the manager-owned secret."""
 
 
+class _AtomicWriteFailure(StorageFailure):
+    """A private file-write failure carrying replace-boundary uncertainty."""
+
+    __slots__ = ("replaced",)
+
+    def __init__(self, code: ErrorCode, *, replaced: bool):
+        self.replaced = replaced
+        super().__init__(code)
+
+
+@dataclass(slots=True)
+class _RefreshFlight:
+    owner_thread: int
+    waiters: int = 0
+    done: bool = False
+    result: AccessSnapshot | None = None
+    error: ErrorCode | None = None
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class CredentialMetadata:
     """Credential identity and grant metadata without provider secrets."""
@@ -258,7 +277,7 @@ def _read_credential(path: Path, role: Role) -> CredentialEnvelope:
 class CredentialManager:
     """Load, verify and publish two fixed-role credential bindings."""
 
-    __slots__ = ("_state_dir", "_config", "_owner", "_role_locks")
+    __slots__ = ("_state_dir", "_config", "_owner", "_flight_condition", "_flights")
 
     def __init__(
         self, state_dir: str | os.PathLike[str], config: Config, owner
@@ -270,7 +289,8 @@ class CredentialManager:
         self._state_dir = Path(state_dir)
         self._config = config
         self._owner = owner
-        self._role_locks = {role: threading.RLock() for role in Role}
+        self._flight_condition = threading.Condition()
+        self._flights = {}
 
     def _path(self, role: Role) -> Path:
         if type(role) is not Role:
@@ -280,6 +300,14 @@ class CredentialManager:
 
     def _load_envelope(self, role: Role) -> CredentialEnvelope:
         self._check_private_root()
+        from facet.db.repositories import credentials as repository
+
+        with self._owner.session.transaction() as uow:
+            unresolved = repository.get_open_change(
+                uow, self._config.projection.id, role
+            )
+        if unresolved is not None:
+            _fail(ErrorCode.MAINTENANCE_REQUIRED)
         envelope = _read_credential(self._path(role), role)
         owner = self._owner.owner_info
         if (
@@ -324,20 +352,19 @@ class CredentialManager:
             _fail(ErrorCode.SCOPE_REQUIRED)
         return self._state_dir / "credentials"
 
-    def snapshot(self, role: Role, *, now: Timestamp | None = None) -> AccessSnapshot:
-        """Return a verified-role access token without exposing refresh material."""
-
-        if type(role) is not Role:
-            _fail(ErrorCode.INVALID_INPUT)
-        envelope = self._load_envelope(role)
-        binding = self._owner.bindings()[role]
+    def _snapshot_verified(
+        self,
+        role: Role,
+        envelope: CredentialEnvelope,
+        binding,
+        observed: Timestamp,
+    ) -> AccessSnapshot:
         if (
             binding is None
             or binding.state is not BindingState.VERIFIED
             or binding.credential_revision != envelope.credential_revision
         ):
             _fail(ErrorCode.BINDING_PENDING)
-        observed = _observed_now(now)
         if envelope.secret.expires_at.value <= observed.value:
             _fail(
                 ErrorCode.SOURCE_AUTH_REQUIRED
@@ -353,119 +380,172 @@ class CredentialManager:
             envelope.secret.expires_at,
         )
 
-    def refresh(self, role: Role, exchange, *, now: Timestamp | None = None):
-        """Serialize one synthetic/provider-mediated refresh and publish it."""
+    def snapshot(self, role: Role) -> AccessSnapshot:
+        """Return a verified-role access token without exposing refresh material."""
+
+        if type(role) is not Role:
+            _fail(ErrorCode.INVALID_INPUT)
+        envelope = self._load_envelope(role)
+        binding = self._owner.bindings()[role]
+        return self._snapshot_verified(role, envelope, binding, _owner_now())
+
+    def refresh(self, role: Role, exchange):
+        """Single-flight one synthetic/provider-mediated refresh and publish it."""
 
         if type(role) is not Role or not callable(exchange):
             _fail(ErrorCode.INVALID_INPUT)
-        with self._role_locks[role]:
-            old = self._load_envelope(role)
-            binding = self._owner.bindings()[role]
-            if (
-                binding is None
-                or binding.state is not BindingState.VERIFIED
-                or binding.credential_revision != old.credential_revision
-            ):
-                _fail(ErrorCode.BINDING_PENDING)
-            observed = _observed_now(now)
-            new_revision = Revision(old.credential_revision.value + 1)
-            change_id = LocalId(uuid4().hex)
-            from facet.db.models import CredentialChangeRow
-            from facet.db.repositories import credentials as repository
+        with self._flight_condition:
+            flight = self._flights.get(role)
+            if flight is not None:
+                if flight.owner_thread == threading.get_ident():
+                    _fail(ErrorCode.REQUEST_CONFLICT)
+                flight.waiters += 1
+                while not flight.done:
+                    self._flight_condition.wait()
+                if flight.error is not None:
+                    _fail(flight.error)
+                if flight.result is None:
+                    _fail(ErrorCode.CONSISTENCY_FAILURE)
+                return flight.result
+            flight = _RefreshFlight(threading.get_ident())
+            self._flights[role] = flight
+        try:
+            result = self._refresh_once(role, exchange)
+        except StorageFailure as error:
+            self._finish_flight(role, flight, error=error.code)
+            raise
+        except BaseException:
+            self._finish_flight(role, flight, error=ErrorCode.PERSISTENCE_FAILURE)
+            raise
+        self._finish_flight(role, flight, result=result)
+        return result
 
-            requesting = CredentialChangeRow(
-                self._config.projection.id,
-                old.state_instance_id,
-                change_id,
-                role,
-                "refresh",
-                "requesting",
-                old.credential_revision,
-                new_revision,
-                old.binding_revision,
-                old.scope_policy_revision,
-                None,
-                None,
-                None,
-                old.scope_policy.value,
-                None,
-                None,
-                None,
-                None,
-                old.profile_verified_at,
-                old.secret.expires_at,
-                observed,
-                observed,
-                None,
+    def _finish_flight(
+        self,
+        role: Role,
+        flight: _RefreshFlight,
+        *,
+        result: AccessSnapshot | None = None,
+        error: ErrorCode | None = None,
+    ) -> None:
+        with self._flight_condition:
+            flight.result = result
+            flight.error = error
+            flight.done = True
+            self._flights.pop(role, None)
+            self._flight_condition.notify_all()
+
+    def _refresh_once(self, role: Role, exchange) -> AccessSnapshot:
+        old = self._load_envelope(role)
+        binding = self._owner.bindings()[role]
+        if (
+            binding is None
+            or binding.state is not BindingState.VERIFIED
+            or binding.credential_revision != old.credential_revision
+        ):
+            _fail(ErrorCode.BINDING_PENDING)
+        observed = _owner_now()
+        new_revision = Revision(old.credential_revision.value + 1)
+        change_id = LocalId(uuid4().hex)
+        from facet.db.models import CredentialChangeRow
+        from facet.db.repositories import credentials as repository
+
+        requesting = CredentialChangeRow(
+            self._config.projection.id,
+            old.state_instance_id,
+            change_id,
+            role,
+            "refresh",
+            "requesting",
+            old.credential_revision,
+            new_revision,
+            old.binding_revision,
+            old.scope_policy_revision,
+            None,
+            None,
+            None,
+            old.scope_policy.value,
+            None,
+            None,
+            None,
+            None,
+            old.profile_verified_at,
+            old.secret.expires_at,
+            observed,
+            observed,
+            None,
+        )
+        with self._owner.session.transaction() as uow:
+            repository.begin_change(uow, self._config.projection.id, requesting)
+        published = False
+        try:
+            try:
+                refreshed = exchange(role, old.secret)
+            except StorageFailure:
+                raise
+            except Exception:
+                _fail(
+                    ErrorCode.SOURCE_AUTH_REQUIRED
+                    if role is Role.SOURCE
+                    else ErrorCode.TARGET_AUTH_REQUIRED
+                )
+            if type(refreshed) is not ProviderSecret:
+                _fail(ErrorCode.INVALID_INPUT)
+            if refreshed.expires_at.value <= observed.value:
+                _fail(
+                    ErrorCode.SOURCE_AUTH_REQUIRED
+                    if role is Role.SOURCE
+                    else ErrorCode.TARGET_AUTH_REQUIRED
+                )
+            candidate = replace(
+                old,
+                credential_revision=new_revision,
+                change_id=change_id,
+                grant=GrantEvidence(
+                    GrantEvidenceKind.REFRESH_OMITTED_INHERITED,
+                    old.grant.granted,
+                    old.grant.requested,
+                    observed,
+                    old.credential_revision,
+                ),
+                profile_verified_at=old.profile_verified_at,
+                secret=refreshed,
+            )
+            raw = encode_envelope(candidate)
+            digest = Sha256Hex(hashlib.sha256(raw).hexdigest())
+            validated = replace(
+                requesting,
+                phase="validated",
+                envelope_digest=digest,
+                grant_kind=candidate.grant.kind.value,
+                granted_scopes=",".join(
+                    sorted(scope.value for scope in candidate.grant.granted.value)
+                ),
+                grant_parent_revision=candidate.grant.parent_credential_revision,
+                grant_observed_at=candidate.grant.observed_at,
+                profile_verified_at=candidate.profile_verified_at,
+                expires_at=candidate.secret.expires_at,
+                updated_at=observed,
             )
             with self._owner.session.transaction() as uow:
-                repository.begin_change(uow, self._config.projection.id, requesting)
+                repository.mark_validated(uow, self._config.projection.id, validated)
             try:
-                try:
-                    refreshed = exchange(role, old.secret)
-                except Exception:
-                    _fail(
-                        ErrorCode.SOURCE_AUTH_REQUIRED
-                        if role is Role.SOURCE
-                        else ErrorCode.TARGET_AUTH_REQUIRED
-                    )
-                if type(refreshed) is not ProviderSecret:
-                    _fail(ErrorCode.INVALID_INPUT)
-                if refreshed.expires_at.value <= observed.value:
-                    _fail(
-                        ErrorCode.SOURCE_AUTH_REQUIRED
-                        if role is Role.SOURCE
-                        else ErrorCode.TARGET_AUTH_REQUIRED
-                    )
-                candidate = replace(
-                    old,
-                    credential_revision=new_revision,
-                    grant=GrantEvidence(
-                        GrantEvidenceKind.REFRESH_OMITTED_INHERITED,
-                        old.grant.granted,
-                        old.grant.requested,
-                        observed,
-                        old.credential_revision,
-                    ),
-                    profile_verified_at=old.profile_verified_at,
-                    secret=refreshed,
-                )
-                raw = encode_envelope(candidate)
-                digest = Sha256Hex(hashlib.sha256(raw).hexdigest())
-                validated = replace(
-                    requesting,
-                    phase="validated",
-                    envelope_digest=digest,
-                    grant_kind=candidate.grant.kind.value,
-                    granted_scopes=",".join(
-                        sorted(scope.value for scope in candidate.grant.granted.value)
-                    ),
-                    grant_parent_revision=candidate.grant.parent_credential_revision,
-                    grant_observed_at=candidate.grant.observed_at,
-                    profile_verified_at=candidate.profile_verified_at,
-                    expires_at=candidate.secret.expires_at,
-                    updated_at=observed,
-                )
-                with self._owner.session.transaction() as uow:
-                    repository.mark_validated(
-                        uow, self._config.projection.id, validated
-                    )
-                published = False
-                try:
-                    _atomic_write(self._path(role), raw)
-                except StorageFailure:
-                    self._abandon(role, change_id, ErrorCode.PERSISTENCE_FAILURE)
-                    raise
-                published = True
-                with self._owner.session.transaction() as uow:
-                    repository.commit_change(uow, self._config.projection.id, validated)
-                return self.snapshot(role, now=observed)
-            except StorageFailure as error:
-                if "published" in locals() and published:
-                    self._attention(role, change_id, error.code)
-                else:
-                    self._abandon(role, change_id, error.code)
+                _atomic_write(self._path(role), raw)
+            except _AtomicWriteFailure as error:
+                published = error.replaced
                 raise
+            published = True
+            with self._owner.session.transaction() as uow:
+                repository.commit_change(uow, self._config.projection.id, validated)
+            return self._snapshot_verified(
+                role, candidate, self._owner.bindings()[role], observed
+            )
+        except StorageFailure as error:
+            if published:
+                self._attention(role, change_id, error.code)
+            else:
+                self._abandon(role, change_id, error.code)
+            raise
 
     def _abandon(self, role: Role, change_id: LocalId, code: ErrorCode) -> None:
         from facet.db.repositories import credentials as repository
@@ -570,21 +650,11 @@ def _owner_now() -> Timestamp:
     return Timestamp(datetime.now(UTC))
 
 
-def _observed_now(candidate: Timestamp | None) -> Timestamp:
-    """Accept only an owner-observed timestamp, never a backdated caller value."""
-
-    observed = _owner_now()
-    if candidate is None:
-        return observed
-    if type(candidate) is not Timestamp or candidate.value < observed.value:
-        _fail(ErrorCode.INVALID_INPUT)
-    return candidate
-
-
 def _atomic_write(path: Path, raw: bytes) -> None:
     if type(raw) is not bytes or not raw:
         _fail(ErrorCode.INVALID_INPUT)
     parent = path.parent
+    replaced = False
     try:
         parent_info = parent.stat(follow_symlinks=False)
         if (
@@ -617,15 +687,29 @@ def _atomic_write(path: Path, raw: bytes) -> None:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
-        os.replace(temp, path)
+        try:
+            os.replace(temp, path)
+        except OSError:
+            # A failed rename may have reached the filesystem before reporting
+            # an error. Treat the boundary as uncertain and reconcile later.
+            raise _AtomicWriteFailure(
+                ErrorCode.PERSISTENCE_FAILURE, replaced=True
+            ) from None
+        replaced = True
         directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
         try:
             os.fsync(directory)
         finally:
             os.close(directory)
+    except _AtomicWriteFailure:
+        raise
     except StorageFailure:
         raise
     except FileExistsError:
-        _fail(ErrorCode.PERSISTENCE_FAILURE)
+        raise _AtomicWriteFailure(
+            ErrorCode.PERSISTENCE_FAILURE, replaced=replaced
+        ) from None
     except OSError:
-        _fail(ErrorCode.PERSISTENCE_FAILURE)
+        raise _AtomicWriteFailure(
+            ErrorCode.PERSISTENCE_FAILURE, replaced=replaced
+        ) from None
