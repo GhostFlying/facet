@@ -51,6 +51,7 @@ class CanonicalSender:
             or any(unicodedata.category(c) in {"Cc", "Cs"} for c in self.local)
             or not _SENDER_RE.fullmatch(self.value)
             or any(char in self.local for char in "*?[]")
+            or any(char.isspace() or char in '<>(),;:"\\' for char in self.value)
         ):
             raise RuleInputError()
 
@@ -96,7 +97,11 @@ class NormalizedRule:
                 and type(self.value) is CanonicalSender
             )
         )
-        if not valid or type(self.storage_value) is not RuleValue:
+        if (
+            not valid
+            or type(self.storage_value) is not RuleValue
+            or self.storage_value.value != self.value.value
+        ):
             raise RuleInputError()
 
     def __repr__(self) -> str:

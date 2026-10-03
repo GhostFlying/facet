@@ -45,6 +45,14 @@ class CanonicalDomain:
                 self.value == self.registrable
                 or self.value.endswith("." + self.registrable)
             )
+            or self.policy_version != _POLICY_VERSION
+        ):
+            raise SuffixInputError()
+        extracted = SuffixPolicy._extractor()(self.value)
+        if (
+            not extracted.domain
+            or not extracted.suffix
+            or f"{extracted.domain}.{extracted.suffix}" != self.registrable
         ):
             raise SuffixInputError()
 
