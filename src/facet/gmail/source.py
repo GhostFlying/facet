@@ -152,7 +152,12 @@ class SourceAdapter:
         args = {
             "userId": "me",
             "startHistoryId": cursor.value,
-            "historyTypes": ["messageAdded", "labelAdded", "labelRemoved"],
+            "historyTypes": [
+                "messageAdded",
+                "messageDeleted",
+                "labelAdded",
+                "labelRemoved",
+            ],
             "maxResults": 100,
         }
         if page_token is not None:

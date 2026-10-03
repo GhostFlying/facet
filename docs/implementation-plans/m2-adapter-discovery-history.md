@@ -13,8 +13,12 @@ all source events and derived expansion/message jobs are durable before a
 History cursor or discovery partition is advanced.  Typed event/job keys make
 replayed pages and labels idempotent.
 
-Files are limited to `src/facet/gmail/`, `src/facet/projection/` and focused
-tests.  No spike imports, generic provider registry, target projection worker,
+Files are limited to `src/facet/gmail/`, `src/facet/projection/`, the minimal
+typed History repository getter used for restart continuation, and focused
+tests.  Admission is consumed through the typed `AdmissionEvaluator` seam;
+the verified M1-06 authenticity/rules implementation remains an explicit
+dependency and this unit does not claim to implement it.  No spike imports,
+generic provider registry, target projection worker,
 History-404 recovery, scheduler/concurrency, daemon/IPC, Dashboard, CLI polish,
 Compose, or raw disk cache are included.
 
@@ -27,10 +31,12 @@ Compose, or raw disk cache are included.
   the operation-backed epoch before provider discovery, admits a recent message
   and enqueues complete non-draft thread expansion/message work including older
   history, and does not advance a partition when durable writes fail.
-- Normal History consumes every page/token, persists typed `messagesAdded` and
+- Normal History consumes every page/token, persists typed `messagesAdded`,
+  `messagesDeleted` and
   action-label events plus resolve jobs before final cursor commit, and replay
-  deduplicates event/action/job effects.  A 404 is reported as bounded attention
-  state and is not treated as an empty poll.
+  deduplicates event/action/job effects.  A 404 abandons the poll and records a
+  typed gap/attention fact with an H1 fence, and is not treated as an empty
+  poll; H1 recovery epochs/scans remain M3.
 - Fault/restart tests cover H0, page persistence, cursor ordering and duplicate
   label changes.  Synthetic body/header/attachment/provider-error sentinels do
   not reach DB, logs, stdout/stderr or temporary files.

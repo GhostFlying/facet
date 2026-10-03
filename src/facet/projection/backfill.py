@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from typing import Protocol
 from uuid import uuid4
 
 from facet.contracts import (
-    AdmissionRefInitialBackfill,
     Count,
     Generation,
     JobKind,
@@ -22,6 +22,7 @@ from facet.contracts import (
     Timestamp,
 )
 from facet.contracts.records import (
+    AdmissionRefInitialBackfill,
     JobSubjectExpandThread,
     ThreadGenerationGuardTracked,
     ThreadGenerationGuardUntracked,
@@ -54,6 +55,12 @@ class DiscoveryDecision:
             raise ValueError("invalid_input")
 
 
+class AdmissionEvaluator(Protocol):
+    """Typed seam for the verified M1-06 authenticity/rules consumer."""
+
+    def evaluate(self, item, epoch) -> DiscoveryDecision: ...
+
+
 def _local_id() -> LocalId:
     return LocalId(uuid4().hex)
 
@@ -65,9 +72,11 @@ def _now() -> Timestamp:
 class BackfillProducer:
     """Page source discovery and publish only durable expansion/message work."""
 
-    def __init__(self, source, admit):
+    def __init__(self, source, admission: AdmissionEvaluator):
+        if not callable(getattr(admission, "evaluate", None)):
+            raise ValueError("invalid_input")
         self._source = source
-        self._admit = admit
+        self._admission = admission
 
     def preview(self, owner, projection_id, request):
         """Persist the guarded preview through PR33's operation journal."""
@@ -121,7 +130,7 @@ class BackfillProducer:
                 if current is None:
                     raise ValueError("invalid_input")
                 for item in response.items:
-                    decision = self._admit(item, epoch)
+                    decision = self._admission.evaluate(item, epoch)
                     if (
                         not isinstance(decision, DiscoveryDecision)
                         or not decision.admit

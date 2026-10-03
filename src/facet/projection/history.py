@@ -28,14 +28,16 @@ from facet.contracts.records import (
 from facet.db.codecs import EventProcessing
 from facet.db.keys import event_key, job_key
 from facet.db.models import (
+    HistoryGapRow,
     HistoryPageRow,
     HistoryPollRow,
     RevisionGuard,
     SourceEventRow,
     SyncJobRow,
 )
-from facet.db.repositories import events, history
+from facet.db.repositories import epochs, events, history
 from facet.db.repositories.base import _get
+from facet.gmail.retry import ProviderFailure
 
 
 def _now() -> Timestamp:
@@ -170,18 +172,86 @@ class HistoryProducer:
 
     def consume(self, owner, projection_id, poll: HistoryPollRow) -> ProviderId:
         with owner.transaction() as uow:
-            begun = history.begin_history_poll(
-                uow, projection_id, poll, RevisionGuard(poll.start_checkpoint_revision)
-            )
             persisted = _get(
                 uow, projection_id, "history_polls", (("poll_id", poll.poll_id),)
             )
-        revision = persisted.revision if persisted is not None else begun.revision
+            if persisted is None:
+                history.begin_history_poll(
+                    uow,
+                    projection_id,
+                    poll,
+                    RevisionGuard(poll.start_checkpoint_revision),
+                )
+                persisted = _get(
+                    uow, projection_id, "history_polls", (("poll_id", poll.poll_id),)
+                )
+            elif persisted.state.value != "reading":
+                return persisted.final_history_id or persisted.start_cursor
+        revision = persisted.revision
         token = persisted.next_page_token if persisted is not None else None
         ordinal = persisted.completed_pages.value + 1 if persisted is not None else 1
         final_history_id = poll.start_cursor
+        if persisted.completed_pages.value > 0 and persisted.next_page_token is None:
+            with owner.transaction() as uow:
+                prior = history.get_history_page(
+                    uow,
+                    projection_id,
+                    poll.poll_id,
+                    Count(persisted.completed_pages.value),
+                )
+                if prior is not None:
+                    final_history_id = prior.response_history_id
+                history.finish_history_poll(
+                    uow,
+                    projection_id,
+                    poll.poll_id,
+                    final_history_id,
+                    RevisionGuard(revision),
+                )
+            return final_history_id
         while True:
-            page = self._source.history(poll.start_cursor, page_token=token)
+            try:
+                page = self._source.history(poll.start_cursor, page_token=token)
+            except ProviderFailure as error:
+                if error.status != 404:
+                    raise
+                # A stale cursor is an explicit bounded attention state.  Fence
+                # H1 from a fresh profile and persist the gap after abandoning
+                # the poll; the old checkpoint remains unchanged.
+                h1 = self._source.profile().history_id
+                observed_at = _now()
+                with owner.transaction() as uow:
+                    current = _get(
+                        uow,
+                        projection_id,
+                        "history_polls",
+                        (("poll_id", poll.poll_id),),
+                    )
+                    checkpoint = _get(uow, projection_id, "history_checkpoints", ())
+                    if current is None or checkpoint is None:
+                        raise ProviderFailure(error.code, error.role, 404) from None
+                    history.abandon_history_poll(
+                        uow,
+                        projection_id,
+                        poll.poll_id,
+                        observed_at,
+                        RevisionGuard(current.revision),
+                    )
+                    after = _get(uow, projection_id, "history_checkpoints", ())
+                    gap = HistoryGapRow(
+                        projection_id,
+                        LocalId(uuid4().hex),
+                        poll.poll_id,
+                        poll.start_cursor,
+                        checkpoint.cursor,
+                        after.revision,
+                        observed_at,
+                        checkpoint.reliable_coverage_at,
+                        h1,
+                        observed_at,
+                    )
+                    epochs.record_gap(uow, projection_id, gap)
+                raise
             # The poll start is the stable observation timestamp for replay;
             # restarting after a page fault must reconstruct the same closed
             # page row rather than allocate a second local fact.
