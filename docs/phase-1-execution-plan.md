@@ -1,10 +1,12 @@
 # Facet Phase 1 总计划
 
-日期：2026-10-02
+日期：2026-10-03
 
 状态：用户于 2026-10-02 批准 G0，绑定
 `caba7c73895a303d329cf3eba1c89557530c38c5`；总计划 PR #2 已 merged，执行基础开始推进。
-M1-M6 与生产 CLI 均未实现；当前工作包状态见 [进度台账](phase-1-progress.md)。
+用户于 2026-10-03 要求取消 VS-1/手动 thread 切片，将第一条可用产品能力改为自动
+discovery/backfill、History 增量、readonly action-label 规则和可恢复投影。M1-M6 与
+生产 CLI 均未实现；当前工作包状态见 [进度台账](phase-1-progress.md)。
 技术 review 和 CI 见 [review record](reviews/phase-1-plan-review.md) 与
 [merged PR #2](https://github.com/GhostFlying/facet/pull/2)，推进入口为
 [Phase 1 Epic #1](https://github.com/GhostFlying/facet/issues/1)。
@@ -18,7 +20,7 @@ M1-M6 与生产 CLI 均未实现；当前工作包状态见 [进度台账](phase
 ## 整体目标
 
 交付一个单用户、可长期自托管的 Gmail 选择性投影服务。Source 是唯一事实来源；
-用户通过明确规则或手动选择授权完整 thread，由 Facet 将授权内容写入另一个 Gmail
+用户通过明确规则和 action labels 授权完整 thread，由 Facet 将授权内容写入另一个 Gmail
 target，AI agents 只连接 target。Facet 自身的 source OAuth 仍是邮箱级读取权限，
 选择性由 Facet 执行逻辑实现，不是 OAuth 对 sender 的访问隔离。
 
@@ -48,15 +50,15 @@ target，AI agents 只连接 target。Facet 自身的 source OAuth 仍是邮箱�
    核对 live profiles/实际 scope，并报告 target 既有 unmanaged 内容。OAuth 是一次
    安装准备，不由 Compose up 替代，也不自动授权
    任意 backfill、额外 scope 或未选择账号。
-3. 预览和明确开始：配置规则或选择 thread，preview 解释固定六个月 discovery、
-   thread 全历史与持续披露；setup/preview 零 insert。用户显式 start 后才做获准
-   backfill；真实 bulk 还需持久 H0 消费/gap 能力与具体 live 范围许可。
-4. 增量使用：daemon 消费 History，投影 tracked thread 的新消息与 own replies；
+3. 预览和明确开始：配置规则，preview 解释固定六个月 discovery、thread 全历史与
+   持续披露；setup/preview 零 insert。用户显式 start 后自动 backfill，不要求逐个
+   选择 thread；真实范围仍需具体 live 许可。
+4. 增量使用：单个 Docker 前台进程消费 History，投影 tracked thread 的新消息与 own replies；
    Dashboard 看汇总进度、队列、异常和 snapshot freshness，CLI 查本地状态；
    target Gmail API/UI 是内容验收入口。
-5. 调整选择：新增 sender/domain 默认只对未来 admission 生效，手工 AddSender/
-   AddDomain action labels 纳入当前 thread，BlackList 则停止所选 thread。
-   旧 thread 的停止用 stop/BlackList，历史扩展另需明确 backfill；
+5. 调整选择：用户在 source Gmail 手工添加 `AI/AddSender`、`AI/AddDomain` 或
+   `AI/BlackList`；History 事件持久化、去重并更新规则/jobs。便利清理后移；
+   新规则默认按 effective_at 生效，历史扩展不隐式扩大披露；
    remove allow rule 或移除 blacklist 不暗中停止/恢复已有 tracking。
 6. 处理异常：CLI queue/review/recovery/audit 解释 blocked、unknown insert、
    source_missing、target missing 和 History gap；按受限 preview/approve/repair
@@ -75,30 +77,29 @@ target，AI agents 只连接 target。Facet 自身的 source OAuth 仍是邮箱�
 
 | 类别 | 必须达到的结果 | 必需证明证据 | 已有 gate / CLI / 工作包 |
 | --- | --- | --- | --- |
-| A1 披露与授权 | 完整 thread 持续授权、固定六个月 discovery、未来规则/显式历史扩展、可信 automatic admission、stop/BlackList 正确；unmanaged target 仅报告 | 合成认证/域名/effective_at/legacy/stop 反例；preview→start 与零隐式 insert；获准范围的真实 admission/action 结果 | G1/G3/G5；CLI-02/03/05；M1-06、M3-01 至 M3-04、M5-01 至 M5-03 |
+| A1 披露与授权 | 完整 thread 持续授权、固定六个月 discovery、未来规则/显式历史扩展、可信 automatic admission、stop/BlackList 正确；unmanaged target 仅报告 | 合成认证/域名/effective_at/legacy/stop 反例；preview→start 与零隐式 insert；获准范围的真实 admission/action 结果 | G1/G2/G4；CLI-01/03/05；M1-06、M2、M4 |
 | A2 Gmail 保真和可见性 | 原 raw 不重序列化；内容/MIME/附件、有效 Date/可解释降级、实际 target thread 集合正确；默认 All Mail，不镜像读/星/Inbox/Sent 状态 | 版本化 semantic/MIME/附件 digest 与 Date/thread 合成测试；限定 live Gmail API 回读和 UI 检查；fallback 只处理确认 threading 错误 | G2/G6；CLI-02；M2-02/05、M6-08 |
-| A3 连续同步与恢复 | H0/discovery/History 全分页接续，gap/reconcile 不扩大授权；intent/unknown、restart、取消/故障可恢复或明确 attention，选中工作不静默消失 | Cursor/intent/insert/map/stop/restart/disk 故障注入；初始化交错、History expiry 与归属反例；范围内 live 恢复、未知 gap 显式 range 决定 | G2/G3/G4/G5；CLI-02/03/04/05；M2-03/04、M3-02、M4-01/02/03/06、M5-03 |
+| A3 连续同步与恢复 | H0/discovery/History 全分页接续，gap/reconcile 不扩大授权；intent/unknown、restart、取消/故障可恢复或明确 attention，选中工作不静默消失 | Cursor/intent/insert/map/stop/restart/disk 故障注入；初始化交错、History expiry 与归属反例；范围内 live 恢复、未知 gap 显式 range 决定 | G2/G3/G4；CLI-02/03/04；M2、M3、M4 |
 | A4 隐私和输出边界 | DB 仅必要 metadata，raw 仅内存、不落文件；logs/CI/images 无邮件内容或凭据，许可的私密 state/backup owner-only；HTTP/DOM/frontend/URL/export 无邮件与内部私密字段 | DB/journal/log/files 和 CLI private/public 分层 sentinels；Web network/DOM/浏览器检查；image/context/layers/artifacts 扫描与 owner-only 文件检查 | G1/G4/G6；CLI-08；P1-02、M1-05、M4-04/05、M6-03 至 M6-06 |
-| A5 可观察和可维护 | Dashboard 数量/单位/unknown/stale/部分失败真实；完整 CLI 完成 setup、控制、规则、queue/review/recovery/audit/维护，首应答丢失仍可查 | 桌面/手机 UI 和 GET 零 Gmail/写副作用；CLI subprocess/fake E2E、JSON/退出码/确认/preview/request-key；invalid_grant 下 offline 诊断和维护 | G1/G4/G6；CLI-01 至 CLI-08；M1-03/05/06、M4-04/05/06、M6-01/02/06 |
+| A5 可观察和可维护 | Dashboard 数量/单位/unknown/stale/部分失败真实；完整 CLI 完成 setup、控制、规则、queue/review/recovery/audit/维护 | 桌面/手机 UI 和 GET 零 Gmail/写副作用；CLI subprocess/fake E2E、JSON/退出码/确认/preview；invalid_grant 下 offline 诊断和维护 | G1/G3/G6；CLI-01 至 CLI-08；M1、M3、M5/M6 |
 | A6 部署、备份和升级恢复 | 非 root 单 sync owner、local WAL volume、安全 HTTP/Nginx 边界；Compose 一键启动；公开镜像、容器 CLI、备份/恢复/迁移/rollback 可用 | 干净环境按双语 runbook 操作；匿名 digest pull、双架构 runtime/SBOM/provenance；容器重建 state 保留、DB+credential 锁竞争和实际运维演练 | G6；CLI-06/07；M6-01 至 M6-07 |
-| A7 条件同步延迟 | 正常 API、有效授权、无积压时，source 新消息到 target insert+回读的 P95 < 60 秒；backfill 另算，AI connector 不计入 | 实测前冻结 source 时间、discovered/queued/verified timestamps、样本量与排除/无样本规则；实际样本及 polling/queue/processing 分段，无样本不能 pass，不用历史 RFC Date 算起点 | G4/G6；M4-06、M6-08 |
-| A8 最终交付和 72h 运行 | G1-G6 全过；指定主机至少 72h，覆盖 restart/refresh/受控故障/backup/restore 与真实失效→重新 OAuth→pending jobs 继续；文档/限制/候选证据完整 | 实际起止、样本/运行记录及许可 scope；live Gmail API/UI、部署/CLI/恢复证据；candidate SHA/digest 和 reviews/CI/gates 索引，license/正式 release 决定按台账关闭 | G1 至 G6；CLI-07/08；M6-07/08/09 |
+| A7 最终交付和 72h 运行 | G1-G6 全过；指定主机至少 72h，覆盖 restart/refresh/受控故障/backup/restore 与真实失效→重新 OAuth→pending jobs 继续；不包含延迟目标 | 实际起止、状态/异常运行记录及许可 scope；live Gmail API/UI、部署/CLI/恢复证据；candidate SHA/digest 和 reviews/CI/gates 索引，license/正式 release 决定按台账关闭 | G1 至 G6；CLI-07/08；M6-06/07/08 |
 
-A7 沿用既有条件性性能目标，不是 Gmail 外部服务 SLA；不新增样本量或硬指标。
-测量 plan 在实测前冻结，无样本/条件不满足如实报告，未达标不能改口径或减少
-样本换取通过。A8 的 72 小时是必需最低窗口，不是计时到点自动验收；仍有失败 gate
+产品不承诺同步延迟，不设置 P95、轮询间隔、队列年龄或端到端时间门槛；这些字段如
+出现在 Dashboard/CLI，只是观察到的状态事实。A7 的 72 小时是必需最低窗口，不是计时到点自动验收；仍有失败 gate
 就继续整改。真实 Gmail、re-auth/撤权故障和主机演练需对应权限/用户参与，合成
 测试不能代替。M4 alpha 或 AI 产品索引/检索效果都不等于 Phase 1 完成。
 
 ## 范围与非目标
 
 本期只支持一个用户、一个 projection、两个不同 Gmail 账号。Python/SQLite WAL
-运行在 local filesystem，单 daemon owns sync/HTTP，有限并发、rate limits 与 raw
-内存预算；静态 Dashboard 只读，无邮件详情/写控制。完整 CLI、Docker Compose、
+运行在 local filesystem，Docker image 内单个前台进程 owns sync/HTTP；不实现独立
+daemon、IPC、request-receipt broker 或容器外 runtime/native/read-bootstrap 保证。
+静态 Dashboard 只读，无邮件详情/写控制。完整 CLI、Docker Compose、
 Actions 的 public `ghcr.io/ghostflying/facet` 双架构镜像、双语运维文档与备份/恢复/
 升级路径是必交付范围。
 
-Source 默认 `gmail.readonly`，观察用户手工 action labels；便利 `gmail.modify`、
+Source 默认 `gmail.readonly`，第一阶段观察用户手工 action labels 并处理规则；便利 `gmail.modify`、
 target label 创建和可选 Inbox 按额外 scope/选择启用，不自动扩大权限。Target 默认
 `gmail.insert` + `gmail.readonly`、All Mail 可见，仅 insert 不 send/forward。
 Target 应专用；既有 unmanaged 邮件仍可能被 connector 读取，Facet 不接管它们。
@@ -107,7 +108,7 @@ Phase 1 不做 send、purge/retention/target 自动删除、双向同步、全�
 多租户、其他 provider、LLM 分类、通用 MCP、Web OAuth/邮件浏览/规则编辑或应用
 自建 HTTPS/login。未来撤回也不保证清除第三方索引/缓存。AI connector 的授权、
 索引、搜索、附件读取与回答准确性由各 AI 产品负责，不是 Facet 发布 gate 或同步
-延迟的一部分。
+产品没有同步延迟承诺；这些外部 connector 行为不属于 Facet 的验收范围。
 
 G0 是开发阶段对具体总计划版本的批准，不是安装后的 CLI runtime flag。D1 工程
 自主 merge 与 D2 GHCR/main full-SHA scope 已授权，只在 G0/phase 开始后生效；
@@ -122,11 +123,11 @@ M1-M6 是验收顺序，不强制所有工程串行；已冻结工程输入齐�
 | 里程碑 | 用户得到的阶段结果 | 关闭条件 |
 | --- | --- | --- |
 | M1 工程和身份基础 | 可校验配置/绑定/状态，安全持久化与正式 CLI 基础 | G1：身份/锁/隐私/认证设计证据齐备 |
-| M2 可恢复投影 | 手动选定 thread 能投影、核验并解释未知结果 | G2：保真、归属、队列/故障及限定 live 证据 |
-| M3 规则与 backfill | 规则生效边界、preview/显式 start、固定发现窗口可用 | G3：认证启用证据与 disclosure/持久发现验收 |
-| M4 增量与 Dashboard alpha | History/gap/校对和只读页面形成长期同步 alpha | G4：增量交错、恢复、浏览器/隐私与 runtime 证据 |
-| M5 action labels | 学习规则/纳入当前 thread/BlackList 竞争边界可用 | G5：幂等、legacy/mode/cancellation 与范围内 live 证据 |
-| M6 自托管 v0.1 | 镜像/Compose/全 CLI/运维交付、真实部署和运行验收完整 | G6：对应全部 gate、部署/恢复及实际 72h 证据 |
+| M2 自动 discovery/backfill 与增量投影核心 | 规则驱动固定六个月 discovery/backfill、History polling、readonly action-label 规则更新、完整投影、mapping 和 unknown recovery | G2：保真、归属、H0/cursor/事件去重、队列/故障及限定 live 证据 |
+| M3 连续运行恢复与 Dashboard alpha | History 404/gap、reconcile/audit、聚合状态和只读 Dashboard | G3：增量交错、恢复、浏览器/隐私与运行证据 |
+| M4 完整维护 CLI 与高级规则维护 | queue/review/recovery/repair、BlackList 竞争、offline maintenance、便利 label cleanup | G4：CLI、幂等、legacy/mode/cancellation 与范围内 live 证据 |
+| M5 自托管交付 | Compose、GHCR Actions 镜像、双架构、SBOM/provenance 和运维文档 | G5：镜像、容器 CLI、部署前离线交付证据 |
+| M6 真实部署和 v0.1 | 备份恢复、真实 Gmail、指定主机和 72h dogfood | G6：对应全部 gate、部署/恢复及实际 72h 证据 |
 
 ### 依赖图和里程碑门槛
 
@@ -136,37 +137,38 @@ M1-M6 是验收顺序，不强制所有工程串行；已冻结工程输入齐�
     v
 P1-00 协作/权限台账 ──┬── P1-01 核心接口/ADR ──┬── M1 基础 ── G1
                      └── P1-02 故障/隐私测试 ─┘       │
-                                                       ├── M2 投影 ── G2
+                                                       ├── M2 自动 discovery/backfill + History + projection ── G2
                                                        │               │
-                                                       └───────────────┴── M3 规则/发现 ── G3
+                                                       └───────────────┴── M3 gap/reconcile/Dashboard ── G3
                                                                             │
-                      M4 History / gap / reconcile / Dashboard ───────────────┴── G4 alpha
-                                                                                │
-                            M6 离线交付包可在接口冻结后并行      M5 action labels ── G5
+                      M4 CLI/action maintenance ───────────────────────────┴── G4
                                       │                                          │
-                                      └── Compose / image / backup / docs ────────┤
+                                      └── M5 Compose/image/docs ──────────────────┤
                                                                                 v
-                            授权 live + host + publication → 部署 → 72h dogfood → G6 v0.1
+                            M6 备份/真实授权/host → 部署 → 72h dogfood → G6 v0.1
 ```
 
 G1→G2→G3→G4→G5→G6 的验收顺序保持不变。后阶段的 ADR、合成测试、独立模块和
-交付配置可以在接口依赖满足时提前实施，但不能提前宣告阶段完成。M3 的离线 discovery
-测试可以先运行；真实大规模 backfill 必须等 M4-01 和 M4-02 支持持久 H0 消费与 gap
-恢复，并且真实范围获授权。M2 手动小范围 live 测试也要限定选定 thread 和 test scope。
+交付配置可以在接口依赖满足时提前实施，但不能提前宣告阶段完成。M2 的离线 discovery、
+History 和 backfill 测试可以先运行；真实范围仍需授权。M2 live 测试按已批准规则/窗口
+执行，不以手动选定 thread 作为产品入口。
 
 | Gate | 最小完成证据 | 不能替代的证据 |
 | --- | --- | --- |
 | G0 | 用户对 reviewable 整体计划版本的明确批准；记录版本/SHA、决定与范围 | 技术 review、CI 或 D1/D2 内部权限不代表整体计划批准 |
 | G1 | 正式包/配置/DB/锁/绑定/私密文件/公共 DTO；认证 ADR 通过设计 review | Spike 能运行不能证明正式身份与隐私边界 |
-| G2 | 串行 thread 投影、保真、intent/recovery、generation、内存预算与 crash tests；限定 live API/UI 保真 | 唯一搜索候选不等于本次 insert 的归属证明 |
-| G3 | 规则、可信 admission、固定六个月边界、H0、可恢复发现和 preview；认证证据启用门槛 | 合成 parser 测试不能独自证明 Gmail-path 信任 |
-| G4 | 完整 History 分页、gap/reconcile/audit、runtime 与只读 Dashboard；初始化交错实测和浏览器隐私 | 离线 backfill 完成不等于增量无缝衔接 |
-| G5 | 三种 action、legacy、幂等、readonly/便利模式、BlackList 竞争测试与范围内 live 证据 | 当前 label 快照不能复原过期 add/remove 命令 |
-| G6 | 完整 CLI-06/07/08、备份恢复、镜像/Compose/Nginx、升级回滚、双语文档、授权部署和 72h dogfood | Build/help 成功不能证明完整维护 CLI、真实部署或长期稳定 |
+| G2 | 自动 discovery/backfill、History 全分页/cursor、事件/规则去重、串行 thread 投影、保真、intent/recovery、generation 与基本内存安全；限定 live API/UI 保真 | 唯一搜索候选不等于本次 insert 的归属证明 |
+| G3 | History gap/reconcile/audit、只读 Dashboard、初始化交错实测和浏览器隐私 | 离线 backfill 完成不等于增量无缝衔接 |
+| G4 | 完整 CLI、三种 readonly action、legacy、effective_at/generation、BlackList 竞争、便利模式与受限修复 | 当前 label 快照不能复原过期 add/remove 命令 |
+| G5 | 镜像/Compose/Nginx、Actions、双架构、SBOM/provenance、容器 CLI 和双语文档 | Build/help 成功不能证明完整维护 CLI、真实部署或长期稳定 |
+| G6 | 备份恢复、真实 Gmail、授权部署、升级回滚和 72h dogfood | 任一前置 gate 失败不能用时间或吞吐声明替代 |
 
 ## 工作包与推进机制
 
-以下 36 个包保留已审 ID、依赖、交付和验收。先列工作包，再给 CLI 归属、协作规则、
+以下 36 个包保留已审 ID 以避免 tracking 重写；本次重排只改变 milestone grouping 和
+关键路径。第一条产品交付包含 M2-01..05、M3-01..04、M4-01 的 normal History polling，
+以及 M5-01/M5-03 的 readonly action semantics；这些工作包的旧 ID 不等于新的 milestone
+编号。原卡片中的 package ID 不等于新的 milestone gate。先列工作包，再给 CLI 归属、协作规则、
 就绪波次和权限台账；实际派工以 frozen interfaces 与对应 gate/evidence 为准。
 卡片中的规划轮说明属于总计划编制时的范围，不是实时完成状态；当前派工和证据以
 [进度台账](phase-1-progress.md) 为准，不把依赖条件或未来交付描述当成已验收。
@@ -192,9 +194,9 @@ Issues 在实施启动后按就绪波次建立。
 `writer-command-protocol.md`，以及每包 plan 的接口引用。
 
 交付：projection/binding、typed event/job/error、generation、claim、checkpoint、
-insert result、public snapshot 等接口和 schema ownership。选择 daemon 运行时 CLI
-变更协议，明确投递、执行、确认、重放、锁及停机维护的责任；可评估本地 command
-入口或停机持锁，但先通过 ADR，不能让两个未协调 DB writer 并存。
+insert result、public snapshot 等接口和 schema ownership。选择 Docker 前台运行时的
+CLI 变更协议，明确执行、重放、锁及停机维护的责任；可评估本地 command 入口或停机
+持锁，但先通过 ADR，不能让两个未协调 DB writer 并存。
 
 验收：状态转移和事务边界能直接生成 crash/竞争测试；没有跨网络事务；read-only
 status/doctor 不夺写锁；API 字段与私密 DB 状态明确分离。未通过此 review 的共享
@@ -240,10 +242,9 @@ typed payload/error 拒绝任意邮件/provider JSON；DB、WAL、journal 和日
 依赖：M1-01、M1-02、P1-01 writer ADR。Owner：运行时 agent，S；review：A。
 文件：`src/facet/db/lock.py`、`runtime.py`、`cli/command.py`、多进程测试。
 
-交付：一个 daemon 的写入所有权、运行中变更的协议、停机维护模式与受控错误。
-验收：第二 daemon 被拒；运行中的 CLI 不形成未协调第二 writer；投递、执行、应答
-各 crash 点不重复规则效果；停机 CLI 必须取得锁；read-only 查询可用；任何网络等待
-不持 DB 事务。锁丢失/进程异常可解释而非悄悄开新库。
+交付：Docker 前台单进程的写入所有权、停机 one-off 维护模式与受控错误。
+验收：第二 sync owner 被拒；one-off CLI 不形成未协调第二 writer；网络等待不持 DB
+事务；锁丢失/进程异常可解释而非悄悄开新库。不实现独立 daemon、IPC 或 request receipt broker。
 
 **M1-04 OAuth、profile binding 与 token 更新**
 
@@ -307,10 +308,10 @@ typed 确定失败/未知结果。验收：无 send/forward/delete 方法；inse
 依赖：M2-01、M2-02、M1-02、M1-03。Owner：运行时 agent，S；review：A。
 文件：`projection/worker.py`、`scheduler.py`、`raw_budget.py`、worker fault tests。
 
-交付：同 thread prepare/insert/map 串行、默认跨 thread 并发 4、实时优先且历史公平、
-claim generation guards、内存 budget 和 target 长期失败释放 raw。验收：base64、解析
-和 target 回读的内存放大计入预算；oversize 有可解释状态且不饿死其他 thread；stop 后
-未开始工作不写入，在途结果仍入库；DB 事务不跨网络；全程无 spool/`.eml` 临时文件。
+交付：同 thread prepare/insert/map 串行、claim generation guards、raw 仅内存和基本
+上限、target 长期失败释放 raw。第一期不实现默认跨 thread 并发 4、实时优先、公平
+调度或复杂 raw budget。验收：oversize 有可解释状态；stop 后未开始工作不写入，在途
+结果仍入库；DB 事务不跨网络；全程无 spool/`.eml` 临时文件。
 
 **M2-04 Intent、insert 归属 ADR 与 recovery**
 
@@ -328,28 +329,36 @@ claim generation guards、内存 budget 和 target 长期失败释放 raw。验�
 没有插入；默认保 attention，任何受限重试必须有 ADR 规定的预算和明确风险。30s/2m/5m
 只是初始检查节奏，不是搜索 SLA。停机、gap、restore 不重新激活 stopped thread。
 
-**M2-05 手动 thread preview/track 与 G2**
+**M2-05 自动 projection integration 与 G2**
 
-依赖：M2-01 至 M2-04、M1-06 的离线工程输出；G2 最终 live 验收依赖 D3。
+依赖：M2-01 至 M2-04、M1-06、M3-01 至 M3-04、M4-01、M5-01 和 M5-03 的离线工程
+输出；G2 最终 live 验收依赖 D3。M3/M4/M5 的这些旧包 ID 属于 M2 首条产品交付，
+不是后置 one-shot 或手动 thread 路径。
 Owner：集成 agent，S；review：A。
-文件：`cli/track.py`、`review.py`、`tests/integration/`、G2 验收记录。
+文件：`cli/track.py`（仅保留内部兼容/状态接线，不作为产品入口）、`review.py`、
+`tests/integration/`、G2 验收记录。
 
-交付：手动选择 thread 的完整披露 preview、明确 start/approve、target 实际 thread
-集合/anchor/fallback。验收：旧历史、附件、own replies、其他参与者、tracked 后 sender
-变化被正确解释；只对确认 threading 错误 fallback，其他 400 不重写；source_missing
-有明确状态。合成 crash evidence 与限定真实 Gmail API/UI 日期、会话、附件证据分开记录。
+交付：规则驱动 discovery/backfill 与 History 事件产生 projection jobs，完整 thread
+投影、target 实际 thread 集合/anchor/fallback、restart continuation 和 unknown recovery。
+Preview 只确认规则范围与持续披露语义，不要求逐个选择 thread。验收：旧历史、附件、own
+replies、其他参与者、tracked 后 sender 变化被正确解释；只对确认 threading 错误 fallback，
+其他 400 不重写；source_missing 有明确状态。合成 crash evidence 与限定真实 Gmail
+API/UI 日期、会话、附件证据分开记录。
 
-### M3：规则、生效时间和六个月发现
+### 第一交付组成：规则、生效时间和六个月发现（工作包 ID M3-01..04，归入 M2/G2）
 
 **M3-01 Admission policy 与 review**
 
-依赖：M2-05 的离线输出、M1-06、M2-04。Owner：规则 agent，S；review：A。
+依赖：M2-01、M1-06、M2-04。Owner：规则 agent，S；review：A。
 文件：`projection/admission.py`、`rules.py`、`authenticity.py`、policy tests。
 
-交付：blacklist→allow match→trusted auth→admit/review 的决策、explicit thread approval、
+交付：blacklist→allow match→trusted auth→admit/review 的决策、规则 effective_at 和
+action-label 触发的当前/未来 admission，
 规则 effective_at。验收：公共后缀/相似恶意域名/多 From/未知 auth 不能 admission；
-Spam/Trash/drafts 不引起新自动纳入；动态新增仅未来与当前明确选择 thread；删除 allow
-不停止已 tracked thread。真实 automatic accept 在 authentication ADR 证据未闭合前关闭。
+Spam/Trash/drafts 不引起新自动纳入；动态新增仅未来与 action-label/规则命中的当前
+thread；删除 allow
+不停止已 tracked thread。真实 automatic accept 在 authentication ADR 证据未闭合前关闭；
+不再把逐个 explicit thread approval 作为第一期入口。
 
 **M3-02 固定六个月 discovery、H0 与 durable backfill**
 
@@ -359,7 +368,8 @@ Spam/Trash/drafts 不引起新自动纳入；动态新增仅未来与当前明�
 交付：UTC 日历月 cutoff、epoch、先持久 H0 后分页扫描、本地复核、durable thread
 jobs、去重与可重扫。验收：三个月内命中且首封九个月前复制完整 thread；仅九个月前
 命中不纳入；边界日期/月末有测试；page token 失效或 crash 可重扫；H0 持久失败不开始
-扫描；resultSizeEstimate 不充当确定总量。此包不开始真实 bulk backfill。
+扫描；resultSizeEstimate 不充当确定总量。该 durable backfill 由 M2 projection worker
+消费，不另造 one-shot 复制路径。
 
 **M3-03 Rules/backfill/review CLI 与授权 preview**
 
@@ -373,7 +383,8 @@ domain 规则和 reconcile 不构成隐式历史 backfill。当前目标既有�
 
 **M3-04 G3 集成与 disclosure 验收**
 
-依赖：M3-01 至 M3-03；可信认证启用依赖 D3 和 AUTH 证据；bulk 仍等 M4-01/02。
+依赖：M3-01 至 M3-03；可信认证启用依赖 D3 和 AUTH 证据；History polling 已由 M2
+核心接入，M3 不再阻塞初始 bulk。
 Owner：验收 agent，S；review：A。文件：M3 integration tests、G3 evidence、文档。
 
 交付：六个月、rule effective time、认证反例、停止状态、disclosure preview 的完整
@@ -381,14 +392,14 @@ Owner：验收 agent，S；review：A。文件：M3 integration tests、G3 evide
 样本与声明覆盖对应；未确认银行 domains 不成为默认 allowlist。G3 可记录离线实现完成，
 缺少 live 认证证据时 live gate 保持未闭合，不把结果包装为全部验收通过。
 
-### M4：History、恢复、校对与 Dashboard alpha
+### M3：History gap、恢复、校对与 Dashboard alpha（工作包 ID M4-01..06）
 
 **M4-01 History ingestion 和无缝初始化**
 
 依赖：M3-02、M1-02、M2-01；可提前设计/离线实施。Owner：History agent，S；review：A。
 文件：`projection/history.py`、typed event repos、pagination/crash tests。
 
-交付：默认 30 秒 poll、typed events、稳定去重、每页 events/jobs 先落盘、全页完成
+交付：History polling（无延迟承诺）、typed events、稳定去重、每页 events/jobs 先落盘、全页完成
 后 cursor 提交。验收：History ID 当字符串；通用 messages 不重复执行 typed entries；
 中途 crash 重读不漏不重业务；target 故障不阻碍 source durable ingestion；磁盘失败不
 推进 cursor；无事件 poll 仍记录覆盖边界；discovery 期间收信/own reply 能从 H0 补齐。
@@ -435,25 +446,26 @@ sentinels 不进入任一 HTTP 响应。只提供 HTTP，不内建 Web auth/TLS�
 provider error；无外部 CDN、OAuth UI、邮件链接、content 路由或写控制。浏览器截图
 仅用合成数据，可公开进入 PR。
 
-**M4-06 Runtime 整合、alpha 与 G4**
+**M4-06 Dashboard alpha 与 G3 集成验收**
 
 依赖：M4-01 至 M4-05、M3-04 的离线已验证工程输出。
 Owner：集成 agent，S；review：A。
 文件：`runtime.py`、scheduler/shutdown tests、G4 evidence、runbook。
 
-G4 最终验收另依赖 G3 完整通过与 D3 live 范围；Runtime/Compose 的离线实现不等待
-G3 live gate。真实 bulk 还须持久 H0 消费/gap 能力就绪和明确 D3 授权。
+G3 最终验收另依赖 D3 live 范围；Docker runtime/Compose 的离线实现不等待
+G3 live gate。真实范围仍须明确 D3 授权。
 
-交付：单 sync/HTTP 进程、graceful SIGTERM、实时优先/backfill 公平、snapshot
-刷新和各周期任务集成。验收：初始化/实时/backfill/gap 交错不漏；target 故障/raw budget
-压力不拖死其他 thread；关机未知 insert 保 recovery；Web 刷新不触发 Gmail；G4 alpha
-包含实际 CLI + Dashboard 路径和授权初始化交错实测。此后才允许获授权的大范围 backfill。
+交付：单 Docker sync/HTTP 前台进程、graceful SIGTERM、snapshot 刷新和各周期任务集成。
+不实现独立 daemon/IPC、实时优先/backfill 公平或复杂 raw budget。验收：初始化/增量/backfill/
+gap 交错不漏；target 故障不丢 jobs；关机未知 insert 保 recovery；Web 刷新不触发 Gmail；G3 alpha
+包含实际 CLI + Dashboard 路径和授权初始化交错实测。
 
-### M5：Action labels 和 BlackList
+### 第一交付组成：readonly action labels（M5-01）与 M4 高级维护（M5-02/03）
 
 **M5-01 Durable action commands 和学习**
 
-依赖：M4-01、M3-01；可提前用 synthetic events 实施。Owner：动作 agent，S；review：A。
+依赖：M2 History/action event 输入、M3-01；readonly synthetic/production consumer 属于
+第一条自动 projection 交付。Owner：动作 agent，S；review：A。
 文件：`projection/actions.py`、action repos、action replay tests。
 
 交付：`AI/AddSender`/`AI/AddDomain`/`AI/BlackList` 按 projection/history record/
@@ -467,14 +479,15 @@ label/thread 聚合；最新合法 external sender、own-address 排除、PSL �
 依赖：M5-01、M1-04、M1-03。Owner：Gmail/CLI agent，S；review：A。
 文件：`gmail/labels.py`、CLI mode/legacy/review、label cleanup tests。
 
-交付：legacy labels 仅报告、remove/re-add 激活、readonly 无 source mutation、显式
-便利模式/可选状态标签与 durable 后 cleanup。验收：旧 label snapshots 不执行新命令；
+交付：legacy labels 仅报告、remove/re-add 激活、readonly 无 source mutation；显式便利
+模式/可选状态标签与 durable 后 cleanup 后移。验收：旧 label snapshots 不执行新命令；
 cleanup crash 只重试清理不重复业务；缺少标签时 readonly CLI 可用；scope 不足不自动
 扩大；status labels 默认关闭。Live 便利 mode 需 D3 中独立 scope 许可。
 
 **M5-03 BlackList 竞争、停止/恢复和 G5**
 
-依赖：M5-01、M5-02、M2-03/04、M4-02/03 的离线已验证工程输出。
+依赖：M5-01、M5-02、M2-03/04 的离线已验证工程输出。M5-03 的基础 action semantics
+属于 M2 首条交付；M4-02/03 的 gap/reconcile 仍是后续 M3 增强。
 Owner：验收 agent，S；review：A。
 文件：generation/cancellation fault tests、CLI stop/track、G5 evidence。
 
@@ -483,14 +496,14 @@ Owner：验收 agent，S；review：A。
 不复活；reconcile/gap/restore/recovery 不绕过 generation；在途 insert 完成被记录；
 target 历史保留。范围内 label live evidence 与合成 race evidence 分开。
 
-### M6：Compose、Actions 镜像和自托管 v0.1
+### M5/M6：Compose、Actions 镜像、真实部署和自托管 v0.1（工作包 ID M6-01..09）
 
 **M6-01 停机备份**
 
 依赖：M1-02、M1-03、稳定 schema；可与后续模块并行。Owner：持久化 agent，S；review：A。
 文件：`db/backup.py`、`cli/backup.py`、backup tests、运维文档。
 
-交付：停 daemon、持 writer lock、SQLite backup API、配置/binding/credential 成套
+交付：停止 sync container、持 writer lock、SQLite backup API、配置/binding/credential 成套
 owner-only 备份和完整性 metadata。验收：有 WAL 的库可恢复；不复制 live 主 DB 代替
 备份；backup 失败不破坏当前库；备份不含 raw；public logs 不含路径或凭据；备份和
 artifact/镜像隔离。迁移使用此机制或已评审的同等 SQLite backup API 流程。
@@ -593,11 +606,8 @@ D3/D4 中明确许可，OAuth 需要用户参与，不能擅自 revoke 现有权
 队列/资源/Dashboard 与实际状态一致。72 小时到时仍有 gate 失败则继续整改，不能按时
 钟自动通过；如需后台持续观察，应单独取得 automation/跨 turn 唤醒授权。
 
-性能目标：正常 API、有效授权、无积压时，从 source 新消息到 target insert+回读的
-P95 < 60 秒。测量 plan 在实测前冻结 source 事件时间定义、discovered/queued/verified
-timestamps、样本量、backfill 排除及无样本状态；不能用历史 RFC Date 算旧邮件延迟。
-分别报告 polling、queue 和 processing，AI connector 延迟不计入；未达标报告实测，
-不得减少样本或改口径使 gate 通过。
+产品没有同步延迟承诺。可以记录 polling、queue、processing 的实际时间用于诊断，
+但不得将其解释为 P95/SLA，也不得把样本量或时间阈值作为 gate。
 
 **M6-09 G6 与 v0.1 release candidate**
 
@@ -621,11 +631,11 @@ owner 管理，各 feature handler 归对应包。以下 CLI acceptance 增加�
 | Gate / CLI acceptance | 已有包 owner | 必需实际操作 |
 | --- | --- | --- |
 | G1 / CLI-01/08 | M1-01/03/04/05/06，P1-02 | config/init、auth-status、offline status/doctor/inspect、JSON/退出码/非 TTY/privacy；稳定请求键及首次应答丢失 lookup |
-| G2 / CLI-02/08 | M2-04/05 | threads/review/recovery preview producer、track/stop、queue/operations、安全 retry；unknown insert 不绕过 recovery |
-| G3 / CLI-03 | M3-01/02/03/04 | rules、preview/start/backfill pause/resume、review；用途/范围/过期 preview guards |
-| G4 / CLI-04 | M1-03，M4-02/03/04/06 | daemon 控制和持久 pause、ingestion/mutation 边界、unknown gap 的显式范围决定、可续 reconcile/audit、bounded repair |
-| G5 / CLI-05 | M5-01/02/03 | mode/实际 scopes、legacy report、blacklist/stop，不复活 stopped generation |
-| G6 / CLI-06/07/08 | M6-01/02/03/06/07/08 | 最终 image 完整 CLI，无 host Python；offline backup/restore/migrate/inspect、re-auth、升级回滚和容器 E2E |
+| G2 / CLI-02/08 | M2-01..05、M3-01/02/03/04、M4-01、M5-01/03 | rules/discovery/backfill/history/projection/recovery，queue/operations；unknown insert 不绕过 recovery |
+| G3 / CLI-03/04 | M4-02/03/04/05/06 | preview/start/backfill pause/resume、gap/reconcile/audit、Dashboard；用途/范围/过期 preview guards |
+| G4 / CLI-05 | M3-03、M5-01/02/03 | readonly action labels、legacy report、blacklist/stop，不复活 stopped generation |
+| G5 / CLI-06/08 | M5-01/02/03、M6-03/04/05/06 | 最终 image 完整 CLI，无 host Python；容器 E2E 和隐私 |
+| G6 / CLI-07/08 | M6-01/02/07/08/09 | offline backup/restore/migrate/inspect、re-auth、升级回滚、真实部署和 72h |
 
 M1-03/M1-04 的 writer/auth ADR 同时定义成套维护与 auth/refresh 的 DB+credential
 ownership/锁层次，防止 backup/restore 跨版本。离线读命令不因 invalid_grant 失效；
@@ -668,6 +678,10 @@ reviewer 与 SHA。36 卡片、依赖和 gate 不变，协调 agent 在允许模
 
 ### 可并行波次和关键路径
 
+下表保留历史工作包 ID 和波次名称以便追踪；它们不代表新的 milestone 顺序。M2/G2
+首条自动产品路径必须拉齐 M3-01..04、M4-01 normal History polling 以及 M5-01/
+M5-03 action semantics，不能等到表中的 W3/W5 才开始这些输入。
+
 | 波次 | 可调度的包 | 关键约束 |
 | --- | --- | --- |
 | W0 当前规划 | 总计划文档/独立技术 review→用户 review/明确批准 G0 | 批准前不 merge 总计划 PR、不开始产品实现 |
@@ -678,13 +692,13 @@ reviewer 与 SHA。36 卡片、依赖和 gate 不变，协调 agent 在允许模
 | W1c 基础集成 | M1-05 实现→M1-06 集成；空余槽可做 M6-01 backup 设计 | 先完成 M1-03/04/05 输出再聚合 G1；后阶段设计不宣告通过 |
 | W2a adapters | M2-01 实现；并行 M2-04 recovery ADR 设计 | M2-02 此时只可设计/测试设计，不能提前实现依赖 adapter 的逻辑 |
 | W2b projection | M2-02→M2-03→M2-04 实现→M2-05 离线集成 | 每步等前项输出；空余槽做后项 plan/反例测试设计与 review；G2 live 另等 D3 |
-| W3a admission | M3-01→M3-02 实现；并行 M4-01 History 设计 | History 实现不能早于固定 epoch/H0 工程输出 |
-| W3b discovery/History | M3-03 + M4-01 实现；M3-03 完成后做 M3-04 离线验收 | 两实现都等 M3-02；认证 live gate 不阻塞已有稳定输入的 History 逻辑 |
+| W3a admission | M3-01→M3-02 实现；并行 M4-01 History normal polling 实现 | 这些旧包是 M2/G2 首条路径输入；History 等固定 epoch/H0 工程输出 |
+| W3b discovery/History | M3-03 + M3-04 实现；M4-01 接入 M2 projection | 两实现都等 M3-02；认证 live gate 不阻塞已有稳定输入的 History 逻辑 |
 | W4a gap/API | M4-02 + M4-04 实现 | 两者等 M4-01 工程输出；尚待 G3 live 不阻塞离线代码 |
-| W4b alpha 工程 | M4-03 + M4-05 实现→M4-06 离线整合 | 两者各自依赖 gap/API；G4 最终验收另等 G3/live |
-| W5a labels/backup | M5-01 + M6-01 实现 | M6-01 等稳定 DB/lock；若提前完成可把槽给 review |
-| W5b modes/Compose | M5-02 + M6-03 实现 | Compose 必须等 M6-01 与 M4-06 离线 runtime，不能与其前置包同时开写 |
-| W5c cancellation/image | M5-03 + M6-04 实现 | 分别等 M5-02/M6-03；G5 live 另等 scope，main 发布遵守已批准 D2 |
+| W4b alpha 工程 | M4-03 + M4-05 实现→M4-06 离线整合 | 两者各自依赖 gap/API；G3 最终验收另等 live |
+| W5a labels/backup | M5-01 + M5-03 action semantics；并行 M6-01 backup 设计 | M5-01/M5-03 属于 M2/G2 首条路径；M6-01 等稳定 DB/lock |
+| W5b modes/Compose | M5-02 + M6-03 实现 | M5-02 是后续便利/legacy maintenance；Compose 等 M6-01 与 M4-06 离线输出 |
+| W5c cancellation/image | M6-04 实现；M5-03 基础 semantics 已在 W5a | G5 live 另等 scope，main 发布遵守已批准 D2 |
 | W6a 完整交付 | M6-02 + M6-05；随后 M6-06 | Restore 等停止/恢复离线输出；镜像验证等实际批准的发布；docs 等工程接口 |
 | W6b 实际验收 | M6-07→M6-08→M6-09 | G5 与所有实测/host/license 所需决定齐备后推进；发布/部署不能虚构 |
 
@@ -693,8 +707,9 @@ reviewer 与 SHA。36 卡片、依赖和 gate 不变，协调 agent 在允许模
 就绪记录为准，不能因为同属一个大波次就同时启动存在依赖的实现。
 
 工作量按 gate 和 review-ready 包管理，不在证据不足时承诺日期。关键路径主要是
-AUTH/insert 归属 ADR→M2/G2→admission/H0→History/gap/alpha→action races→真实
-部署/dogfood。只有 M6-08 有固定最低 72 小时；认证证据、OAuth 和主机决策可能影响
+AUTH/insert 归属 ADR→M2/G2 自动 discovery/backfill + History/action semantics→
+M3 gap/reconcile/Dashboard→M4 maintenance→真实部署/dogfood。只有 M6-08 有固定最低
+72 小时；认证证据、OAuth 和主机决策可能影响
 等待时长，协调 agent 会报告下一就绪包而非伪造 ETA。
 
 ### 风险、决策和外部动作台账

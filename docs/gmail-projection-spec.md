@@ -22,11 +22,7 @@ projection:
     - primary@example.com
 
 sync:
-  poll_interval_seconds: 30
   backfill_lookback_months: 6
-  thread_concurrency: 4
-  source_reconcile_interval_hours: 24
-  target_audit_interval_hours: 168
 
 rules:
   allow_domains:
@@ -78,13 +74,18 @@ tests/
   integration/    显式开启的真实 Gmail 测试
 ```
 
-单进程负责调度和 SQLite 写入，阻塞 Gmail 调用通过有限 worker 执行。每个 worker 使用自己的 HTTP transport；官方 Python 客户端所用的 `httplib2.Http` 不可在线程间共享。[Google Python client thread safety](https://googleapis.github.io/google-api-python-client/docs/thread_safety.html)
+Docker image 内的一个前台进程负责 History、backfill、投影和 SQLite 写入；Docker/Compose
+负责启动、重启和持久 volume。第一期采用单 writer、按 thread 串行的简单运行模型。若以后
+增加 worker，每个 worker 必须使用自己的 HTTP transport；官方 Python 客户端所用的
+`httplib2.Http` 不可在线程间共享。[Google Python client thread safety](https://googleapis.github.io/google-api-python-client/docs/thread_safety.html)
 
-运行中 CLI 变更如何与 daemon 独占 writer 协作，必须先通过 P1-01/M1-03 的 writer
-command ADR：明确投递、重放、确认及停机持锁，不直接形成未协调第二 DB writer。
-具体协议尚待设计 review，不能在不同模块中分别假定不一致的写入方式。
+CLI one-off 命令与前台进程共用 state directory，并取得同一个 writer lock；不引入独立
+daemon、IPC 或 request-receipt broker。容器外的 service manager 只负责容器生命周期，
+不属于 Facet 的运行时契约。
 
-同一 source thread 的 prepare、insert 和映射更新串行化；跨 thread 并发，按账号限速。数据库事务不跨网络等待。Realtime 与 stop actions 优先，backfill 有公平额度，单个异常 thread 不阻塞其他 thread。
+同一 source thread 的 prepare、insert 和映射更新串行化；第一期按 discovered jobs
+顺序处理，不把跨 thread 并发、实时优先或公平调度作为交付前置。数据库事务不跨网络等待，
+单个异常 thread 保留在可解释状态，不使其他持久 jobs 静默消失。
 
 ## 数据库和持久状态
 
@@ -103,7 +104,7 @@ command ADR：明确投递、重放、确认及停机持锁，不直接形成未
 | `insert_attempts` | message key、attempt ID、intent 时间、结果是否确定、恢复检查 | Gmail 写入危险窗口 |
 | `checkpoints` | projection、source cursor、last covered time、discovery cutoff、各 reconcile 进度 | 分阶段恢复 |
 | `audit_events` | projection、事件、对象、reason、before 和 after、时间 | 规则、授权、停止和异常审计 |
-| `runtime_metrics` | projection、时间桶、已确认成功数、延迟统计和错误分类计数 | 聚合运行趋势，不存邮件细节 |
+| `runtime_metrics` | projection、时间桶、已确认成功数和错误分类计数 | 聚合运行状态，不存邮件细节；不构成延迟承诺 |
 
 Event key 使用 typed event 的 message、label 和 history record 等字段；message jobs 按 source message 去重，thread jobs 按实际任务 epoch 去重，不使用一个 `UNIQUE(job_type, source_message_id)` 表达所有场景。
 
@@ -126,7 +127,10 @@ M1-06 authentication-trust ADR 必须说明来源证据和 From alignment policy
 accept 分支要有对应的范围内证据；仅完成 parser 或合成 pass 测试不能关闭 G3 的
 信任 gate。证据未闭合时保持 unknown/review。
 
-Unknown 或 fail 不自动披露，可以手动批准当前 thread。Action 学习可以表达当前 thread 的明确批准，但学习出的 future rule 仍使用认证策略。已 tracked thread 继承 thread 授权，其未来消息不再逐封要求 sender 匹配；这一披露范围必须在 preview 和文档中说明。
+Unknown 或 fail 不自动披露，必要时进入 review；review 是异常处理，不是第一期的常规
+thread 选择入口。Action 学习可以更新规则，但学习出的 future rule 仍使用认证策略。已
+tracked thread 继承 thread 授权，其未来消息不再逐封要求 sender 匹配；这一披露范围必须
+在 preview 和文档中说明。
 
 Source `SPAM`、`TRASH`、草稿默认不触发新 admission。Tracked thread 复制可用且非草稿的完整消息；其中包含 Spam 或 Trash 状态的历史应在 preview 提示。Source 删除和 mailbox 状态不会同步为 target 删除。
 
@@ -142,9 +146,10 @@ Source raw SHA 用于本地完整性。跨邮箱 fingerprint 包括稳定的 Fro
 
 合法 Date 使用 `internalDateSource=dateHeader`。Original Date 与 source internalDate 可能不同，不能将二者必须相等设为所有邮件的硬条件。Date 缺失或非法时使用 `receivedTime`，记录目标排序可能落在导入时刻，在 M2 验证降级行为；原始 Date 不改写。Target 回读保真失败进入 review，不自动再 insert 一次。[Gmail InternalDateSource](https://developers.google.com/workspace/gmail/api/reference/rest/v1/InternalDateSource)
 
-Raw 只在读取、插入和目标核验期间驻留内存，计算 hash 与 fingerprint 后只持久化 digest、必要 IDs 和 insert intent。不建立磁盘 spool，也不存入 DB、日志或 report。重启后重新读取 source；source 缺失时先检查是否已有成功的 target 插入，无法恢复则保留 `source_missing` 状态。
+Raw 只在读取、插入和目标核验期间驻留内存，计算 hash 与 fingerprint 后只持久化 digest、必要 IDs 和 insert intent。不建立磁盘 spool，也不存入 DB、日志或 report。重启后重新读取 source；source 缺失时先检查是否已有成功的 target 插入，无法恢复则保留 `source_missing` 状态。只保留基本单消息内存上限，不实现跨 thread 的复杂 raw budget 调度。
 
-并发同时受 raw byte 预算约束，避免大附件和 base64 暂存放大内存。内存预算不足时暂停领取新的 raw work，保留 jobs 和 History ingestion。磁盘无法落盘 metadata 时停止推进 cursor，状态显示 backpressure；Web 接口不持有 raw 引用。
+单消息内存上限用于避免异常大附件导致进程失控；超限 job 保留可解释状态。磁盘无法落盘
+metadata 时停止推进 cursor，状态显示 backpressure；Web 接口不持有 raw 引用。
 
 ## Insert 状态机和恢复
 
@@ -162,7 +167,7 @@ queued -> prepared -> inserting -> inserted
 
 在调用 target 前持久记录 intent。明确未写入的限流或认证拒绝可以重试；timeout、断连、进程退出以及无法确认结果的服务端错误进入 `pending_recovery`。禁用客户端对 insert 的无条件自动重试。
 
-建议的初始搜索检查点为结果未知后 30 秒、2 分钟和 5 分钟，属于可调整工程起点，不是搜索 SLA。按 RFC Message-ID 查询时包含 Spam 和 Trash；候选还要与 fingerprint、既有映射及账号 binding 核对。
+恢复检查的重试节奏由实现决定，只用于诊断和恢复，不构成同步延迟承诺。按 RFC Message-ID 查询时包含 Spam 和 Trash；候选还要与 fingerprint、既有映射及账号 binding 核对。
 
 此外必须核验“候选属于本次生产 insert”的归属证据。唯一内容匹配可能是此前存在的
 unmanaged 或 spike 副本，fingerprint/account/mapping 检查本身不足以证明来源；旧
@@ -196,6 +201,10 @@ Page token 仅为短期扫描提示；过期或进程重启后可重新扫描同
 
 只处理 `messagesAdded`、所需的 labels events 和删除标记，避免把通用 `messages` 与 typed events 重复执行。每页先持久化 events 和 jobs；完整消费该轮所有分页后才保存最终 historyId。中途中断可以从旧 cursor 重读，唯一键消除重复。无事件的成功 poll 同样记录覆盖边界。
 
+History polling、分页、cursor、事件持久化/去重和 `messagesAdded`/action-label 规则更新
+属于第一期交付，与初始六个月 discovery/backfill 共用 projection jobs。产品不承诺 poll
+间隔、队列年龄或端到端延迟；这些时间只作为状态事实记录。
+
 Gmail History 可能过期并返回 404，不能假定固定保留时间。[Gmail synchronization](https://developers.google.com/workspace/gmail/api/guides/sync)、[history.list pagination](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list)
 
 恢复步骤为记录新的 H1，再对全部 active tracked threads 比较 source message 集合，并按上次可靠覆盖时间减 safety margin 到恢复开始时间重新 discovery。窗口覆盖整个停机期，即使超过原六个月；动态规则仍受 effective_at 限制。恢复工作持久入队后，从 H1 消费扫描期间新增事件。
@@ -221,7 +230,7 @@ Blacklist 精确 sender 优先于新 thread allow。当前 thread 变 inactive�
 | 每周 | DB 中已保存的 target message IDs | 校验存在性，缺失、Trash、异常分类报告 |
 | 按需 | 全 target metadata 与待确认候选 | 检测重复和未映射内容，按需读取 raw 核验 |
 
-校对保存 epoch 和进度，限流、可恢复，Realtime 优先。Target 人工删除默认报告，显式 `--repair-missing` 才重新投影；人工放入 Trash 的内容不被自动认领为正常可见。未知旧邮件、此前 forwarding 和 spike 的副本不自动纳入生产映射，也不清理。
+校对保存 epoch 和进度，限流、可恢复。Target 人工删除默认报告，显式 `--repair-missing` 才重新投影；人工放入 Trash 的内容不被自动认领为正常可见。未知旧邮件、此前 forwarding 和 spike 的副本不自动纳入生产映射，也不清理。
 
 ## 运行故障和备份
 
@@ -229,9 +238,10 @@ Blacklist 精确 sender 优先于新 thread allow。当前 thread 变 inactive�
 
 Source 暂停读取不妨碍处理当前进程已读取的内存 payload；target 长期暂停时释放 raw 内存，source 仍可将事件入库，恢复后重新读取。磁盘无法持久化 events 时不能推进 cursor；恢复后按 gap 协议处理。超过 retry 预算的单个 job 显示明确 error 或 review，不静默删除。
 
-SIGTERM 停止领取 work，在有限时间内提交结果；未确定的 insert 留待恢复。单进程写入锁阻止两个 daemon 操作相同 projection，status 和 doctor 允许只读查看。
+SIGTERM 停止领取 work，在有限时间内提交结果；未确定的 insert 留待恢复。单进程写入锁
+阻止两个 sync owner 操作相同 projection，status 和 doctor 允许只读查看。
 
-Phase 1 备份要求先停止 daemon，并持有写入锁；用 SQLite backup API 生成数据库副本，再保存配置、binding 和凭据。备份不包含邮件完整内容或 pending raw；恢复 jobs 时重新读取 source。不能只在运行中复制主 `.db` 文件而忽略 WAL。Restore 在停止服务后核对账号并恢复 pending recovery，再恢复工作。迁移先备份，失败不自动重建空数据库；不支持降级的 schema 必须明确说明回滚办法。
+Phase 1 备份要求先停止前台 sync container，并持有写入锁；用 SQLite backup API 生成数据库副本，再保存配置、binding 和凭据。备份不包含邮件完整内容或 pending raw；恢复 jobs 时重新读取 source。不能只在运行中复制主 `.db` 文件而忽略 WAL。Restore 在停止服务后核对账号并恢复 pending recovery，再恢复工作。迁移先备份，失败不自动重建空数据库；不支持降级的 schema 必须明确说明回滚办法。
 
 Compose 将本地数据目录挂载到 `/data`，计划布局如下；初始化时将私密运行目录加入 Git ignore，并校验非 root 进程的读写权限。
 
@@ -248,7 +258,7 @@ Compose 将本地数据目录挂载到 `/data`，计划布局如下；初始化�
 
 Phase 1 要求首次私密配置/OAuth 完成后 `docker compose up -d` 一命令启动，容器
 重建无需重新交互授权且保留 binding/schema/checkpoint/jobs。Startup 不自动开始
-初始 backfill。镜像由 Actions 构建/发布；PR 不 push，发布使用 approved registry/
+初始 backfill；由 CLI 明确 `backfill start` 作为一次披露确认。镜像由 Actions 构建/发布；PR 不 push，发布使用 approved registry/
 trigger、full source SHA/digest、amd64/arm64、SBOM/provenance 和匿名拉取验收，
 具体权限及工作包见 [执行计划](phase-1-execution-plan.md)。
 
@@ -260,7 +270,7 @@ trigger、full source SHA/digest、amd64/arm64、SBOM/provenance 和匿名拉取
 
 ## 计划中的 CLI
 
-完整命令、preview producers、稳定 request key/receipt lookup、JSON/退出码、确认、
+完整命令、幂等 request key、JSON/退出码、确认、
 private/public DTO 和分阶段验收以 [完整维护 CLI 契约](cli-spec.md) 为准；这些是
 必交付接口，不是 help-only 骨架。以下仅展示默认 offline 诊断路径：
 
@@ -272,20 +282,20 @@ facet doctor --json
 facet maintenance inspect --json
 ```
 
-CLI 规则变更通过事务/audit 和唯一 writer，不直接绕过 queue insert。Thread/review/
-recovery/repair/start 都有对应 scoped preview 入口；queue retry 不绕 unknown intent。
-需要扩大披露或维修状态的操作明确范围/确认，first response 丢失可按 client-held
-request key 查询。Status/doctor 默认 offline；live check 显式选择，不因 invalid_grant
+CLI 规则变更通过事务/audit 和唯一 writer，不直接绕过 queue insert。Backfill/recovery/
+repair/start 都有对应 scoped preview 入口；queue retry 不绕 unknown intent。
+需要扩大披露或维修状态的操作明确范围/确认；稳定 request key 用于本地幂等，不提供
+跨进程 receipt broker。Status/doctor 默认 offline；live check 显式选择，不因 invalid_grant
 失去本地 pending 诊断能力。Private metadata 需 opt-in，public DTO 遵守 Dashboard
 边界；所有模式禁止正文/raw/凭据/provider response。
 
-CLI 的实际 writer 协作遵守已评审 command ADR，mutation 的 crash/replay 不能重复
-规则效果；read-only status/doctor 不申请写入所有权。
+CLI 的实际 writer 协作使用共享 lock 和 SQLite 幂等键，mutation 的 crash/replay 不能
+重复规则效果；read-only status/doctor 不申请写入所有权。
 
 Offline inspect/backup/restore/migrate 不要求 Gmail 可用，恢复后先保
 `binding_verification_pending` 写入禁止，再在 startup 核验 live profiles/unknown
 outcomes。成套维护同时协调 DB 与 credential ownership，避免并发 auth/refresh
-跨版本；one-off container 与 daemon 共用 state/锁，无 host Python 要求。
+跨版本；one-off container 与前台 sync container 共用 state/锁，无 host Python 要求。
 
 ## 交付和实施顺序
 

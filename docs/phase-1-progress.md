@@ -24,8 +24,16 @@ PR22 corrected Thread harness 已实际集成 exact `befe278`，candidate CI3703
 PR21 exact36b 的 main CI37028856572 Python3.12 FAIL/3.13 PASS 与 a410 H1 HOLD
 仍是历史失败，不由后续 green 覆盖。SQL combined a9c 已独审/新 CI accepted，
 PR15 仍 Draft/open/unmerged；完整包与 final gates 没有因此关闭。
-真实 DB/auth/runtime consumers、
+真实 DB/auth/sync consumers、自动 discovery/backfill、History/action ingestion、
 Gmail/Compose/Dashboard 和完整维护 CLI 均未完成。
+
+本次进度台账按 2026-10-03 用户纠偏更新：第一条可用产品能力直接包含自动
+discovery、固定六个月 backfill、History 全分页/cursor/事件持久化去重、
+`messagesAdded` 与 readonly `AI/AddSender`/`AI/AddDomain`/`AI/BlackList` 规则更新、
+投影 mapping、unknown recovery 和 restart continuation。初始化仍需 `backfill start`
+作为一次披露确认，但不要求逐个选择 thread。产品没有同步延迟承诺；Docker image 内
+一个前台 sync/writer 进程是支持模型。runtime/native/read-bootstrap、独立 daemon/IPC/
+request-receipt、并发四路/实时优先/公平调度/复杂 raw budget 均不再阻塞第一交付。
 
 D1 phase 内合格工程 PR 集成与 D2 限定 GHCR/main-SHA scope 已随 phase 启动生效，
 仍按各包 dependencies/review/CI/gates 执行，不提前实现 image workflow。D3 live
@@ -147,17 +155,17 @@ milestone/live verified。按现有 workflow 记录 blocker 原因/下游/解除
 | [P1-02](phase-1-execution-plan.md) | W0b | integrated | PR #12 exact1b7 mandatory CT/379 full/review/candidate+main CI passed；后续 feature consumers 另验 | 测试 worker / 独立 reviewer | [#5](https://github.com/GhostFlying/facet/issues/5) closed |
 | [M1-01](phase-1-execution-plan.md) | W0b | integrated | PR #11 exactb1e revised whole/closure review、287 full/candidate+main CI passed；仅 foundation，非完整 CLI/G1 | package/config S / 独立 reviewer | [#7](https://github.com/GhostFlying/facet/issues/7) closed |
 | [M1-02](phase-1-execution-plan.md) | W1a | implementing | finite16 qualification 保留；corrected c0bb/R3 与 combined a9c 独审/1625 full/new CI accepted，PR15 Draft/unmerged；62/246 historical HOLD 保留；migration source released but unaccepted，restore/provider/RV11/whole DB01–28 pending | SQL author phase1_sol_policy_review；migration/shared integration m103_os_source / 独立 phase1_os_acceptance_sol，future migration reviewer 由 root 非作者派工；历史 S/A 保留 | [#9](https://github.com/GhostFlying/facet/issues/9), [PR15](https://github.com/GhostFlying/facet/pull/15) |
-| [M1-03](phase-1-execution-plan.md) | W1b | implementing | PR20 OS ea80 + PR22 corrected harness befe actual merged/150 focused/758 full/独审/candidate+main CI success；183/a410 HOLD 和36b main FAIL 保留；no-state bootstrap source released but unaccepted，actual provider/actor/receipt/credential/daemon pending | writer 历史 design A；OS/harness/shared docs m103_os_source；bootstrap source phase1_sol_policy_review / 非作者独立 source reviewer 由 root 派工 | [#13](https://github.com/GhostFlying/facet/issues/13), [PR20](https://github.com/GhostFlying/facet/pull/20), [PR22](https://github.com/GhostFlying/facet/pull/22) |
+| [M1-03](phase-1-execution-plan.md) | W1b | implementing | PR20 OS ea80 + PR22 corrected harness befe actual merged/150 focused/758 full/独审/candidate+main CI success；183/a410 HOLD 和36b main FAIL 保留；no-state bootstrap source released but unaccepted，actual provider/actor/credential integration pending；不以 daemon/IPC/receipt 为交付依赖 | writer 历史 design A；OS/harness/shared docs m103_os_source；bootstrap source phase1_sol_policy_review / 非作者独立 source reviewer 由 root 派工 | [#13](https://github.com/GhostFlying/facet/issues/13), [PR20](https://github.com/GhostFlying/facet/pull/20), [PR22](https://github.com/GhostFlying/facet/pull/22) |
 | [M1-04](phase-1-execution-plan.md) | W1b | implementing | early pure PR18 actual integrated exactff77 + mainCI success；120OP/608full/独审/wheel/CI 资格；full OAuth/profile/files/publication 未实现，actual writer/storage 未齐 | credential 历史 source A + shared docs S / 历史独立 A；后续独立 Sol | [#17](https://github.com/GhostFlying/facet/issues/17), [PR18](https://github.com/GhostFlying/facet/pull/18) |
 | [M1-05](phase-1-execution-plan.md) | W1c | implementing | early pure/logging PR16 actual integrated exactf209 + mainCI success；488full/33 loggingproc/wheel资格；真实 consumers/完整包 pending | models/logging A + shared docs S / 非作者独立 reviewer | [#14](https://github.com/GhostFlying/facet/issues/14), [PR16](https://github.com/GhostFlying/facet/pull/16) |
 | [M1-06](phase-1-execution-plan.md) | W1c | ready | r2 plan/ADR 独审 approved；actual M1 inputs/可信 source-path 证据和注册表 pending，无 source/G1/G3 验收 | auth design A / 非作者独立 A | 未物化 |
-| [M2-01](phase-1-execution-plan.md) | W2a | ready | r2 adapter design 独审 approved；actual dependencies/consumer integration pending，无 source | adapter design A / 非作者独立 A | 未物化 |
+| [M2-01](phase-1-execution-plan.md) | W2a | ready | r2 adapter design 独审 approved；actual dependencies/consumer integration pending，无 source；属于 automated projection core | adapter design A / 非作者独立 A | 未物化 |
 | [M2-02](phase-1-execution-plan.md) | W2b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M2-03](phase-1-execution-plan.md) | W2b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M2-04](phase-1-execution-plan.md) | W2b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M2-05](phase-1-execution-plan.md) | W2b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
-| [M3-01](phase-1-execution-plan.md) | W3a | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
-| [M3-02](phase-1-execution-plan.md) | W3a | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
+| [M3-01](phase-1-execution-plan.md) | W3a | planned | History gap/reconcile/Dashboard 之前的 recovery inputs；未派实施 | 未派工 / reviewer 待派 | 未物化 |
+| [M3-02](phase-1-execution-plan.md) | W3a | planned | Continuous recovery/Dashboard 依赖；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M3-03](phase-1-execution-plan.md) | W3b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M3-04](phase-1-execution-plan.md) | W3b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M4-01](phase-1-execution-plan.md) | W3b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
@@ -169,7 +177,7 @@ milestone/live verified。按现有 workflow 记录 blocker 原因/下游/解除
 | [M5-01](phase-1-execution-plan.md) | W5a | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M5-02](phase-1-execution-plan.md) | W5b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M5-03](phase-1-execution-plan.md) | W5c | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
-| [M6-01](phase-1-execution-plan.md) | W5a | ready | r2 maintenance design 独审 approved；有限 pre-v2 receipt/journal/view seam 仍需实际 owned consumer integration，无 backup/restore CLI/source | maintenance design A / 非作者独立 A | 未物化 |
+| [M6-01](phase-1-execution-plan.md) | W5a | ready | r2 maintenance design 独审 approved；backup/restore CLI/source 仍需实际 owned consumer integration；不再新增 receipt broker | maintenance design A / 非作者独立 A | 未物化 |
 | [M6-02](phase-1-execution-plan.md) | W6a | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M6-03](phase-1-execution-plan.md) | W5b | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
 | [M6-04](phase-1-execution-plan.md) | W5c | planned | 按 canonical deps 等 frozen 工程输入；未派实施 | 未派工 / reviewer 待派 | 未物化 |
