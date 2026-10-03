@@ -20,6 +20,7 @@ from .suffixes import (
 )
 
 _SENDER_RE = re.compile(r"^[^@\s]+@[^@\s]+$")
+_MAX_RULES = 1000
 
 
 class RuleInputError(ValueError):
@@ -123,6 +124,11 @@ class RuleSet:
             or type(self.allow_domains) is not tuple
             or type(self.blacklist_senders) is not tuple
             or type(self.policy_version) is not PolicyVersion
+            or self.policy_version != load_rule_policy().version
+            or len(self.allow_senders)
+            + len(self.allow_domains)
+            + len(self.blacklist_senders)
+            > _MAX_RULES
             or any(
                 type(item) is not NormalizedRule
                 for item in (

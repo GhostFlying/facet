@@ -122,6 +122,16 @@ def test_manual_public_suffix_or_foreign_policy_values_are_rejected() -> None:
         CanonicalDomain("co.uk", "co.uk")
 
 
+def test_rule_set_rejects_foreign_policy_and_unbounded_count() -> None:
+    from facet.projection.rules import RuleSet
+
+    rule = normalize_rule(RuleKind.ALLOW_DOMAIN, "example.com")
+    with pytest.raises(RuleInputError):
+        RuleSet((rule,), (), (), PolicyVersion("foreign"))
+    with pytest.raises(RuleInputError):
+        RuleSet((rule,) * 1001, (), (), load_rule_policy().version)
+
+
 def test_replacing_config_with_invalid_type_is_rejected() -> None:
     with pytest.raises(RuleInputError):
         normalize_rules(replace(RulesConfig(), allow_senders=["a@example.com"]))
