@@ -39,6 +39,8 @@ class CanonicalDomain:
             type(self.value) is not str
             or type(self.registrable) is not str
             or type(self.policy_version) is not PolicyVersion
+            or len(self.value.encode("ascii")) > 253
+            or len(self.registrable.encode("ascii")) > 253
             or not _DOMAIN_RE.fullmatch(self.value)
             or not _DOMAIN_RE.fullmatch(self.registrable)
             or not (

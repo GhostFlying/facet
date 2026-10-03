@@ -191,6 +191,17 @@ def test_evidence_expiry_is_exclusive() -> None:
     assert result.attention_reason is AdmissionAttentionReason.AUTHENTICITY_STALE
 
 
+def test_evidence_policy_is_fixed_by_the_seam() -> None:
+    with pytest.raises(ValueError):
+        AdmissionEvaluator(
+            (),
+            source_account=ACCOUNT,
+            binding_revision=Revision(1),
+            credential_revision=Revision(1),
+            evidence_policy=PolicyVersion("foreign"),
+        )
+
+
 def test_no_matching_rule_is_not_implicit_admission() -> None:
     result = evaluator(rule(RuleKind.ALLOW_DOMAIN, "other.com")).evaluate(
         candidate(), NOW

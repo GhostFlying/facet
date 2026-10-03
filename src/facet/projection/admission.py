@@ -141,6 +141,7 @@ class AdmissionEvaluator:
             or type(binding_revision) is not Revision
             or type(credential_revision) is not Revision
             or type(evidence_policy) is not PolicyVersion
+            or evidence_policy is not _DEFAULT_EVIDENCE_POLICY
         ):
             raise ValueError("invalid_input")
         self._rules = rules

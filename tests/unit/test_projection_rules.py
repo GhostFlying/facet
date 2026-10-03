@@ -132,6 +132,15 @@ def test_rule_set_rejects_foreign_policy_and_unbounded_count() -> None:
         RuleSet((rule,) * 1001, (), (), load_rule_policy().version)
 
 
+def test_domain_and_sender_lengths_are_bounded() -> None:
+    from facet.projection.suffixes import SuffixInputError
+
+    with pytest.raises(SuffixInputError):
+        normalize_domain(
+            "a" * 63 + "." + "b" * 63 + "." + "c" * 63 + "." + "d" * 63 + ".com"
+        )
+
+
 def test_replacing_config_with_invalid_type_is_rejected() -> None:
     with pytest.raises(RuleInputError):
         normalize_rules(replace(RulesConfig(), allow_senders=["a@example.com"]))
