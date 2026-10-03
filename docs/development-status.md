@@ -17,11 +17,11 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | P1-01 core/writer ADRs | Reviewed and integrated design freeze | PR #8 exact `09031e7`; core-v1/writer-v1, independent review and candidate/main CI passed; no runtime/G1 claim |
 | P1-02 test foundations | Reviewed and integrated, including mandatory CT | PR #12 exact `1b7cd58`; independent review, candidate/main CI and 92 core-compatibility cases passed; Issue #5 closed, later feature-consumer tests remain |
 | M1-01 package/config/CLI foundation | Reviewed and integrated | PR #11 exact `b1e4ae0`; 287 offline tests, independent whole/closure reviews, 3.12/3.13 candidate/main CI and installed-wheel checks passed; not complete init/CLI/G1 |
-| M1-02 persistence | Finite SQL/DB21/action library and combined input accepted, unmerged; whole gate open | Corrected `c0bb4b0` and normal carry `a9c4e36` independently accepted with fresh exact CI; combined 1625 full tests and wheel passed; PR #15 remains Draft/open/unmerged, historical `62d75c0`/`2466834` HOLDs retained; actual provider/RV11, released migration source, restore and whole DB-01..28 remain |
-| M1-03 writer/runtime/CLI | Bounded OS foundation and corrected Thread harness integrated; full runtime open | PR #20 exact `ea80db2` and PR #22 exact `befe278` actually merged after nonauthor review and candidate/main dual-Python CI; corrected harness retains production OS bytes, 150 focused/758 full tests; no-state bootstrap source separately released, not accepted provider/actor/receipt/credential integration or running daemon |
+| M1-02 persistence | Finite SQL/DB21/action and migration-entry libraries integrated; whole gate open | PR #28 exact `b5a3201` integrates accepted `a9c4e36` and corrected `dd1faa9`; independent combined source acceptance, 2332 full tests and fresh candidate/main dual CI passed; PR #15 is actually MERGED by ancestry, not whole-package acceptance; managed provider/RV11, complete backup/restore and whole DB-01..28 remain |
+| M1-03 writer/runtime/CLI | Bounded OS/harness, no-state read foundation and supplied-connection Source A storage integrated; full runtime open | PR #28 exact `b5a3201` retains accepted OS/harness and integrates corrected `4506f91`/`b216d16`; independent source/native/WAL/DDL/K1/CAS/wheel evidence and fresh candidate/main dual CI passed; no native-file/fork issuer, managed provider, actor/daemon, public init or full CLI |
 | M1-04 OAuth/binding | Early pure values/codec/client parser integrated; full package open | PR #18 actually merged exact `ff77e63`; 120 OP/608 full tests, independent source/head review, wheel and candidate/main 3.12/3.13 CI passed; actual OAuth/profile/files/publication remain |
 | M1-05 public status/privacy | Early pure/logging library integrated; full consumer gate open | PR #16 actually merged exact `f209fbe`, independent review and candidate/main CI passed with 488 offline tests; actual DB/auth/runtime/HTTP/DOM/Compose consumers still pending |
-| M1-06 authentication/initialization | r2 design approved; not implemented | Trusted production source-path evidence/registry, actual dependencies and complete init/doctor/G1 remain; all-unknown is not final acceptance |
+| M1-06 authentication/initialization | r2 design approved; complete consumer gate open | Separate pure-rules/U1 work remains unintegrated and unqualified; trusted source-path evidence/registry, public init/doctor and G1 remain; supplied-connection Source A is not a production initialization authority |
 | M1 foundation as a whole | Incomplete | Full persistence, process/view/credential ownership, init/doctor/config apply, authenticated bindings and real status consumers remain; G1 has not passed |
 | M2 durable projection | Not implemented | Production workers, fidelity, insert intent, recovery, bounded memory |
 | M3 admission/backfill | Not implemented | Rules/authenticity, preview, fixed six-month discovery, durable backfill |
@@ -50,7 +50,11 @@ for prospective tasks. Complex design and high-risk independent review use Sol
 xhigh; Astra receives no new work or reactivation. Earlier authorized reviews
 retain their actual model/reviewer/SHA attribution. G1-G6 remain incomplete.
 
-## Active implementation record
+## Historical integrated-foundation record
+
+These records retain their exact then-current candidates, counts and pending
+states. The current finite-main integration and next gates are recorded below;
+later acceptance never retroactively approves an earlier held candidate.
 
 - On 2026-10-02 the user explicitly approved G0 at
   `caba7c73895a303d329cf3eba1c89557530c38c5` and requested multi-agent execution.
@@ -231,7 +235,11 @@ retain their actual model/reviewer/SHA attribution. G1-G6 remain incomplete.
   ownership transfers are recorded below. Historical model attribution,
   package dependencies, external authority and milestone gates are unchanged.
 
-## Oct3 source and main-health handoff
+## Historical Oct3 PR23 source and main-health snapshot
+
+The following was the coherent PR23 snapshot at `1bb9190`, before the finite
+source integration in PR28. Its unmerged/source-released descriptions and
+758-test measurements are historical, not the current main capability/count.
 
 - The [PR #21](https://github.com/GhostFlying/facet/pull/21) status snapshot actually
   merged exact `36b5a303856f00876c697f712ee98c9012c497c7`. Its
@@ -301,6 +309,111 @@ three-document handoff needs its own exact-source nonauthor review and fresh CI
 before root-qualified integration. Whole M1-02/M1-03, actual M5 consumers,
 credential ownership, complete backup/restore/migration, full maintenance CLI,
 G1-G6, live Gmail, Dashboard and Compose remain incomplete.
+
+## Current finite-main integration and verification
+
+[PR #28](https://github.com/GhostFlying/facet/pull/28) actually merged at
+2026-10-03T01:09:03Z, retaining exact source
+`b5a32015837f03a6efd935700a2c56441e77087a`, tree
+`889d94f61e5cf6cb0e410fdfa327afc5643eeb83`. Root qualified the finite candidate
+after independent nonauthor `bootstrap_storage_independent_qa` source review,
+complete 419-line report SHA-256
+`e60f7decea4ff016927554af43f2c065f95569801f9b91b00abedf061a56d99e`, and fresh
+dual-Python CI. Ordinary main fast-forward/push preserved the exact reviewed
+merge and all prior main blobs; no new platform merge, squash or rewrite.
+
+The integrated engineering inputs are finite SQL/action `a9c4e36`, corrected
+no-state read-bootstrap `4506f91`, corrected supplied-connection migration
+`dd1faa9`, qualified combined input `d6888df`, and corrected supplied-connection
+Source A `b216d16`. Their individual source plans/designs and acceptance scopes
+remain distinct. Migration production provider/predecessor and action/read/
+runtime inventories remain empty. The no-state foundation does not open state;
+the migration test-only participants and detached WAL recognition do not create
+a production preflight, backup bundle or native-file provenance issuer.
+
+Source A adds exact closed command storage records, a fresh 37-table v2 stopped
+storage initializer/inspection and bounded original-request lookup, with a
+two-column fresh-run CAS. It uses supplied exact native connections and typed
+storage inputs, not an issuer of genuine OS/native-file/fork authority. Existing
+v1 consumers retain their successful behavior and reject v2 before effects;
+current-v1 migration has not gained a production v1-to-v2 predecessor path.
+No CLI init, daemon/provider, credential participant or Gmail write is activated.
+
+Actual independent combined verification passed 2332 full offline tests in
+447.70 seconds, 522 source/installed storage tests, native acknowledgement-loss/
+rollback/close/reopen and CAS controls, DDL/K1 privacy controls, and retained
+73 R3/150 OS/71 read/114 migration/40 CLI cases. Focused subsets overlap; they
+are not added to the full total. Fresh noneditable-wheel byte/privacy checks,
+inert imports, literal no-state helpers and eight installed WAL controls passed.
+Earlier 758/1625/1810 and Source A intermediate counts remain scoped history,
+not today's whole-tree baseline. This separate docs-only source passed its own
+fresh2332 full tests in448.19s, separate40 CLI in4.73s, offline locked lint/
+format, noneditable-wheel69 byte proofs/54 inert imports, installed522 storage
+tests in11.30s, nine literal helpers and eight installed WAL controls in0.66s.
+All187 unallocated files and36 ID/State/Wave tuples remain exact. Independent
+affected-source review and fresh docs-candidate CI are still pending; these
+author measurements are not source acceptance or new main verification.
+
+[PR CI37082996775](https://github.com/GhostFlying/facet/actions/runs/37082996775)
+passed every step in both jobs. Both actual checkout logs identify
+`673ba430f595b0425f4f1455f2413f35df790649`, parents old main `1bb9190` and exact
+source `b5a3201`, with tree equal to the reviewed source. Python 3.12.3 passed
+2332 full tests in401.76s plus40 CLI in4.26s; Python 3.13.16 passed2332 in334.80s
+plus40 CLI in3.54s. Run head metadata alone was not the tested-byte proof.
+
+[Main-push CI37084976621](https://github.com/GhostFlying/facet/actions/runs/37084976621)
+separately completed SUCCESS in both jobs/all steps. Both actual checkout logs
+identify exact `b5a32015837f03a6efd935700a2c56441e77087a`; API parents are
+`cb5d481f16e8956ea2c49786898d6a88ce9f8863` then `b216d168bd048c5f2104af0bfde3be533e1d8c3f`,
+tree `889d94f61e5cf6cb0e410fdfa327afc5643eeb83`. Python 3.12.3 passed2332 full
+in402.56s plus40 CLI in4.25s; Python 3.13.16 passed2332 in317.44s plus40 in3.17s.
+The [qualification receipt](https://github.com/GhostFlying/facet/pull/28#issuecomment-5963947872)
+and [actual merge receipt](https://github.com/GhostFlying/facet/pull/28#issuecomment-5963979883)
+retain their original chronology; the latter truthfully recorded main CI while
+it was pending, before the later success above.
+
+PR15 is now actually MERGED with its Draft metadata still true, consistent with
+GitHub ancestry recognition after PR28. No worker readied, retargeted or merged
+it separately; its cached `4be0511` merge metadata is not actual main `b5a3201`.
+PR24/25/26/27 remain OPEN Draft, although their exact heads are main ancestors.
+Ancestry alone is not a fabricated GitHub MERGED state. No old PR/branch was
+closed, retargeted or deleted. [Issue #9](https://github.com/GhostFlying/facet/issues/9)
+and [Issue #13](https://github.com/GhostFlying/facet/issues/13) remain open.
+
+Historical failures remain explicit: SQL62 R1/R2 and246 R3 HOLDs, OS183 HOLD,
+harnessa410 H1 HOLD and main36b CI37028856572 failure, read-foundationeb839
+CI37049522627 failures, migration1d529 BEGIN acknowledgement-loss HOLD despite
+green CI, Source A prefreeze native-KBI cleanup defect and74d9/K1 keyword-hook
+privacy HOLD despite green CI. Corrected descendants were independently accepted;
+none of those historical candidates is retrospectively accepted or waived.
+
+`m103_os_source` remains sole shared-status/integration writer and authored the
+finite OS/harness, migration and Source A source. `phase1_sol_policy_review`
+authored the finite ACTION corrections and no-state read foundation; earlier SQL
+slice authors retain their actual historical attribution. Root dispatched
+nonauthor reviews for exact inputs and combined trees. Historical authorized
+model/author/reviewer attributions remain unchanged. Current complex work uses
+permitted Sol high/xhigh; no new Astra work or reactivation. The two status files
+and append-only [handoff plan](implementation-plans/phase1-source-status-handoff.md)
+are the only paths in this new docs unit; exact docs-source acceptance, fresh
+CI and a separate root integration release remain pending.
+
+Pure-rules U1 and SQLite calibration are separate unintegrated work, excluded
+from current main and its2332 count. U1's count-plan clarification is approved
+and disjoint test preparation is guarded static-only, not native/source
+qualification. Calibration1647 PLAN approval does not authorize execution:
+the proposed private capability was withdrawn after an EOF-boundary limitation,
+and a conditional trusted-host packet is preparation only, not executed here.
+Earlier calibration17 cases/9FAIL8PASS/91.32s and unknown cause/retirement remain
+historical failure evidence. Neither work is a main producer or native issuer.
+
+Whole M1/G1–G6/RV11 remain incomplete. Native Source B/currentness/fork issuer,
+managed readers/providers/producers, actor/daemon/public initialization, actual
+OAuth/profile/private credential ownership, complete backup/restore and v1-to-v2
+migration, full CLI, trusted admission, Dashboard, Compose/image delivery, live
+Gmail and deployment/dogfood are still pending. License and formal tag/Release
+remain separate decisions. Main engineering publication grants none of these
+external or production authorities.
 
 ## Historical planning and bootstrap record
 
@@ -402,15 +515,19 @@ engineering integration and remaining gates are in the sections above.
 
 ## Next authorized development unit
 
-Freeze and independently verify this bounded Oct3 docs handoff on actual main
-befe. Then implement only the root-released migration-entry allocation on the
-accepted unmerged combined SQL input a9c, preserving its approved plan/design
-and binding new exact-source acceptance/CI before any integration. The separate
-no-state bootstrap worker follows its own finite source/review gate; restore
-remains plan-only. Preserve the integrated OS foundation's finite kernel/
-mount/consumer limits. Its low-level resources and the qualified
-finite M1-02 library do not close whole persistence, RV11, canonical M1-03 or G1;
-actual runtime/provider/credential and backup/restore consumers remain pending.
+Complete independent verification of this separate three-document handoff on
+qualified main `b5a3201`, retaining its actual author2332/full/CLI/wheel/privacy
+evidence and requiring fresh exact-candidate CI. Root releases publication after reading
+the author handoff; normal integration additionally requires independent
+affected-source acceptance and fresh CI. No source repair, old-PR
+mutation or new external action belongs to this docs unit. Next production
+consumers require their own exact dependency/plan/source/acceptance dispatch;
+native Source B/issuer/provider and restore remain pending, not supplied by
+finite storage or planning evidence. Preserve the OS foundation's declared
+kernel/mount/descriptor limits and no-state literal graph. The integrated finite
+M1-02/M1-03 libraries do not close whole persistence, RV11, canonical runtime or
+G1; actual runtime/provider/credential and complete backup/restore consumers
+remain pending.
 M1-05 and M1-04 early pure deliveries are actually integrated; their real DB/auth/runtime
 consumer gates remain open. M1-01 and P1-02 are actually integrated. Ordinary
 phase-internal plans/engineering PRs advance under the approved autonomous gates;

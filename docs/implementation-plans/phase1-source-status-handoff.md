@@ -252,3 +252,317 @@ FD/file/fork-hook/network/process/log effects. Executable entry modules were
 checked through separate CLI smoke. The original 206/118/84 prefixes remain
 exact. New nonauthor docs-source acceptance and fresh actual-checkout CI are
 pending; no readiness/main merge or additional source authority is inferred.
+
+## Proposed post-PR28 finite-main current-state handoff
+
+Date: 2026-10-03 PRC. Status: PLAN PREPARATION ONLY. This append does not
+authorize current-state edits, staging, commits, pushes, PR creation or readiness,
+old-PR changes, or another main action. Independent review of this exact whole
+plan and a distinct root source release are required before implementation.
+
+Preserve the complete preceding 254-line artifact byte-for-byte, SHA-256
+`1e966ceee177d9e58cf67f8beb0dca966039b3e029a2dcbd867e8f9dd4c68de4`,
+including its approved 206/118/84-line prefixes and historical pending wording.
+Those are then-current snapshots, not current-source qualification claims.
+This separate unit follows the reviewed main-integration plan's explicit
+three-path status-handoff boundary; it does not modify that frozen source plan.
+
+### Exact base, sole owner and future file allocation
+
+Verified local and remote main at preparation is
+`b5a32015837f03a6efd935700a2c56441e77087a`, tree
+`889d94f61e5cf6cb0e410fdfa327afc5643eeb83`. The dedicated collision-checked
+sibling worktree is `phase1-source-status-main-handoff`, owned branch
+`p/luchengxuan/phase1-source-status-main-handoff`, created normally at that exact
+base. The prior source/status/planning worktrees and branches remain retained.
+Owner remains `m103_os_source` (Sol xhigh), the sole shared-current-state and
+integration writer; root coordinates, verifies receipts and dispatches reviews.
+The independent reviewer for this new unit must be a nonauthor assigned by root.
+
+The ONLY prospective implementation paths are:
+
+- `docs/development-status.md`: current finite capability rows, integrated
+  source/CI evidence, accurately dated historical snapshot boundaries, known
+  limits and actionable next dependency gates.
+- `docs/phase-1-progress.md`: current ownership/readiness/evidence/tracking
+  descriptions and a coherent actual-main handoff, while preserving every
+  existing package ID, State and Wave cell.
+- This plan: append-only exact approval/pre-edit release and measured handoff
+  receipts; no rewrites of the full preserved prefix or self-SHA metadata loops.
+
+During this preparation ONLY this plan is writable. Both status documents
+remain byte-identical to main. Their base SHA-256 values are respectively
+`7fd524114e9faea570e64213be7f905f60707df19b122daa80bfb0cb4674d725` and
+`353cd93c0a58665345050930f8e2d1289ce4805dfe67ac374c8e6d1a50f1c669`.
+No AGENTS, README, agent workflow, execution plan, 36 canonical cards, DAG,
+contracts, other package/source plans, source/tests, dependencies, CI, image or
+license file is allocated. No parallel shared-doc writer is authorized here.
+
+### Factual integrated input packet, not whole-package acceptance
+
+PR28 actually merged at 2026-10-03T01:09:03Z, merge OID exactly the base above.
+An ordinary local fast-forward and normal main push retained that source M;
+no platform merge, squash, rewrite or additional commit changed its tree.
+Its ordered parents are pre-action
+`cb5d481f16e8956ea2c49786898d6a88ce9f8863` and qualified Source A
+`b216d168bd048c5f2104af0bfde3be533e1d8c3f`. The selected 190 entries retain
+all 189 Source A entries plus the sole main-integration plan, and all 106 prior
+main entries remain exact. These are source-custody facts, not new prose tests.
+
+- Finite SQL/action input `a9c4e36de6ad70294002a83e678a2a7cf1b012d6`
+  contains the corrected c0bb/R3 library and accepted OS/harness main input.
+  Its earlier independent 1625-full/73-R3/eight-real-WAL qualification and
+  exact CI37038807962 remain scoped historical facts. It is now an ancestor
+  of integrated main, not an unmerged pending source dependency.
+- Accepted no-state read-bootstrap foundation
+  `4506f917383937f787ffd561eab02a7eb6361a7b` is integrated through the normal
+  carry. Its earlier eb839 candidate/CI37049522627 failures remain historical;
+  corrected input acceptance does not produce a managed state opener or daemon.
+- Accepted finite migration entry
+  `dd1faa9cf3b62295d515a330001c171bdc92bafb` is integrated. The supplied-native-
+  connection implementation's 114 focused/1739 full and native acknowledgement-
+  loss cleanup evidence qualified that exact input, not the held 1d529 source.
+  Shipping production provider/predecessor registries stay empty. Synthetic
+  migration participants and detached recognition fixtures are test-only;
+  they are not a complete backup-bundle or native-file provenance issuer.
+- Qualified combined input `d6888df7f16abb63e400675a8accfd8ba4a96bd5`, tree
+  `8f653c421241cf075b49ace91b49a2eee4a6c234`, preserves those exact inputs.
+  Its 1810-full and distinct 71 source-focused/nine installed read controls
+  are historical qualification counts, not today's integrated full count.
+- Corrected finite supplied-connection Source A
+  `b216d168bd048c5f2104af0bfde3be533e1d8c3f`, tree
+  `086c47b0108995f40d0a937a2c9ce3bda3b62c89`, received independent nonauthor
+  315-line SOURCE APPROVE report SHA-256
+  `aa19b97e1d0123732d36dd113f123ee524adb3e61169074fc0a583d7967b14ef`
+  and root qualification. Actual corrected input evidence includes 2332 full,
+  522 source/installed focus, source/installed K1 causal controls, original-key
+  uncertainty/reopen/CAS and v1-positive/v2-before-effects refusal controls.
+  The 74d9 keyword-hook privacy HOLD and its green CI remain historical.
+
+Final main-source M received independent nonauthor combined SOURCE APPROVE by
+`bootstrap_storage_independent_qa`, not an approval by another GitHub account.
+The complete 419-line report SHA-256 is
+`e60f7decea4ff016927554af43f2c065f95569801f9b91b00abedf061a56d99e`.
+Actual independent full 2332 passed in447.70 seconds, plus 522 source/installed
+focus, native/DDL/K1/CAS, retained 73 R3/150 OS/71 read/114 MG/40 CLI, wheel,
+nine-helper/eight-installed-WAL, privacy and immutable-custody controls. Treat
+these subsets as overlapping evidence, never add them to fabricate a total.
+
+Fresh PR CI37082996775 succeeded in both lanes, all check steps. Both actual
+checkout logs identify `673ba430f595b0425f4f1455f2413f35df790649`, whose API
+parents are old main `1bb919096bbb479585fbf47ec354f63fc6e4a7e7` and exact M;
+its tree equals M's `889d94f61e5cf6cb0e410fdfa327afc5643eeb83`.
+Actual Python3.12.3 full2332/401.76s plus CLI40/4.26s and Python3.13.16
+full2332/334.80s plus CLI40/3.54s passed. Run head metadata is not alone
+proof of tested bytes. Public finite receipts are PR28 comments5963947872
+and5963979883; link those and actual CI rather than publish private reports.
+
+At this task's dispatch, new main-push CI37084976621 was genuinely IN_PROGRESS
+on exact M, started2026-10-03T01:09:04Z. Its jobs111093244047 (3.12) and
+111093243858 (3.13) had successful checkout/safety/install/lint/format steps
+and running offline tests. Final suite results and actual checkout-log/tree
+provenance were pending, NOT success/admitted. Do not borrow PR CI as main-push
+acceptance. Before any status edit, require actual both-lane/all-step results,
+checkout OIDs/tree equality and root's explicit main-CI verification. Preserve
+this pending-at-dispatch record and append later real receipts only when issued.
+
+### Tracking, actual roles, preserved history and remaining gates
+
+Record PR28 as actually integrated finite main. GitHub automatically recognized
+PR15 as MERGED by ancestry at the same01:09:03Z while its Draft flag remained
+true; no worker ready/merge/retarget action was applied to PR15. Its displayed
+merge metadata is not a new worker-created main commit or package acceptance.
+PR24/25/26/27 were still OPEN Draft after promotion, with exact heads4506/dd1/
+d688/b216 all ancestors of M. Refresh their read-only actual state at the future
+snapshot; never infer MERGED from ancestry alone. Closing, superseding by state
+mutation, retargeting, readying or deleting old branches needs separate release.
+Issues9/13 remain open; PR integration does not close their delivery gates.
+
+Preserve actual authorship: `phase1_sol_policy_review` authored the finite
+SQL/action and read-bootstrap work; `m103_os_source` authored OS/harness,
+migration, Source A and integration/shared-docs work. Their independent review
+roles at each historical exact candidate stay as actually recorded, including
+earlier authorized Astra attributions. New complex work/reviews use permitted
+Sol high/xhigh or Luna by risk; no Astra reactivation. Preserve each source plan,
+design, then-current count and review disposition rather than rewrite history.
+
+Keep SQL62/246 HOLDs, OS183 HOLD, harnessa410 HOLD, main36b failed
+CI37028856572, read-foundationeb839 failedCI37049522627, migration1d529
+HOLD despite greenCI, Source A prefreeze native-KBI defect and74d9/K1 HOLD
+explicit. Successful corrected source and main evidence do not retroactively
+accept these candidates. Delimit old dated status paragraphs as historical so
+their then-unmerged/source-released wording cannot contradict the current rows.
+Keep the existing historical planning/bootstrap block and all actual model/
+author attribution intact. Preserve all36 package IDs, State and Wave cells,
+canonical card bodies, DAG, G0, sequential milestone gates and authority.
+
+The new current whole-tree baseline is the actually verified2332 at exact M,
+not old758/1625/1810/2269 or a sum of source slices. This documentation candidate
+must nevertheless collect/run its own actual retained suite after release;
+report measured count/runtime and any failure, not a predicted borrowed pass.
+
+Scope remains finite library/no-state foundation/supplied-storage engineering.
+Whole M1-02/M1-03/RV11/G1 and G2–G6 are incomplete. Source B/native-file/fork
+issuer, managed-read/provider and actor/daemon/production command or Gmail
+producers, public init/auth/profile/credential-file ownership, complete config/
+binding/credential backup and restore, v1-to-v2 migration, full maintenance CLI,
+trusted authentication/admission, real bulk/history/recovery, Dashboard/Compose/
+image/deployment/dogfood/live Gmail/license/version release remain pending.
+Fresh v2 storage and strict consumer refusals do not make v2 a supported migration
+predecessor or activate any shipping registry. The no-state literal import graph
+and qualified source bodies are not changed by this unit.
+
+Separate unintegrated pure-rules U1 and calibration do not enter the main source
+or its current test count. If mentioned, use only stable exact root-issued
+receipts: prospective calibration1647 PLAN approval is not command/source/run
+acceptance, and actual earlier17 cases/9FAIL8PASS/91.32s remain failed historical
+evidence with cause/retirement unknown. New commands were not executed by this
+handoff. U1's1799 static packet and26-versus24 count clarification are under
+review, not qualified results; do not predict resolution, native execution or
+future collection. Root may supply a later exact final packet before prose
+freeze. If absent or contradictory, omit unverified detail and retain explicit
+unqualified/excluded status rather than invent progress.
+
+### Future implementation, acceptance, publication and stop sequence
+
+1. Freeze this whole appended plan and its exact prefix/base custody for a
+   nonauthor PLAN review. Return the report to root for full reading. Main-CI
+   completion may be monitored independently; no status edits while either gate
+   is pending. This preparation creates no staged files or commits.
+2. Require root-verified actual main-push checkout/results and independent exact
+   PLAN acceptance, then a DISTINCT root source release. Recheck actual main,
+   owned branch, index/worktree, identities and receipts. Main drift or an
+   unrelated dirty path stops; do not reset/rebase or silently absorb new inputs.
+   Save any released pre-edit receipt append and plan-only atomic user/noreply
+   commit before editing the two status files when specifically dispatched.
+3. Produce one coherent three-path factual snapshot. Current rows/ownership/
+   readiness/tracking and next gates are editable only within this scope; all
+   36 State/Wave/ID cells and other canonical definitions remain exact. Avoid
+   adding self-referential final-SHA or one-CI-poll metadata commits.
+4. Verify exactly three allocated paths, untouched production/test/dependency/
+   CI/contract/other-plan blobs and modes, complete preserved plan prefixes,
+   historical boundaries, 36 ledger tuples, links/anchors/fences, whitespace,
+   private-literal and privacy guards. Run locked development sync, Ruff lint/
+   format, actual full offline suite, separate CLI40, both entrypoint helps and
+   JSON version. Build/install a fresh noneditable wheel with source/archive/
+   install byte proof, empty shipping registries, inert import/literal-helper/
+   installed retained privacy controls. Do not import calibration/U1 fixtures
+   or execute native provenance experiments. Actual native SQLite/OS regression
+   runs only through the already-qualified offline tests, not host/Gmail data.
+5. Review explicit owned staged diff, whitespace and repository safety; BOTH
+   author and committer must retain the configured user/noreply identity with
+   no agent/bot/tool identity or coauthors. Use atomic English-action subjects.
+   Stage/commit/push/focused Draft PR targeting actual main only when separately
+   released. Public evidence uses engineering SHAs, report hashes/roles, counts,
+   verified CI links and finite limits; no private path/raw diagnostic/UUID case
+   labels/SQL/sentinel/address/mail/provider/credential data or fake approvals.
+6. Bind the immutable docs candidate to nonauthor affected-source acceptance
+   and fresh actual dual-Python CI checkout/merge-tree equality. Earlier source,
+   PR28 or main CI cannot substitute for this new docs candidate. Root must
+   separately qualify the exact review/CI/real rules and release normal
+   integration. Meet actual required platform review/check/queue constraints;
+   403/ambiguous rules stop, no bypass/settings/identity changes. After an
+   authorized ordinary FF/normal push, verify actual PR/main and new push-CI
+   provenance/results; final pending results stay explicit.
+
+Stop for missing/contradictory receipts, main or selected source drift, historical
+attribution loss, an attempted package/gate/Issue closure, unknown tested tree,
+failed check, privacy/identity violation or any out-of-scope path/API/authority.
+Do not implement source fixes, change tests/CI/dependencies, waive failures or
+choose new product policy here. Main engineering publication grants no Gmail/
+OAuth scope/write, contacts/chat/automation, native opener/tracer/sandbox, host
+deployment, image/tag/Release/version/license or old-PR mutation authority.
+Return the whole plan/hash and finish idle for independent review; source/status
+implementation and all external changes remain unreleased by this preparation.
+
+### Later actual main-CI receipt during this plan preparation
+
+Root subsequently verified main-push CI37084976621 COMPLETE SUCCESS, all steps
+in both jobs. BOTH actual checkout logs identify exact main
+`b5a32015837f03a6efd935700a2c56441e77087a`; the Git commit API confirms ordered
+parents `[cb5d481f16e8956ea2c49786898d6a88ce9f8863,b216d168bd048c5f2104af0bfde3be533e1d8c3f]`
+and tree `889d94f61e5cf6cb0e410fdfa327afc5643eeb83`, equal to qualified M.
+Actual Python3.12.3 full2332 passed in402.56s plus CLI40 in4.25s;
+Python3.13.16 full2332 passed in317.44s plus CLI40 in3.17s. The earlier genuinely
+pending-at-dispatch record remains historical, not an invented pass. Root also
+reconfirmed local/remote main M and PR28's actual merge at01:09:03Z.
+
+The main-CI prerequisite is now met. This does NOT release status implementation:
+independent approval of this exact new whole plan and a distinct root source
+release remain pending. No status edit, staging, commit, push, PR/old-PR change
+or source action is performed by this receipt.
+
+## Exact post-main plan approval and pre-edit source release
+
+Date: 2026-10-03 PRC. The preceding full493-line plan remains SHA-256
+`2b27f39d4a142288e4391cbdf485ebb7ae00b835d01b19238424ec666e66de00`,
+with original254/206/118/84 prefixes unchanged. Independent nonauthor reviewer
+`phase1_os_acceptance_sol` approved this exact plan with no required findings.
+Its complete217-line report has SHA-256
+`aed302b80dea12be1af079f0c1e80617c0cd636b29923d28a89452056d9aa749`;
+root and this source owner personally read the full report.
+
+Root separately verified qualified main M, actual PR28 merge, PR CI37082996775
+checkout673ba430/tree equality and main-push CI37084976621: both lanes/all
+steps SUCCESS, actual checkout M, 2332 full plus40 CLI each. Root now explicitly
+releases ONLY this plan append/precode commit and subsequent coherent changes
+to `docs/development-status.md` and `docs/phase-1-progress.md`, on base
+`b5a32015837f03a6efd935700a2c56441e77087a`, tree
+`889d94f61e5cf6cb0e410fdfa327afc5643eeb83`.
+
+This receipt is saved and committed alone BEFORE either status file is edited.
+Both status-file base hashes, empty index, unchanged remote main and configured
+user/noreply author+committer were rechecked. All36 literal ID|Wave|State rows
+must retain baseline SHA-256
+`b4005ea5978ab04ad957ab21d391009459bf35e5767e28246dce183a94ce886c`.
+All other187 tracked paths remain byte/mode-identical; no source/test/dependency/
+CI/other-doc change, experiment, native authority or failing-gate waiver follows.
+Actual verification and a final atomic three-path author candidate/report are
+released. Push/new PR/readiness/merge/old-PR or Issue mutation are NOT released;
+root first reads the complete author handoff and delegates fresh acceptance.
+
+## Post-main measured author source handoff
+
+Date: 2026-10-03 PRC. Only the two allocated current-state documents and this
+append-only plan change from qualified main M. The current snapshot records
+finite SQL/action, no-state read, migration and supplied-connection Source A
+integration in PR28, real independent/source and candidate/main CI receipts,
+actual old-PR states and remaining production gates. Historical PR23/bootstrap
+record bodies, actual model/author attribution and all old HOLD/FAILs remain.
+Earlier SQL slice authors are not reassigned to the ACTION correction author.
+
+Fresh local CPython3.12.13/SQLite3.53.1 verification completed on retained source:
+locked offline dev sync; Ruff lint and format (185 files); actual2332 collection
+and full2332 PASS in448.19s; separate40 CLI PASS in4.73s; source/installed both
+entrypoint helps and JSON version. A newly built isolated noneditable wheel has
+SHA-256 `909c070b74105161abcc60536216183b65b1261d06a0121079a340d240ce9845`.
+All69 source/archive/install byte proofs,54 fresh individually guarded library
+imports plus fleet/empty inventories/actual-connect detecting negative passed.
+Fresh installed522 storage/privacy tests passed in11.30s, nine fixed installed
+literal no-state helper scenarios passed, and eight installed actual-WAL
+creator/foreign-lifecycle controls passed in0.66s. Focused checks overlap the
+retained full suite; they are not summed into a fictitious total.
+
+Mechanical checks passed: all187 unallocated mode/blob files; exact190 tracked
+paths with only the three allocated deltas; all36 ID|Wave|State rows retain
+baseline b4005ea5; unchanged canonical cards/DAG/contracts/authority/source/
+tests/dependencies/CI/other plans; all493/254/206/118/84 prefixes plus522 pre-edit
+receipt; historical record bodies;53 local doc links, fences/private-path guards
+and whitespace. Configured BOTH author/committer user+noreply identities and
+explicit staged repository-safety checks precede the atomic docs source commit.
+
+No tests/source were changed, no failure was waived and no runtime/experimental
+producer was enabled. Offline install's cross-filesystem hardlink fallback is a
+successful copy warning, not a failed gate; all new runtime/verification artifacts
+remain private and outside Git. Full-suite/import/CLI controls exercised only
+the already-qualified offline fixture APIs, not calibration/U1/native-issuer or
+Gmail/host experiments. Existing GitHub states were refreshed read-only: PR28
+MERGED M, PR15 MERGED/Draft metadata true with4be not main, PR24–27 OPEN Draft,
+Issues9/13 OPEN. No old-PR, Issue, branch or main mutation occurred in this unit.
+
+These are author measurements, not independent docs-source qualification.
+Freeze the exact atomic candidate and private hashed report; root must read it
+before a separate publication release. Fresh nonauthor affected-source review,
+actual dual-Python candidate checkout/tree CI, root qualification and any later
+normal integration remain pending. No push/PR/readiness/main/shared-other-doc/
+source/API/dependency/CI/authority action follows from this measured handoff.
