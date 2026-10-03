@@ -520,3 +520,49 @@ CI/other-doc change, experiment, native authority or failing-gate waiver follows
 Actual verification and a final atomic three-path author candidate/report are
 released. Push/new PR/readiness/merge/old-PR or Issue mutation are NOT released;
 root first reads the complete author handoff and delegates fresh acceptance.
+
+## Post-main measured author source handoff
+
+Date: 2026-10-03 PRC. Only the two allocated current-state documents and this
+append-only plan change from qualified main M. The current snapshot records
+finite SQL/action, no-state read, migration and supplied-connection Source A
+integration in PR28, real independent/source and candidate/main CI receipts,
+actual old-PR states and remaining production gates. Historical PR23/bootstrap
+record bodies, actual model/author attribution and all old HOLD/FAILs remain.
+Earlier SQL slice authors are not reassigned to the ACTION correction author.
+
+Fresh local CPython3.12.13/SQLite3.53.1 verification completed on retained source:
+locked offline dev sync; Ruff lint and format (185 files); actual2332 collection
+and full2332 PASS in448.19s; separate40 CLI PASS in4.73s; source/installed both
+entrypoint helps and JSON version. A newly built isolated noneditable wheel has
+SHA-256 `909c070b74105161abcc60536216183b65b1261d06a0121079a340d240ce9845`.
+All69 source/archive/install byte proofs,54 fresh individually guarded library
+imports plus fleet/empty inventories/actual-connect detecting negative passed.
+Fresh installed522 storage/privacy tests passed in11.30s, nine fixed installed
+literal no-state helper scenarios passed, and eight installed actual-WAL
+creator/foreign-lifecycle controls passed in0.66s. Focused checks overlap the
+retained full suite; they are not summed into a fictitious total.
+
+Mechanical checks passed: all187 unallocated mode/blob files; exact190 tracked
+paths with only the three allocated deltas; all36 ID|Wave|State rows retain
+baseline b4005ea5; unchanged canonical cards/DAG/contracts/authority/source/
+tests/dependencies/CI/other plans; all493/254/206/118/84 prefixes plus522 pre-edit
+receipt; historical record bodies;53 local doc links, fences/private-path guards
+and whitespace. Configured BOTH author/committer user+noreply identities and
+explicit staged repository-safety checks precede the atomic docs source commit.
+
+No tests/source were changed, no failure was waived and no runtime/experimental
+producer was enabled. Offline install's cross-filesystem hardlink fallback is a
+successful copy warning, not a failed gate; all new runtime/verification artifacts
+remain private and outside Git. Full-suite/import/CLI controls exercised only
+the already-qualified offline fixture APIs, not calibration/U1/native-issuer or
+Gmail/host experiments. Existing GitHub states were refreshed read-only: PR28
+MERGED M, PR15 MERGED/Draft metadata true with4be not main, PR24–27 OPEN Draft,
+Issues9/13 OPEN. No old-PR, Issue, branch or main mutation occurred in this unit.
+
+These are author measurements, not independent docs-source qualification.
+Freeze the exact atomic candidate and private hashed report; root must read it
+before a separate publication release. Fresh nonauthor affected-source review,
+actual dual-Python candidate checkout/tree CI, root qualification and any later
+normal integration remain pending. No push/PR/readiness/main/shared-other-doc/
+source/API/dependency/CI/authority action follows from this measured handoff.
