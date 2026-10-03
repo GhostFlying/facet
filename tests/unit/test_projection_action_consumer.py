@@ -14,8 +14,8 @@ from test_db_repositories import (
 from test_db_repositories import state as state
 from test_db_schema import NOW, P, lid
 
-from facet.contracts import LabelChange, ProviderId
-from facet.db.codecs import PrivateAddress
+from facet.contracts import ErrorCode, LabelChange, ProviderId
+from facet.db.codecs import PrivateAddress, StorageFailure
 from facet.db.keys import event_key
 from facet.db.repositories import jobs, reads
 from facet.db.repositories.base import _insert
@@ -31,6 +31,11 @@ class Source:
     def get_thread_facts(self, source_thread_id):
         assert source_thread_id == T
         return self.facts
+
+
+class FailingSource:
+    def get_thread_facts(self, source_thread_id):
+        raise StorageFailure(ErrorCode.SOURCE_AUTH_REQUIRED)
 
 
 @pytest.fixture(autouse=True)
@@ -184,7 +189,24 @@ def test_removed_label_becomes_attention_without_source_read(state):
     assert result.attention is not None
     with session.transaction() as uow:
         assert (
-            reads.get_event(uow, P, row.event_id).processing.value
-            == "needs_attention"
+            reads.get_event(uow, P, row.event_id).processing.value == "needs_attention"
         )
         assert reads.get_job(uow, P, lid(1075)).state.value == "needs_attention"
+
+
+def test_source_auth_failure_retains_resolve_job_for_retry(state):
+    _, _, session, _ = state
+    labels = PrivateActionLabelMap(
+        ProviderId("add-sender"), ProviderId("add-domain"), ProviderId("blacklist")
+    )
+    row = _event(session, label=labels.add_sender_label_id, n=76)
+    result = ActionEffectConsumer(
+        labels,
+        FailingSource(),
+        (AccountAddress("source@example.com"),),
+        "source@example.com",
+    ).process(session, P, row.event_id)
+    assert result.receipt is None and result.attention is ErrorCode.SOURCE_AUTH_REQUIRED
+    with session.transaction() as uow:
+        assert reads.get_event(uow, P, row.event_id).processing.value == "pending"
+        assert reads.get_job(uow, P, lid(1076)).state.value == "retry_wait"

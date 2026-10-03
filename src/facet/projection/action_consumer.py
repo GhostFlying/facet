@@ -134,6 +134,13 @@ def _attention_code(reason: ActionAttentionReason) -> ErrorCode:
     return ErrorCode.REQUEST_CONFLICT
 
 
+_RETRYABLE_SOURCE_ERRORS = {
+    ErrorCode.SOURCE_AUTH_REQUIRED,
+    ErrorCode.SOURCE_RATE_LIMITED,
+    ErrorCode.NETWORK_UNAVAILABLE,
+}
+
+
 def _rule_kind(kind: ActionKind) -> RuleKind:
     return {
         ActionKind.ADD_SENDER: RuleKind.ALLOW_SENDER,
@@ -384,12 +391,13 @@ class ActionEffectConsumer:
 
     def _attention(self, owner, projection_id, prepared, reason) -> ActionEffectResult:
         code = reason if type(reason) is ErrorCode else _attention_code(reason)
+        retryable = code in _RETRYABLE_SOURCE_ERRORS
         with owner.transaction() as uow:
             event = reads.get_event(uow, projection_id, prepared.event_id)
             job = reads.get_job(uow, projection_id, prepared.job_id)
             if event is None or job is None:
                 raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
-            if event.processing in {
+            if not retryable and event.processing in {
                 EventProcessing.PENDING,
                 EventProcessing.RESOLVED,
             }:
@@ -407,9 +415,9 @@ class ActionEffectConsumer:
                     uow,
                     projection_id,
                     prepared.job_id,
-                    "needs_attention",
+                    "retry_wait" if retryable else "needs_attention",
                     code,
-                    None,
+                    _now() if retryable else None,
                     RevisionGuard(job.revision),
                 )
         return ActionEffectResult(attention=reason)
