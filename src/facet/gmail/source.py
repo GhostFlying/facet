@@ -10,10 +10,28 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from email.utils import getaddresses
+from enum import StrEnum
 
-from facet.contracts import ErrorCode, ProviderId, ProviderPageToken, Role
+from facet.contracts import (
+    ErrorCode,
+    PolicyVersion,
+    ProviderId,
+    ProviderPageToken,
+    Revision,
+    Role,
+    Timestamp,
+    Visibility,
+)
+from facet.db.codecs import PrivateAddress
+from facet.projection.admission import DiscoveryCandidate
+from facet.projection.authenticity import VerifiedSourceEvidence, assess_evidence
+from facet.projection.rules import RuleInputError, normalize_sender
 
 from .retry import ProviderFailure, execute
+from .source_auth import SourceAuthProvider, UnknownSourceAuthProvider
+
+_AUTH_POLICY = PolicyVersion("auth-v1")
 
 __all__ = (
     "SourceProfile",
@@ -25,6 +43,10 @@ __all__ = (
     "HistoryRecord",
     "MessageMetadata",
     "ThreadMetadata",
+    "CandidateAttentionReason",
+    "CandidateAttention",
+    "CandidateResult",
+    "CandidatePage",
     "SourceAdapter",
     "GmailSource",
 )
@@ -127,13 +149,92 @@ class ThreadMetadata:
     messages: tuple[MessageMetadata, ...]
 
 
+class CandidateAttentionReason(StrEnum):
+    MISSING_METADATA = "missing_metadata"
+    MULTIPLE_FROM = "multiple_from"
+    MALFORMED_FROM = "malformed_from"
+    UNSUPPORTED_LABELS = "unsupported_labels"
+    INVALID_METADATA = "invalid_metadata"
+    PROVIDER_FAILURE = "provider_failure"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CandidateAttention:
+    reason: CandidateAttentionReason
+    message_id: ProviderId
+    thread_id: ProviderId
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.reason) is not CandidateAttentionReason
+            or type(self.message_id) is not ProviderId
+            or type(self.thread_id) is not ProviderId
+        ):
+            raise ValueError("invalid_input")
+
+    def __repr__(self) -> str:
+        return "<candidate attention>"
+
+    __str__ = __repr__
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CandidateResult:
+    candidate: DiscoveryCandidate | None = None
+    attention: CandidateAttention | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.candidate) not in {DiscoveryCandidate, type(None)} or type(
+            self.attention
+        ) not in {CandidateAttention, type(None)}:
+            raise ValueError("invalid_input")
+        if (self.candidate is None) == (self.attention is None):
+            raise ValueError("invalid_input")
+
+    def __repr__(self) -> str:
+        return "<candidate result>"
+
+    __str__ = __repr__
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CandidatePage:
+    items: tuple[CandidateResult, ...]
+    next_page_token: ProviderPageToken | None
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.items) is not tuple
+            or any(type(item) is not CandidateResult for item in self.items)
+            or type(self.next_page_token) not in {ProviderPageToken, type(None)}
+        ):
+            raise ValueError("invalid_input")
+
+    def __repr__(self) -> str:
+        return f"<candidate page items={len(self.items)}>"
+
+    __str__ = __repr__
+
+
 class SourceAdapter:
     """Gmail source calls with provider JSON reduced to typed facts."""
 
     role = Role.SOURCE
 
-    def __init__(self, service) -> None:
+    def __init__(
+        self,
+        service,
+        *,
+        source_account: PrivateAddress | None = None,
+        binding_revision: Revision | None = None,
+        credential_revision: Revision | None = None,
+        auth_provider: SourceAuthProvider | None = None,
+    ) -> None:
         self._service = service
+        self._source_account = source_account
+        self._binding_revision = binding_revision
+        self._credential_revision = credential_revision
+        self._auth_provider = auth_provider or UnknownSourceAuthProvider()
 
     def profile(self) -> SourceProfile:
         value = execute(self._service.users().getProfile(userId="me"), self.role)
@@ -176,6 +277,165 @@ class SourceAdapter:
             ),
             _token(value.get("nextPageToken")),
             value.get("resultSizeEstimate"),
+        )
+
+    def discover_candidates(
+        self,
+        *,
+        window_start: datetime,
+        window_end: datetime,
+        page_token: ProviderPageToken | None = None,
+        source_account: PrivateAddress | None = None,
+        binding_revision: Revision | None = None,
+        credential_revision: Revision | None = None,
+        auth_provider: SourceAuthProvider | None = None,
+    ) -> CandidatePage:
+        """Discover one closed candidate result for every listed message.
+
+        Enumeration failures are deliberately allowed to cross the page
+        boundary as a controlled ``ProviderFailure``.  Metadata failures are
+        represented per item so a selected message is never silently dropped.
+        """
+        account = source_account or self._source_account
+        binding = binding_revision or self._binding_revision
+        credential = credential_revision or self._credential_revision
+        if type(account) is not PrivateAddress:
+            raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
+        if type(binding) is not Revision or type(credential) is not Revision:
+            raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
+        if binding.value < 1 or credential.value < 1:
+            raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
+        provider = auth_provider or self._auth_provider
+        if not hasattr(provider, "attest"):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+
+        try:
+            listed = self.discover(
+                window_start=window_start, window_end=window_end, page_token=page_token
+            )
+        except ProviderFailure:
+            raise
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
+        results: list[CandidateResult] = []
+        for item in listed.items:
+            results.append(
+                self._candidate_result(
+                    item,
+                    account,
+                    binding,
+                    credential,
+                    provider,
+                )
+            )
+        return CandidatePage(tuple(results), listed.next_page_token)
+
+    def _candidate_result(
+        self,
+        item: DiscoveryItem,
+        account: PrivateAddress,
+        binding: Revision,
+        credential: Revision,
+        provider: SourceAuthProvider,
+    ) -> CandidateResult:
+        try:
+            value = execute(
+                self._service.users()
+                .messages()
+                .get(userId="me", id=item.message_id.value, format="metadata"),
+                self.role,
+            )
+        except ProviderFailure:
+            return CandidateResult(
+                attention=CandidateAttention(
+                    CandidateAttentionReason.PROVIDER_FAILURE,
+                    item.message_id,
+                    item.thread_id,
+                )
+            )
+        try:
+            metadata = _strict_message(value)
+        except (
+            AttributeError,
+            KeyError,
+            TypeError,
+            ValueError,
+            OverflowError,
+            OSError,
+        ):
+            return CandidateResult(
+                attention=CandidateAttention(
+                    CandidateAttentionReason.INVALID_METADATA,
+                    item.message_id,
+                    item.thread_id,
+                )
+            )
+        if (
+            metadata.message_id != item.message_id
+            or metadata.thread_id != item.thread_id
+        ):
+            return CandidateResult(
+                attention=CandidateAttention(
+                    CandidateAttentionReason.INVALID_METADATA,
+                    item.message_id,
+                    item.thread_id,
+                )
+            )
+        state = _candidate_state(metadata)
+        if isinstance(state, CandidateAttentionReason):
+            return CandidateResult(
+                attention=CandidateAttention(state, item.message_id, item.thread_id)
+            )
+        sender, visibility, is_draft = state
+        observed_at = Timestamp(datetime.now(UTC))
+        evidence = None
+        try:
+            proposed = provider.attest(
+                source_account=account,
+                message_id=item.message_id,
+                observed_at=observed_at,
+                binding_revision=binding,
+                credential_revision=credential,
+            )
+        except ProviderFailure:
+            return CandidateResult(
+                attention=CandidateAttention(
+                    CandidateAttentionReason.PROVIDER_FAILURE,
+                    item.message_id,
+                    item.thread_id,
+                )
+            )
+        except Exception:
+            return CandidateResult(
+                attention=CandidateAttention(
+                    CandidateAttentionReason.PROVIDER_FAILURE,
+                    item.message_id,
+                    item.thread_id,
+                )
+            )
+        if type(proposed) is VerifiedSourceEvidence:
+            assessment = assess_evidence(
+                proposed,
+                source_account=account,
+                message_id=item.message_id,
+                now=observed_at,
+                binding_revision=binding,
+                credential_revision=credential,
+                policy_version=_AUTH_POLICY,
+            )
+            if assessment.trusted:
+                evidence = proposed
+        return CandidateResult(
+            candidate=DiscoveryCandidate(
+                source_message_id=item.message_id,
+                source_thread_id=item.thread_id,
+                sender=sender,
+                source_account=account,
+                visibility=visibility,
+                is_draft=is_draft,
+                observed_at=observed_at,
+                evidence=evidence,
+            )
         )
 
     def history(
@@ -253,6 +513,92 @@ def _message(value: dict) -> MessageMetadata:
         _timestamp(value.get("internalDate")),
         headers,
     )
+
+
+def _strict_message(value: object) -> MessageMetadata:
+    """Parse candidate metadata without the legacy timestamp fallback."""
+    if not isinstance(value, dict):
+        raise ValueError("invalid_input")
+    payload = value.get("payload")
+    labels = value.get("labelIds")
+    if not isinstance(payload, dict) or not isinstance(labels, (list, tuple)):
+        raise ValueError("invalid_input")
+    if any(type(label) is not str for label in labels):
+        raise ValueError("invalid_input")
+    raw_headers = payload.get("headers")
+    if not isinstance(raw_headers, (list, tuple)):
+        raise ValueError("invalid_input")
+    headers: list[tuple[str, str]] = []
+    for header in raw_headers:
+        if not isinstance(header, dict):
+            raise ValueError("invalid_input")
+        name = header.get("name")
+        header_value = header.get("value")
+        if type(name) is not str or type(header_value) is not str:
+            raise ValueError("invalid_input")
+        headers.append((name, header_value))
+    raw_internal_date = value.get("internalDate")
+    if type(raw_internal_date) is not str or not raw_internal_date.isdigit():
+        raise ValueError("invalid_input")
+    internal_date = datetime.fromtimestamp(int(raw_internal_date) / 1000, UTC)
+    return MessageMetadata(
+        _id(value["id"]),
+        _id(value["threadId"]),
+        tuple(labels),
+        internal_date,
+        tuple(headers),
+    )
+
+
+_SYSTEM_LABELS = frozenset(
+    {
+        "INBOX",
+        "SENT",
+        "TRASH",
+        "SPAM",
+        "DRAFT",
+        "STARRED",
+        "UNREAD",
+        "IMPORTANT",
+        "CATEGORY_PERSONAL",
+        "CATEGORY_SOCIAL",
+        "CATEGORY_PROMOTIONS",
+        "CATEGORY_UPDATES",
+        "CATEGORY_FORUMS",
+        "CHAT",
+    }
+)
+
+
+def _candidate_state(
+    metadata: MessageMetadata,
+) -> tuple[object, Visibility, bool] | CandidateAttentionReason:
+    labels = set(metadata.labels)
+    if any(
+        label not in _SYSTEM_LABELS and not label.startswith("Label_")
+        for label in labels
+    ):
+        return CandidateAttentionReason.UNSUPPORTED_LABELS
+    from_values = tuple(
+        value for name, value in metadata.headers if name.casefold() == "from"
+    )
+    if not from_values:
+        return CandidateAttentionReason.MISSING_METADATA
+    if len(from_values) != 1:
+        return CandidateAttentionReason.MULTIPLE_FROM
+    addresses = tuple(getaddresses([from_values[0]]))
+    if len(addresses) != 1 or not addresses[0][1]:
+        return CandidateAttentionReason.MALFORMED_FROM
+    try:
+        sender = normalize_sender(addresses[0][1])
+    except (RuleInputError, ValueError):
+        return CandidateAttentionReason.MALFORMED_FROM
+    visibility = Visibility.NORMAL
+    if "SPAM" in labels:
+        visibility = Visibility.SPAM
+    elif "TRASH" in labels:
+        visibility = Visibility.TRASH
+    return sender, visibility, "DRAFT" in labels
 
 
 def _history_message(value: dict) -> HistoryMessage:
