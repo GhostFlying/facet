@@ -150,6 +150,25 @@ def test_candidate_observation_must_fit_evidence_window() -> None:
     assert result.attention_reason is AdmissionAttentionReason.CANDIDATE_INVALID
 
 
+def test_evidence_policy_mismatch_is_untrusted() -> None:
+    foreign = _issuer_for_tests().issue(
+        source_role=Role.SOURCE,
+        source_account=ACCOUNT,
+        source_message_id=MESSAGE,
+        source_path=SourcePathStatus.TRUSTED,
+        from_alignment=FromAlignment.ALIGNED,
+        binding_revision=Revision(1),
+        credential_revision=Revision(1),
+        observed_at=NOW,
+        expires_at=Timestamp(NOW.value + timedelta(days=1)),
+        policy_version=PolicyVersion("other-policy"),
+    )
+    result = evaluator(rule(RuleKind.ALLOW_DOMAIN, "example.com")).evaluate(
+        candidate(evidence=foreign), NOW
+    )
+    assert result.attention_reason is AdmissionAttentionReason.AUTHENTICITY_UNTRUSTED
+
+
 def test_no_matching_rule_is_not_implicit_admission() -> None:
     result = evaluator(rule(RuleKind.ALLOW_DOMAIN, "other.com")).evaluate(
         candidate(), NOW
