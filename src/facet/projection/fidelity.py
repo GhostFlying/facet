@@ -19,6 +19,8 @@ _TRANSPORT_HEADERS = {
     "received",
     "received-spf",
     "return-path",
+    "x-google-smtp-source",
+    "x-received",
 }
 
 
