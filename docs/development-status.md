@@ -89,7 +89,7 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   next production-critical seam is real source History/Backfill discovery and
   worker wiring; M2 and the first runnable production sync remain open.
 - The bounded serial projection worker implementation is prepared in candidate
-  commit `c083a0c87ee4aa55ca4193e9a61dc96a56901c11` on reviewed main base
+  commit `85e4f5d868b24f9bd8f855dbb25c823e01752d79` on reviewed main base
   `5dd9b06fe0828fb4052efda22b721f170a1a82a8`. It expands admitted threads from
   typed metadata, excludes drafts, inserts one in-memory raw message at a time,
   verifies target MIME semantics/thread facts, persists mappings, and leaves
