@@ -318,3 +318,20 @@ it must not claim automatic admission, G2, or production completeness.
 5. Hand the exact candidate SHA to an independent implementation/acceptance
    reviewer. Integration into main, real Gmail validation, deployment and image
    publication remain coordinator-owned gates.
+
+## 7. Implementation handoff (root direct unit)
+
+The first implementation slice is intentionally limited to the currently
+available pure boundary. It adds `suffixes.py`, `rules.py`,
+`authenticity.py`, and `admission.py`, plus synthetic unit coverage. The
+resolver is constructed with the locked bundled `tldextract` snapshot and no
+network/cache update path. The admission evaluator accepts only a typed
+candidate and returns attention for absent, stale, rejected, mismatched, or
+otherwise untrusted evidence; it does not call Gmail, write SQLite, register
+action producers, or wire the ID-only `BackfillProducer`.
+
+The action-label repository/registry and automatic M1-06/adapter wiring remain
+deferred under stop gates 1, 3, and 4. This candidate therefore does not claim
+automatic admission, G2, or production sync completion. Candidate evidence is
+bound to the source account/message, role, credential/binding revisions, and
+both candidate/current freshness checks. All test inputs are synthetic.
