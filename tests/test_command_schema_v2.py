@@ -52,7 +52,7 @@ def test_exact_v1_and_separate_v2_catalogue_ledgers():
             "WHERE name NOT GLOB 'sqlite_autoindex_*'"
         ).fetchall()
         assert set(catalogue) == set(_FRESH_V2_MANIFEST.catalogue)
-        assert len([r for r in catalogue if r[0] == "table"]) == 37
+        assert len([r for r in catalogue if r[0] == "table"]) == 38
         assert connection.execute(
             "SELECT version,name,checksum FROM schema_migrations ORDER BY version"
         ).fetchall() == list(_FRESH_V2_MANIFEST.ledger)

@@ -205,7 +205,7 @@ def test_atomic_native_v2_receipts_and_original_keys(prior):
         assert sum(sql == "BEGIN IMMEDIATE" for sql in trace) == 1
         assert sum(sql == "COMMIT" for sql in trace) == 1
         assert not connection.in_transaction
-        assert len(logical(connection)) == 37
+        assert len(logical(connection)) == 38
         assert connection.execute("PRAGMA user_version").fetchone() == (2,)
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute(
@@ -281,7 +281,7 @@ def test_real_native_ack_loss_pristine_or_committed_never_false_success(
                 )
                 assert result.current_operation.operation_id == lid(10)
                 assert result.prior_operation.operation_id == lid(11)
-                assert len(logical(reopened)) == 37
+                assert len(logical(reopened)) == 38
             else:
                 assert reopened.execute("PRAGMA user_version").fetchone() == (0,)
                 assert logical(reopened) == {}

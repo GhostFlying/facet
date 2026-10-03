@@ -12,6 +12,8 @@ _COMMANDS = (
     "facet_init",
     "auth_authorize",
     "auth_reauthorize",
+    "backfill_preview",
+    "backfill_start",
 )
 
 
@@ -129,8 +131,13 @@ _TABLES = (
             "CHECK(state NOT IN('accepted','executing') OR code IS NULL)",
             "CHECK(updated_at>=accepted_at AND (completed_at IS NULL OR "
             "(completed_at>=accepted_at AND completed_at<=updated_at)))",
-            "CHECK(expected_preview_id IS NULL AND confirmation_yes=1 "
-            "AND duplicate_risk_acknowledged=0)",
+            "CHECK(((command='backfill_preview' AND expected_preview_id IS NULL "
+            "AND confirmation_yes=0 AND duplicate_risk_acknowledged=0) OR "
+            "(command='backfill_start' AND expected_preview_id IS NOT NULL "
+            "AND confirmation_yes=1 AND duplicate_risk_acknowledged=0) OR "
+            "(command NOT IN('backfill_preview','backfill_start') AND "
+            "expected_preview_id IS NULL AND confirmation_yes=1 AND "
+            "duplicate_risk_acknowledged=0)))",
         ),
     ),
     _table(
@@ -187,6 +194,30 @@ _TABLES = (
             _OPERATION_FK,
         ),
     ),
+    _table(
+        "operation_backfill",
+        (
+            ("projection_id", "P"),
+            ("operation_id", "L"),
+            ("purpose", "PreviewPurpose"),
+            ("preview_operation_id", "L", True),
+            ("ruleset_revision", "R"),
+            ("window_start", "T"),
+            ("window_end", "T"),
+            ("discovery_cutoff", "T"),
+            ("scope_digest", "H"),
+            ("expires_at", "T"),
+            ("invalidating_revision", "R"),
+        ),
+        (
+            "PRIMARY KEY(projection_id,operation_id)",
+            _PROJECTION_FK,
+            _OPERATION_FK,
+            "CHECK(window_start<window_end)",
+            "CHECK(window_start<discovery_cutoff AND discovery_cutoff<window_end)",
+            "CHECK(expires_at>=window_end)",
+        ),
+    ),
 )
 
 _INDEXES = (
@@ -233,6 +264,23 @@ _PAYLOAD_GUARDS = (
     _payload_guard(
         "operation_auth", "o.command IN('auth_authorize','auth_reauthorize')"
     ),
+    _payload_guard(
+        "operation_backfill",
+        "o.command IN('backfill_preview','backfill_start') AND "
+        "o.state IN('accepted','executing','completed') AND o.code IS NULL AND "
+        "NEW.purpose='start_backfill' AND "
+        "((o.command='backfill_preview' AND NEW.preview_operation_id IS NULL "
+        "AND o.expected_preview_id IS NULL AND o.confirmation_yes=0) OR "
+        "(o.command='backfill_start' AND NEW.preview_operation_id="
+        "o.expected_preview_id AND EXISTS(SELECT 1 FROM operation_backfill p "
+        "WHERE p.projection_id=o.projection_id AND p.operation_id="
+        "NEW.preview_operation_id AND p.preview_operation_id IS NULL AND "
+        "p.purpose='start_backfill' AND p.ruleset_revision=NEW.ruleset_revision "
+        "AND p.window_start=NEW.window_start AND p.window_end=NEW.window_end "
+        "AND p.discovery_cutoff=NEW.discovery_cutoff AND "
+        "p.scope_digest=NEW.scope_digest AND p.expires_at=NEW.expires_at "
+        "AND p.invalidating_revision=NEW.invalidating_revision)))",
+    ),
 )
 
 _IMMUTABLE_COLUMNS = (
@@ -260,7 +308,12 @@ _IMMUTABILITY = (
 ) + tuple(
     f"CREATE TRIGGER {table}_{action.lower()}_immutable BEFORE {action} ON {table} "
     "BEGIN SELECT RAISE(ABORT,'consistency_failure'); END"
-    for table in ("operation_controls", "operation_bootstrap", "operation_auth")
+    for table in (
+        "operation_controls",
+        "operation_bootstrap",
+        "operation_auth",
+        "operation_backfill",
+    )
     for action in ("UPDATE", "DELETE")
 )
 

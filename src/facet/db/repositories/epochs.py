@@ -1,5 +1,7 @@
 """Fixed scan scope and progress; no scan, policy decision or cursor reset."""
 
+from datetime import timedelta
+
 from facet.contracts import (
     Count,
     EpochKind,
@@ -119,6 +121,9 @@ def record_gap(uow, projection_id, gap):
 
 def _decision(uow, projection_id, epoch):
     decision = epoch.decision
+    if decision.tag == "backfill_start":
+        _backfill_decision(uow, projection_id, epoch)
+        return
     if decision.tag not in {"scheduled_reconcile", "scheduled_target_audit"}:
         # No preview/operation registry exists in v1; typed UUIDs are not proof.
         raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
@@ -167,7 +172,10 @@ def _decision(uow, projection_id, epoch):
     if hasattr(decision, "ruleset_revision"):
         projection = _get(uow, projection_id, "projections", ())
         snapshot = _get(
-            uow, projection_id, "rulesets", (("revision", decision.ruleset_revision),)
+            uow,
+            projection_id,
+            "rulesets",
+            (("revision", decision.ruleset_revision),),
         )
         if (
             projection is None
@@ -176,6 +184,112 @@ def _decision(uow, projection_id, epoch):
             or projection.ruleset_revision != decision.ruleset_revision
         ):
             _conflict()
+
+
+def _backfill_decision(uow, projection_id, epoch):
+    """Validate the journal-backed initial backfill fence before writing it."""
+    from ..command_records import LocalCommandKind, _valid_backfill_window
+    from ..command_store import _backfill_digest, _find_backfill_by_id
+
+    decision = epoch.decision
+    if not _query(
+        uow,
+        "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='operations' LIMIT 1",
+        maximum=1,
+    ):
+        # v1 has typed epoch decisions but deliberately has no operation journal.
+        raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+    operation, payload = _find_backfill_by_id(uow, projection_id, decision.operation_id)
+    if operation is None or payload is None:
+        raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+    if (
+        operation.command is not LocalCommandKind.BACKFILL_START
+        or operation.state.value not in {"accepted", "executing", "completed"}
+        or operation.code is not None
+        or operation.digest != _backfill_digest(operation, payload)
+        or operation.expected_preview_id != decision.preview_id
+        or payload.preview_operation_id != decision.preview_id
+        or payload.purpose.value != "start_backfill"
+        or payload.ruleset_revision != decision.ruleset_revision
+        or epoch.kind is not EpochKind.INITIAL_BACKFILL
+        or epoch.window_start != payload.window_start
+        or epoch.window_end != payload.window_end
+        or epoch.discovery_cutoff != payload.discovery_cutoff
+        or epoch.fence_history_id is None
+        or epoch.fence_recorded_at is None
+        or epoch.fence_recorded_at.value < payload.discovery_cutoff.value
+        or epoch.fence_history_id.value == ""
+    ):
+        _conflict()
+    preview, preview_payload = _find_backfill_by_id(
+        uow, projection_id, decision.preview_id
+    )
+    if (
+        preview is None
+        or preview_payload is None
+        or preview.command is not LocalCommandKind.BACKFILL_PREVIEW
+        or preview.code is not None
+        or preview.state.value not in {"accepted", "executing", "completed"}
+        or preview.expected_preview_id is not None
+        or preview.digest != _backfill_digest(preview, preview_payload)
+        or preview_payload.preview_operation_id is not None
+        or preview_payload.purpose != payload.purpose
+        or preview_payload.ruleset_revision != payload.ruleset_revision
+        or preview_payload.window_start != payload.window_start
+        or preview_payload.window_end != payload.window_end
+        or preview_payload.discovery_cutoff != payload.discovery_cutoff
+        or preview_payload.scope_digest != payload.scope_digest
+        or preview_payload.expires_at != payload.expires_at
+        or preview_payload.invalidating_revision != payload.invalidating_revision
+        or not _valid_backfill_window(
+            preview_payload.window_start,
+            preview_payload.window_end,
+            preview.accepted_at,
+        )
+        or preview_payload.expires_at.value
+        > preview.accepted_at.value + timedelta(minutes=15)
+        or preview.expected_binding_revision != operation.expected_binding_revision
+        or preview.expected_config_revision != operation.expected_config_revision
+    ):
+        _conflict()
+    projection = _get(uow, projection_id, "projections", ())
+    snapshot = _get(
+        uow, projection_id, "rulesets", (("revision", payload.ruleset_revision),)
+    )
+    runtime = _query(
+        uow,
+        "SELECT binding_guard FROM command_runtime WHERE projection_id=? LIMIT 2",
+        (projection_id.value,),
+        maximum=1,
+    )
+    invalidation = _query(
+        uow,
+        "SELECT COALESCE(SUM(generation),0) FROM tracked_threads WHERE projection_id=?",
+        (projection_id.value,),
+        maximum=1,
+    )
+    checkpoint = _get(uow, projection_id, "history_checkpoints", ())
+    if (
+        projection is None
+        or snapshot is None
+        or not snapshot.sealed
+        or projection.ruleset_revision != payload.ruleset_revision
+        or len(runtime) != 1
+        or len(invalidation) != 1
+        or preview.expected_config_revision != projection.config_revision
+        or preview.expected_binding_revision.value != runtime[0][0]
+        or operation.expected_config_revision != projection.config_revision
+        or operation.expected_binding_revision.value != runtime[0][0]
+        or payload.invalidating_revision.value != invalidation[0][0]
+        or checkpoint is None
+        or checkpoint.cursor is not None
+        or checkpoint.reliable_coverage_at is not None
+        or checkpoint.active_poll_id is not None
+        or checkpoint.revision.value != 0
+        or payload.expires_at.value < epoch.created_at.value
+        or epoch.fence_recorded_at.value > payload.expires_at.value
+    ):
+        _conflict()
 
 
 def _partition(uow, projection_id, epoch, row):

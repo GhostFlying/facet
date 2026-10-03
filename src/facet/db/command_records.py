@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass, fields
+from datetime import timedelta
 from enum import StrEnum
 from functools import cache
 from types import UnionType
@@ -12,7 +13,9 @@ from facet.contracts import (
     ErrorCode,
     LocalId,
     OperationState,
+    PreviewPurpose,
     ProjectionId,
+    ProviderId,
     Revision,
     Role,
     Sha256Hex,
@@ -30,6 +33,26 @@ def _fail(code=ErrorCode.INVALID_INPUT):
         error.__cause__ = None
         error.__context__ = None
         raise
+
+
+def _six_calendar_month_start(value):
+    month = value.year * 12 + value.month - 1 - 6
+    year, month = divmod(month, 12)
+    return value.replace(
+        year=year,
+        month=month + 1,
+        day=1,
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+
+def _valid_backfill_window(window_start, window_end, accepted_at):
+    return window_end.value == accepted_at.value and window_start.value == (
+        _six_calendar_month_start(window_end.value)
+    )
 
 
 class EnabledCommand(StrEnum):
@@ -56,6 +79,8 @@ class LocalCommandKind(StrEnum):
     FACET_INIT = "facet_init"
     AUTH_AUTHORIZE = "auth_authorize"
     AUTH_REAUTHORIZE = "auth_reauthorize"
+    BACKFILL_PREVIEW = "backfill_preview"
+    BACKFILL_START = "backfill_start"
 
 
 class ShutdownPhase(StrEnum):
@@ -175,6 +200,8 @@ class OperationRow(_Record):
 
     def _validate(self):
         terminal = self.state in {OperationState.COMPLETED, OperationState.REJECTED}
+        preview_command = self.command is LocalCommandKind.BACKFILL_PREVIEW
+        start_command = self.command is LocalCommandKind.BACKFILL_START
         if (
             self.revision.value < 1
             or (self.completed_at is not None) != terminal
@@ -194,8 +221,15 @@ class OperationRow(_Record):
                 self.state in {OperationState.ACCEPTED, OperationState.EXECUTING}
                 and self.code is not None
             )
-            or self.expected_preview_id is not None
-            or not self.confirmation_yes
+            or (preview_command and self.expected_preview_id is not None)
+            or (start_command and self.expected_preview_id is None)
+            or (
+                not preview_command
+                and not start_command
+                and self.expected_preview_id is not None
+            )
+            or (not preview_command and not self.confirmation_yes)
+            or (preview_command and self.confirmation_yes)
             or self.duplicate_risk_acknowledged
         ):
             _fail()
@@ -244,6 +278,75 @@ class AuthPayloadRow(_Record):
     expected_role_binding_revision: Revision
     expected_policy_revision: Revision
     supersedes_change_id: LocalId | None
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class BackfillPayloadRow(_Record):
+    projection_id: ProjectionId
+    operation_id: LocalId
+    purpose: PreviewPurpose
+    preview_operation_id: LocalId | None
+    ruleset_revision: Revision
+    window_start: Timestamp
+    window_end: Timestamp
+    discovery_cutoff: Timestamp
+    scope_digest: Sha256Hex
+    expires_at: Timestamp
+    invalidating_revision: Revision
+
+    def _validate(self):
+        if (
+            self.purpose is not PreviewPurpose.START_BACKFILL
+            or self.window_start.value >= self.window_end.value
+            or self.discovery_cutoff.value <= self.window_start.value
+            or self.discovery_cutoff.value >= self.window_end.value
+            or self.expires_at.value < self.window_end.value
+        ):
+            _fail()
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class BackfillPreviewRequest(_Record):
+    operation_id: LocalId
+    request_nonce: LocalId
+    window_start: Timestamp
+    window_end: Timestamp
+    discovery_cutoff: Timestamp
+    scope_digest: Sha256Hex
+    expires_at: Timestamp
+    invalidating_revision: Revision
+    accepted_at: Timestamp
+
+    def _validate(self):
+        if (
+            self.window_start.value >= self.window_end.value
+            or self.discovery_cutoff.value <= self.window_start.value
+            or self.discovery_cutoff.value >= self.window_end.value
+            or self.expires_at.value < self.window_end.value
+            or self.expires_at.value > self.accepted_at.value + timedelta(minutes=15)
+            or not _valid_backfill_window(
+                self.window_start, self.window_end, self.accepted_at
+            )
+        ):
+            _fail()
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class BackfillStartRequest(_Record):
+    operation_id: LocalId
+    request_nonce: LocalId
+    preview_operation_id: LocalId
+    epoch_id: LocalId
+    fence_history_id: ProviderId
+    fence_recorded_at: Timestamp
+    accepted_at: Timestamp
+
+    def _validate(self):
+        if (
+            not self.fence_history_id.value
+            or self.accepted_at.value < self.fence_recorded_at.value
+        ):
+            _fail()
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -365,6 +468,9 @@ _RECORD_TYPES = frozenset(
         ControlPayloadRow,
         BootstrapPayloadRow,
         AuthPayloadRow,
+        BackfillPayloadRow,
+        BackfillPreviewRequest,
+        BackfillStartRequest,
         BootstrapOperationSeed,
         FreshCommandBootstrap,
         BootstrapInspection,
