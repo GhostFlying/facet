@@ -121,6 +121,8 @@ H0 消费和 gap 恢复能力，并受单独 Gmail 操作范围授权。
 
 交付：source/target adapter、自动 discovery、固定六个月 backfill、History polling 全分页和 cursor、事件持久化/去重、`messagesAdded` 与 readonly action-label 事件、规则更新（含 `effective_at`/generation）和 projection jobs、raw payload 内存传递、逐 thread worker、source 到 target 映射、目标回读、insert intent 与 pending recovery、restart continuation。不建立 DB 内容缓存或磁盘 spool，重启后重新从 source 获取 raw。
 
+Preview/start 的范围校验、稳定 request key、epoch/H0 写入和 command journal 属于共享 DB owner 的持久化行为，不是 CLI 独有的旁路记录或第二条操作路径。
+
 范围：`src/facet/projection/worker.py`、`fidelity.py`、`recovery.py`、`src/facet/gmail/source.py`、`target.py`、`retry.py`，以及 DB repositories。
 
 验收：普通邮件、HTML、内嵌图片、附件和非 ASCII 头部保真；正常恢复不产生重复；insert 后崩溃能恢复唯一候选；多个或不匹配候选进入待处理状态；真实回复和 sender 变化的会话保留内容。Thread fallback 只对已确认的 threading 错误执行，并保存实际 target thread 集合。DB、journal、日志和运行文件不保存完整邮件、正文或附件；source 删除后的恢复限制有明确状态。
@@ -141,7 +143,7 @@ M2 已经交付初始 H0、History 消费和自动 backfill；M3 只补 gap、�
 
 ### M4 完整维护 CLI、审计/受限修复和 action-label 便利模式
 
-交付：完整维护 CLI（queue/review/recovery/audit/repair、backup/restore/migrate/upgrade）、更完整的 offline doctor/status、审计/受限修复和 `gmail.modify` 便利 label 清理。M2 已完成只读 action-label 观察、规则更新和 generation/BlackList 竞争语义。
+交付：完整维护 CLI（queue/review/recovery/audit/repair、backup/restore/migrate/upgrade）、更完整的 offline doctor/status、审计/受限修复、普通 action actor 之外的 BlackList 竞争维护和 `gmail.modify` 便利 label 清理。M2 已完成只读 action-label 观察、规则更新和 normal generation/BlackList 竞争语义。
 
 范围：`src/facet/cli/` 中的维护命令（queue/review/recovery/audit/repair/backup/restore/migrate/upgrade）、`src/facet/runtime.py`、`src/facet/gmail/labels.py`，以及 convenience mode 和维护状态/doctor 接线。
 
@@ -199,7 +201,8 @@ Release 仍需决定。公开源码不自动代表 package 已公开，必须实
 | 初始化和分页 crash | H0 之前 discovery 与 H0 之后 History 共同覆盖，事件可重放 | M2 |
 | 收信和自己回复 | 自动投影；已 tracked thread 的后续 sender 变化保留 | M2 |
 | History 404 | 对 active threads 补漏，并恢复停机窗口内 admission | M3 |
-| 新规则和 reconcile | 未来生效与显式历史回扫边界不被校对绕过 | M2 M3 |
+| 新规则与 action jobs | `effective_at`/generation 和 action-job 变更按未来生效边界处理，不隐式扩大历史披露 | M2 |
+| Reconcile | source/target 校对与显式历史回扫边界不被绕过 | M3 |
 | Action labels | 多 message 事件聚合；readonly 观察、effective_at/generation 和重复执行受控 | M2 |
 | BlackList 竞争 | 未开始的 jobs 被取消；已经在途的 insert 可能完成并被记录 | M2 |
 | 故障与部署 | 限流、失效凭据、磁盘满、退出和备份恢复都保留可解释状态 | M2 M6 |
