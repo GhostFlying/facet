@@ -8,11 +8,15 @@ verification path with synthetic profile facts.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
+from uuid import uuid4
 
 from facet.config import Config
 from facet.contracts import (
@@ -22,16 +26,19 @@ from facet.contracts import (
     ProjectionId,
     Revision,
     Role,
+    Sha256Hex,
     SourceMode,
     Timestamp,
 )
 from facet.db.codecs import StorageFailure
 
-from .credential_codec import decode_envelope
+from .credential_codec import decode_envelope, encode_envelope
 from .credential_models import (
+    AccessSnapshot,
     AccountAddress,
     CredentialEnvelope,
     GrantEvidence,
+    GrantEvidenceKind,
     ProviderSecret,
     ScopePolicy,
     ScopeSet,
@@ -43,6 +50,7 @@ __all__ = (
     "CredentialMetadata",
     "VerifiedProfile",
     "VerifiedBindings",
+    "AccessSnapshot",
     "CredentialManager",
 )
 
@@ -213,7 +221,15 @@ def _read_credential(path: Path, role: Role) -> CredentialEnvelope:
                 or info.st_size > 131072
             ):
                 _fail(ErrorCode.SCOPE_REQUIRED)
-            raw = os.read(descriptor, 131073)
+            chunks = []
+            remaining = 131073
+            while remaining:
+                chunk = os.read(descriptor, remaining)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            raw = b"".join(chunks)
         finally:
             os.close(descriptor)
     except FileNotFoundError:
@@ -242,7 +258,7 @@ def _read_credential(path: Path, role: Role) -> CredentialEnvelope:
 class CredentialManager:
     """Load, verify and publish two fixed-role credential bindings."""
 
-    __slots__ = ("_state_dir", "_config", "_owner")
+    __slots__ = ("_state_dir", "_config", "_owner", "_role_locks")
 
     def __init__(
         self, state_dir: str | os.PathLike[str], config: Config, owner
@@ -254,6 +270,7 @@ class CredentialManager:
         self._state_dir = Path(state_dir)
         self._config = config
         self._owner = owner
+        self._role_locks = {role: threading.RLock() for role in Role}
 
     def _path(self, role: Role) -> Path:
         if type(role) is not Role:
@@ -262,6 +279,7 @@ class CredentialManager:
         return self._state_dir / "credentials" / name
 
     def _load_envelope(self, role: Role) -> CredentialEnvelope:
+        self._check_private_root()
         envelope = _read_credential(self._path(role), role)
         owner = self._owner.owner_info
         if (
@@ -288,6 +306,192 @@ class CredentialManager:
         if envelope.credential_revision.value != expected_credential_revision:
             _fail(ErrorCode.BINDING_MISMATCH)
         return envelope
+
+    def _check_private_root(self) -> Path:
+        try:
+            state = self._state_dir.stat(follow_symlinks=False)
+            credentials = (self._state_dir / "credentials").stat(follow_symlinks=False)
+        except OSError:
+            _fail(ErrorCode.PERSISTENCE_FAILURE)
+        if (
+            not stat.S_ISDIR(state.st_mode)
+            or state.st_uid != os.geteuid()
+            or stat.S_IMODE(state.st_mode) & 0o77
+            or not stat.S_ISDIR(credentials.st_mode)
+            or credentials.st_uid != os.geteuid()
+            or stat.S_IMODE(credentials.st_mode) & 0o77
+        ):
+            _fail(ErrorCode.SCOPE_REQUIRED)
+        return self._state_dir / "credentials"
+
+    def snapshot(self, role: Role, *, now: Timestamp | None = None) -> AccessSnapshot:
+        """Return a verified-role access token without exposing refresh material."""
+
+        if type(role) is not Role:
+            _fail(ErrorCode.INVALID_INPUT)
+        envelope = self._load_envelope(role)
+        binding = self._owner.bindings()[role]
+        if (
+            binding is None
+            or binding.state is not BindingState.VERIFIED
+            or binding.credential_revision != envelope.credential_revision
+        ):
+            _fail(ErrorCode.BINDING_PENDING)
+        observed = _observed_now(now)
+        if envelope.secret.expires_at.value <= observed.value:
+            _fail(
+                ErrorCode.SOURCE_AUTH_REQUIRED
+                if role is Role.SOURCE
+                else ErrorCode.TARGET_AUTH_REQUIRED
+            )
+        return AccessSnapshot(
+            role,
+            envelope.credential_revision,
+            envelope.binding_revision,
+            envelope.scope_policy_revision,
+            envelope.secret.access_token,
+            envelope.secret.expires_at,
+        )
+
+    def refresh(self, role: Role, exchange, *, now: Timestamp | None = None):
+        """Serialize one synthetic/provider-mediated refresh and publish it."""
+
+        if type(role) is not Role or not callable(exchange):
+            _fail(ErrorCode.INVALID_INPUT)
+        with self._role_locks[role]:
+            old = self._load_envelope(role)
+            binding = self._owner.bindings()[role]
+            if (
+                binding is None
+                or binding.state is not BindingState.VERIFIED
+                or binding.credential_revision != old.credential_revision
+            ):
+                _fail(ErrorCode.BINDING_PENDING)
+            observed = _observed_now(now)
+            new_revision = Revision(old.credential_revision.value + 1)
+            change_id = LocalId(uuid4().hex)
+            from facet.db.models import CredentialChangeRow
+            from facet.db.repositories import credentials as repository
+
+            requesting = CredentialChangeRow(
+                self._config.projection.id,
+                old.state_instance_id,
+                change_id,
+                role,
+                "refresh",
+                "requesting",
+                old.credential_revision,
+                new_revision,
+                old.binding_revision,
+                old.scope_policy_revision,
+                None,
+                None,
+                None,
+                old.scope_policy.value,
+                None,
+                None,
+                None,
+                None,
+                old.profile_verified_at,
+                old.secret.expires_at,
+                observed,
+                observed,
+                None,
+            )
+            with self._owner.session.transaction() as uow:
+                repository.begin_change(uow, self._config.projection.id, requesting)
+            try:
+                try:
+                    refreshed = exchange(role, old.secret)
+                except Exception:
+                    _fail(
+                        ErrorCode.SOURCE_AUTH_REQUIRED
+                        if role is Role.SOURCE
+                        else ErrorCode.TARGET_AUTH_REQUIRED
+                    )
+                if type(refreshed) is not ProviderSecret:
+                    _fail(ErrorCode.INVALID_INPUT)
+                if refreshed.expires_at.value <= observed.value:
+                    _fail(
+                        ErrorCode.SOURCE_AUTH_REQUIRED
+                        if role is Role.SOURCE
+                        else ErrorCode.TARGET_AUTH_REQUIRED
+                    )
+                candidate = replace(
+                    old,
+                    credential_revision=new_revision,
+                    grant=GrantEvidence(
+                        GrantEvidenceKind.REFRESH_OMITTED_INHERITED,
+                        old.grant.granted,
+                        old.grant.requested,
+                        observed,
+                        old.credential_revision,
+                    ),
+                    profile_verified_at=old.profile_verified_at,
+                    secret=refreshed,
+                )
+                raw = encode_envelope(candidate)
+                digest = Sha256Hex(hashlib.sha256(raw).hexdigest())
+                validated = replace(
+                    requesting,
+                    phase="validated",
+                    envelope_digest=digest,
+                    grant_kind=candidate.grant.kind.value,
+                    granted_scopes=",".join(
+                        sorted(scope.value for scope in candidate.grant.granted.value)
+                    ),
+                    grant_parent_revision=candidate.grant.parent_credential_revision,
+                    grant_observed_at=candidate.grant.observed_at,
+                    profile_verified_at=candidate.profile_verified_at,
+                    expires_at=candidate.secret.expires_at,
+                    updated_at=observed,
+                )
+                with self._owner.session.transaction() as uow:
+                    repository.mark_validated(
+                        uow, self._config.projection.id, validated
+                    )
+                published = False
+                try:
+                    _atomic_write(self._path(role), raw)
+                except StorageFailure:
+                    self._abandon(role, change_id, ErrorCode.PERSISTENCE_FAILURE)
+                    raise
+                published = True
+                with self._owner.session.transaction() as uow:
+                    repository.commit_change(uow, self._config.projection.id, validated)
+                return self.snapshot(role, now=observed)
+            except StorageFailure as error:
+                if "published" in locals() and published:
+                    self._attention(role, change_id, error.code)
+                else:
+                    self._abandon(role, change_id, error.code)
+                raise
+
+    def _abandon(self, role: Role, change_id: LocalId, code: ErrorCode) -> None:
+        from facet.db.repositories import credentials as repository
+
+        try:
+            with self._owner.session.transaction() as uow:
+                repository.abandon_change(
+                    uow, self._config.projection.id, role, change_id, code
+                )
+        except StorageFailure:
+            # The original failure remains authoritative; an unavailable
+            # owner/database is already a durable stop condition.
+            return
+
+    def _attention(self, role: Role, change_id: LocalId, code: ErrorCode) -> None:
+        from facet.db.repositories import credentials as repository
+
+        try:
+            with self._owner.session.transaction() as uow:
+                repository.mark_attention(
+                    uow, self._config.projection.id, role, change_id, code
+                )
+        except StorageFailure:
+            # Preserve the original commit uncertainty.  If the owner is
+            # unavailable, the validated row itself remains the restart cue.
+            return
 
     def load(self, role: Role) -> CredentialMetadata:
         """Read credential identity and grant metadata without secrets."""
@@ -359,6 +563,69 @@ def evidence_verified_at(evidence: ProfileEvidence) -> Timestamp:
     """Use a bounded UTC observation time without adding provider metadata."""
 
     del evidence
-    from datetime import UTC, datetime
+    return _owner_now()
 
+
+def _owner_now() -> Timestamp:
     return Timestamp(datetime.now(UTC))
+
+
+def _observed_now(candidate: Timestamp | None) -> Timestamp:
+    """Accept only an owner-observed timestamp, never a backdated caller value."""
+
+    observed = _owner_now()
+    if candidate is None:
+        return observed
+    if type(candidate) is not Timestamp or candidate.value < observed.value:
+        _fail(ErrorCode.INVALID_INPUT)
+    return candidate
+
+
+def _atomic_write(path: Path, raw: bytes) -> None:
+    if type(raw) is not bytes or not raw:
+        _fail(ErrorCode.INVALID_INPUT)
+    parent = path.parent
+    try:
+        parent_info = parent.stat(follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(parent_info.st_mode)
+            or parent_info.st_uid != os.geteuid()
+            or stat.S_IMODE(parent_info.st_mode) & 0o77
+        ):
+            _fail(ErrorCode.SCOPE_REQUIRED)
+        try:
+            target = path.lstat()
+        except FileNotFoundError:
+            target = None
+        if target is not None and (
+            not stat.S_ISREG(target.st_mode)
+            or target.st_uid != os.geteuid()
+            or stat.S_IMODE(target.st_mode) & 0o77
+            or target.st_nlink != 1
+        ):
+            _fail(ErrorCode.SCOPE_REQUIRED)
+        temp = parent / ("." + path.name + ".pending")
+        descriptor = os.open(
+            temp,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+        )
+        try:
+            offset = 0
+            while offset < len(raw):
+                offset += os.write(descriptor, raw[offset:])
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.replace(temp, path)
+        directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except StorageFailure:
+        raise
+    except FileExistsError:
+        _fail(ErrorCode.PERSISTENCE_FAILURE)
+    except OSError:
+        _fail(ErrorCode.PERSISTENCE_FAILURE)

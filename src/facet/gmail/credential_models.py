@@ -19,6 +19,7 @@ __all__ = (
     "GrantEvidence",
     "ProviderSecret",
     "CredentialEnvelope",
+    "AccessSnapshot",
     "CredentialCodecError",
     "policy_scopes",
 )
@@ -150,6 +151,26 @@ class CredentialEnvelope(_PrivateValue):
     secret: ProviderSecret
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class AccessSnapshot(_PrivateValue):
+    """Private immutable access token view for a verified role."""
+
+    role: Role
+    credential_revision: Revision
+    binding_revision: Revision
+    scope_policy_revision: Revision
+    access_token: SecretText
+    expires_at: Timestamp
+
+    def __post_init__(self):
+        _checked(lambda: _validate(self))
+
+    def __repr__(self):
+        return "<access snapshot>"
+
+    __str__ = __repr__
+
+
 _POLICIES = {
     ScopePolicy.SOURCE_READONLY: (Role.SOURCE, frozenset({ScopeName.GMAIL_READONLY})),
     ScopePolicy.SOURCE_CONVENIENCE: (Role.SOURCE, frozenset({ScopeName.GMAIL_MODIFY})),
@@ -256,5 +277,15 @@ def _validate(value):
         parent = value.grant.parent_credential_revision
         if parent is not None:
             _require(parent.value == value.credential_revision.value - 1)
+    elif kind is AccessSnapshot:
+        _require(type(value.role) is Role)
+        for revision in (
+            value.credential_revision,
+            value.binding_revision,
+            value.scope_policy_revision,
+        ):
+            _core(revision, Revision, positive=True)
+        _field(value.access_token, SecretText)
+        _core(value.expires_at, Timestamp)
     else:
         _require(False)

@@ -33,6 +33,7 @@ ROW_CLASSES = {
     "projections": models.ProjectionRow,
     "bindings": models.BindingRow,
     "binding_revisions": models.BindingRevisionRow,
+    "credential_changes": models.CredentialChangeRow,
     "rules": models.RuleRow,
     "rule_revisions": models.RuleRevisionRow,
     "rulesets": models.RulesetRow,
@@ -62,6 +63,31 @@ ROW_CLASSES = {
     "thread_expansion_items": models.ThreadExpansionItemRow,
 }
 COLUMNS = {table.name: tuple(c[0] for c in table.columns) for table in TABLES}
+COLUMNS["credential_changes"] = (
+    "projection_id",
+    "state_instance_id",
+    "change_id",
+    "role",
+    "kind",
+    "phase",
+    "old_revision",
+    "new_revision",
+    "binding_revision",
+    "scope_policy_revision",
+    "operation_id",
+    "supersedes_change_id",
+    "envelope_digest",
+    "scope_policy",
+    "grant_kind",
+    "granted_scopes",
+    "grant_parent_revision",
+    "grant_observed_at",
+    "profile_verified_at",
+    "expires_at",
+    "started_at",
+    "updated_at",
+    "error",
+)
 _ADMISSION_FIELDS = (
     "tag",
     "epoch_id",
@@ -162,7 +188,20 @@ def _encode_row(table: str, row, *, event_id: LocalId | None = None) -> tuple:
     result = []
     for column in COLUMNS[table]:
         item = values[column]
-        if column in {"tag", "before_state", "after_state"} and type(item) is str:
+        if (
+            column
+            in {
+                "tag",
+                "before_state",
+                "after_state",
+                "kind",
+                "phase",
+                "scope_policy",
+                "grant_kind",
+                "granted_scopes",
+            }
+            and type(item) is str
+        ):
             result.append(item)
         else:
             result.append(encode_scalar(item))

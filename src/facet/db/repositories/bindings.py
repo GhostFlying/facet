@@ -1,12 +1,19 @@
 """Typed profile verification publication for the existing binding rows."""
 
-from facet.contracts import BindingState, ErrorCode, ProjectionId, Revision, Role
+from facet.contracts import (
+    BindingState,
+    ErrorCode,
+    ProjectionId,
+    Revision,
+    Role,
+    Timestamp,
+)
 
 from ..codecs import StorageFailure, timestamp_to_sql
 from ..models import WriteReceipt
 from .base import _get, _mutating
 
-__all__ = ("verify_bindings",)
+__all__ = ("verify_bindings", "publish_refreshed_credential")
 
 
 def _conflict(code: ErrorCode = ErrorCode.REQUEST_CONFLICT) -> None:
@@ -95,3 +102,52 @@ def verify_bindings(uow, projection_id: ProjectionId, verified):
         WriteReceipt("updated", projection_id, Revision(row.binding_revision.value))
         for row in refreshed.values()
     )
+
+
+@_mutating
+def publish_refreshed_credential(
+    uow,
+    projection_id: ProjectionId,
+    role: Role,
+    binding_revision: Revision,
+    old_credential_revision: Revision,
+    new_credential_revision: Revision,
+    verified_at: Timestamp,
+):
+    """Advance one already-verified role after a credential CAS."""
+
+    if (
+        type(role) is not Role
+        or type(binding_revision) is not Revision
+        or type(old_credential_revision) is not Revision
+        or type(new_credential_revision) is not Revision
+        or type(verified_at) is not Timestamp
+        or new_credential_revision.value != old_credential_revision.value + 1
+    ):
+        _conflict(ErrorCode.INVALID_INPUT)
+    row = _get(uow, projection_id, "bindings", (("role", role),))
+    if row is None:
+        _conflict(ErrorCode.CONSISTENCY_FAILURE)
+    if (
+        row.state is not BindingState.VERIFIED
+        or row.binding_revision != binding_revision
+        or row.credential_revision != old_credential_revision
+        or row.verified_address is None
+    ):
+        _conflict(ErrorCode.REQUEST_CONFLICT)
+    cursor = uow._execute(
+        "UPDATE bindings SET credential_revision=?,verified_at=? "
+        "WHERE projection_id=? AND role=? AND binding_revision=? "
+        "AND state='verified' AND credential_revision=?",
+        (
+            new_credential_revision.value,
+            timestamp_to_sql(verified_at),
+            projection_id.value,
+            role.value,
+            binding_revision.value,
+            old_credential_revision.value,
+        ),
+    )
+    if cursor.rowcount != 1:
+        _conflict(ErrorCode.REQUEST_CONFLICT)
+    return WriteReceipt("updated", projection_id, new_credential_revision)
