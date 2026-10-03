@@ -81,6 +81,7 @@ def test_exact_inventory_and_required_fields():
         "GrantEvidenceKind",
         "GrantEvidence",
         "ProviderSecret",
+        "RefreshResult",
         "CredentialEnvelope",
         "AccessSnapshot",
         "CredentialCodecError",

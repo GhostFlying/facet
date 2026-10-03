@@ -18,6 +18,7 @@ __all__ = (
     "GrantEvidenceKind",
     "GrantEvidence",
     "ProviderSecret",
+    "RefreshResult",
     "CredentialEnvelope",
     "AccessSnapshot",
     "CredentialCodecError",
@@ -135,6 +136,14 @@ class ProviderSecret(_PrivateValue):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class RefreshResult(_PrivateValue):
+    """Private refresh output with optional explicit scope evidence."""
+
+    secret: ProviderSecret
+    scopes: ScopeSet | None
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class CredentialEnvelope(_PrivateValue):
     version: int
     projection_id: ProjectionId
@@ -249,6 +258,10 @@ def _validate(value):
         for field in (value.client_secret, value.access_token, value.refresh_token):
             _field(field, SecretText)
         _core(value.expires_at, Timestamp)
+    elif kind is RefreshResult:
+        _field(value.secret, ProviderSecret)
+        if value.scopes is not None:
+            _field(value.scopes, ScopeSet)
     elif kind is CredentialEnvelope:
         _require(type(value.version) is int)
         if value.version != 1:

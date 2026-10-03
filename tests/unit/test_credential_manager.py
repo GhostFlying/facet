@@ -34,6 +34,7 @@ from facet.gmail.credential_models import (
     GrantEvidence,
     GrantEvidenceKind,
     ProviderSecret,
+    RefreshResult,
     ScopePolicy,
     SecretText,
     policy_scopes,
@@ -259,6 +260,47 @@ def test_refresh_preserves_typed_exchange_failure(trusted_state_parent, monkeypa
         assert owner.session._connection.execute(
             "SELECT phase,error FROM credential_changes"
         ).fetchone() == ("abandoned", "network_unavailable")
+    finally:
+        owner.close()
+
+
+def test_refresh_records_explicit_scope_evidence(trusted_state_parent, monkeypatch):
+    owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+        manager.verify_and_publish(Profiles())
+        result = manager.refresh(
+            Role.SOURCE,
+            lambda role, old: RefreshResult(
+                _future_secret("explicit-scope"),
+                policy_scopes(ScopePolicy.SOURCE_READONLY, Role.SOURCE),
+            ),
+        )
+        assert result.credential_revision == Revision(2)
+        assert owner.session._connection.execute(
+            "SELECT phase,grant_kind,granted_scopes FROM credential_changes"
+        ).fetchone() == ("committed", "refresh_explicit", "gmail_readonly")
+    finally:
+        owner.close()
+
+
+def test_refresh_rejects_reduced_explicit_scope_evidence(
+    trusted_state_parent, monkeypatch
+):
+    owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+        manager.verify_and_publish(Profiles())
+        with pytest.raises(StorageFailure) as caught:
+            manager.refresh(
+                Role.SOURCE,
+                lambda role, old: RefreshResult(
+                    _future_secret("reduced-scope"),
+                    policy_scopes(ScopePolicy.TARGET_DEFAULT, Role.TARGET),
+                ),
+            )
+        assert caught.value.code is ErrorCode.SCOPE_REQUIRED
+        assert owner.session._connection.execute(
+            "SELECT phase,error FROM credential_changes"
+        ).fetchone() == ("abandoned", "scope_required")
     finally:
         owner.close()
 

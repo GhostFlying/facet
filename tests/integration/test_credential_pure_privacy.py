@@ -135,7 +135,7 @@ def test_imports_keep_logging_environment_and_capability_surfaces_unchanged(tmp_
         assert before == logging_state()
         assert credential_codec.__all__ == ('encode_envelope', 'decode_envelope')
         assert client_config.__all__ == ('DesktopClientConfig', 'parse_desktop_client')
-        assert len(credential_models.__all__) == 13
+        assert len(credential_models.__all__) == 14
         forbidden = ('facet.db', 'facet.cli', 'facet_spike', 'google.',
                      'googleapiclient', 'google_auth_oauthlib')
         assert not any(name.startswith(forbidden) for name in sys.modules)
