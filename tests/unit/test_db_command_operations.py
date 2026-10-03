@@ -128,6 +128,38 @@ def test_start_is_one_owner_transaction_and_replays_lost_response():
         assert late_epoch.epoch_id == epoch.epoch_id
 
 
+def test_fence_at_discovery_cutoff_is_valid_when_other_guards_match():
+    with storage() as (_, _, connection, session, _, *_):
+        with session.transaction() as uow:
+            preview = preview_backfill(uow, P, preview_request(125))
+            cutoff = Timestamp(NOW.value - timedelta(minutes=1))
+            _, epoch = start_backfill(
+                uow,
+                P,
+                start_request(127, preview.operation_id, fence_at=cutoff),
+            )
+        assert epoch.fence_recorded_at == cutoff
+        assert connection.execute("SELECT COUNT(*) FROM epochs").fetchone() == (1,)
+
+
+def test_preview_invalidation_revision_must_match_current_owner_control():
+    with storage() as (_, _, connection, session, _, *_):
+        stale = replace(preview_request(160), invalidating_revision=Revision(1))
+        with pytest.raises(StorageFailure) as caught, session.transaction() as uow:
+            preview_backfill(uow, P, stale)
+        assert caught.value.code is ErrorCode.PREVIEW_INVALID
+        with session.transaction() as uow:
+            preview = preview_backfill(uow, P, preview_request(162))
+            uow._execute(
+                "UPDATE command_runtime SET control_revision=1 WHERE projection_id=?",
+                (P.value,),
+            )
+        with pytest.raises(StorageFailure) as caught, session.transaction() as uow:
+            start_backfill(uow, P, start_request(164, preview.operation_id))
+        assert caught.value.code is ErrorCode.PREVIEW_INVALID
+        assert connection.execute("SELECT COUNT(*) FROM epochs").fetchone() == (0,)
+
+
 def test_start_rejects_invalid_fence_without_publishing():
     with storage() as (_, _, connection, session, _, *_):
         with session.transaction() as uow:

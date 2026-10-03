@@ -328,7 +328,8 @@ def _backfill_guards(owner, projection_id):
         _fail(ErrorCode.PREVIEW_INVALID)
     runtime = _query(
         owner,
-        "SELECT binding_guard FROM command_runtime WHERE projection_id=? LIMIT 2",
+        "SELECT binding_guard,control_revision FROM command_runtime "
+        "WHERE projection_id=? LIMIT 2",
         (projection_id.value,),
         maximum=1,
     )
@@ -343,7 +344,7 @@ def _backfill_guards(owner, projection_id):
     binding_guard = runtime[0][0]
     if any(row[0] != binding_guard for row in bindings):
         _fail(ErrorCode.BINDING_MISMATCH)
-    return projection, Revision(binding_guard), ruleset
+    return projection, Revision(binding_guard), ruleset, Revision(runtime[0][1])
 
 
 def _existing_backfill_request(owner, projection_id, request_nonce):
@@ -382,7 +383,11 @@ def preview_backfill(owner, projection_id, request):
         ):
             _fail(ErrorCode.REQUEST_CONFLICT)
         return old_operation
-    projection, binding_revision, _ = _backfill_guards(owner, projection_id)
+    projection, binding_revision, _, control_revision = _backfill_guards(
+        owner, projection_id
+    )
+    if request.invalidating_revision != control_revision:
+        _fail(ErrorCode.PREVIEW_INVALID)
     operation = OperationRow(
         projection_id,
         request.operation_id,
@@ -473,7 +478,9 @@ def start_backfill(owner, projection_id, request):
         ):
             _fail(ErrorCode.REQUEST_CONFLICT)
         return old_operation, existing_epoch
-    projection, binding_revision, _ = _backfill_guards(owner, projection_id)
+    projection, binding_revision, _, control_revision = _backfill_guards(
+        owner, projection_id
+    )
     preview, preview_payload = _find_backfill_by_id(
         owner, projection_id, request.preview_operation_id
     )
@@ -484,6 +491,7 @@ def start_backfill(owner, projection_id, request):
         or preview.expected_binding_revision != binding_revision
         or preview.expected_config_revision != projection.config_revision
         or preview_payload.ruleset_revision != projection.ruleset_revision
+        or preview_payload.invalidating_revision != control_revision
         or preview_payload.expires_at.value < request.accepted_at.value
     ):
         _fail(ErrorCode.PREVIEW_INVALID)

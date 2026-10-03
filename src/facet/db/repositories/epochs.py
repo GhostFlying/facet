@@ -247,7 +247,8 @@ def _backfill_decision(uow, projection_id, epoch):
     )
     runtime = _query(
         uow,
-        "SELECT binding_guard FROM command_runtime WHERE projection_id=? LIMIT 2",
+        "SELECT binding_guard,control_revision FROM command_runtime "
+        "WHERE projection_id=? LIMIT 2",
         (projection_id.value,),
         maximum=1,
     )
@@ -262,6 +263,7 @@ def _backfill_decision(uow, projection_id, epoch):
         or preview.expected_binding_revision.value != runtime[0][0]
         or operation.expected_config_revision != projection.config_revision
         or operation.expected_binding_revision.value != runtime[0][0]
+        or payload.invalidating_revision.value != runtime[0][1]
         or checkpoint is None
         or checkpoint.cursor is not None
         or checkpoint.reliable_coverage_at is not None
