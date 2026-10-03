@@ -102,11 +102,14 @@ class TargetAdapter:
             ),
             self.role,
         )
-        return TargetInsertResult(
-            _id(value["id"]),
-            _id(value["threadId"]),
-            None if value.get("historyId") is None else _id(value["historyId"]),
-        )
+        try:
+            return TargetInsertResult(
+                _id(value["id"]),
+                _id(value["threadId"]),
+                None if value.get("historyId") is None else _id(value["historyId"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.TARGET) from None
 
     def find_by_rfc_message_id(self, value: str):
         if type(value) is not RfcMessageId:

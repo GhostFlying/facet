@@ -97,7 +97,7 @@ class ProjectionWorker:
             except ProviderFailure as error:
                 self._defer(job, error.code, error.retry_after_seconds)
                 outcome = "deferred"
-            except ValueError:
+            except (KeyError, TypeError, ValueError):
                 self._defer(job, ErrorCode.INVALID_INPUT)
                 outcome = "deferred"
             except StorageFailure as error:

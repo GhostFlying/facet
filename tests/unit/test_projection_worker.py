@@ -13,6 +13,7 @@ from fakes.gmail import HttpFailure, InsertReply
 from facet.config import initial_template
 from facet.contracts import (
     BindingState,
+    ErrorCode,
     Generation,
     PolicyVersion,
     ProviderId,
@@ -35,6 +36,7 @@ from facet.db.models import (
 )
 from facet.gmail.credential_models import ScopePolicy, policy_scopes
 from facet.gmail.credentials import CredentialManager
+from facet.gmail.retry import ProviderFailure
 from facet.gmail.source import SourceAdapter
 from facet.gmail.target import TargetAdapter
 from facet.projection.backfill import BackfillProducer, DiscoveryDecision
@@ -253,6 +255,84 @@ def test_fidelity_ignores_transport_headers_and_keeps_raw_only_in_memory():
     assert inspect(multipart).date_policy.value == "fallback_received_time"
 
 
+class _MalformedRequest:
+    def __init__(self, value):
+        self.value = value
+
+    def execute(self, **kwargs):
+        return self.value
+
+
+class _MalformedTargetUsers:
+    def messages(self):
+        return self
+
+    def insert(self, **kwargs):
+        return _MalformedRequest({"id": "only-id"})
+
+
+class _MalformedTargetService:
+    def users(self):
+        return _MalformedTargetUsers()
+
+
+class _MalformedSourceUsers:
+    def threads(self):
+        return self
+
+    def get(self, **kwargs):
+        return _MalformedRequest({"messages": [{"id": "missing-thread"}]})
+
+
+class _MalformedSourceService:
+    def users(self):
+        return _MalformedSourceUsers()
+
+
+class _UnknownInsertTarget:
+    def __init__(self, delegate):
+        self.delegate = delegate
+
+    def insert(self, raw, *, thread_id=None, date_header=True):
+        self.delegate.insert(raw, thread_id=thread_id, date_header=date_header)
+        raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.TARGET)
+
+
+class _StopAfterInsertTarget:
+    def __init__(self, delegate, owner):
+        self.delegate = delegate
+        self.owner = owner
+
+    def insert(self, raw, *, thread_id=None, date_header=True):
+        result = self.delegate.insert(raw, thread_id=thread_id, date_header=date_header)
+        with self.owner.session.transaction() as uow:
+            from facet.db.repositories import policy
+
+            policy.stop_thread(
+                uow,
+                self.owner.projection_id,
+                ProviderId("thread-1"),
+                Generation(1),
+                Timestamp(datetime.now(UTC)),
+                ThreadStopReason.MANUAL_STOP,
+            )
+        return result
+
+    def readback(self, message_id):
+        return self.delegate.readback(message_id)
+
+
+def test_adapters_close_malformed_success_responses_without_wire_payloads():
+    with pytest.raises(ProviderFailure) as target_error:
+        TargetAdapter(_MalformedTargetService()).insert(b"raw")
+    assert target_error.value.code is ErrorCode.INVALID_INPUT
+    assert target_error.value.status is None
+    with pytest.raises(ProviderFailure) as source_error:
+        SourceAdapter(_MalformedSourceService()).thread_metadata(ProviderId("thread"))
+    assert source_error.value.code is ErrorCode.INVALID_INPUT
+    assert "missing-thread" not in repr(source_error.value)
+
+
 def _worker_adapters(controller, owner):
     source = SourceAdapter(
         controller.service("source", scopes=frozenset({"gmail.readonly"}))
@@ -368,6 +448,175 @@ def test_worker_response_loss_stays_in_recovery_without_blind_retry(
             ).fetchone() == ("queued",)
             assert worker.run().processed == 0
             assert gmail_controller.identifiers("target") == ("inserted-1",)
+        finally:
+            owner.close()
+
+
+@pytest.mark.parametrize(
+    ("failure", "job_state", "error_code", "attempt_state", "receipt"),
+    (
+        (
+            HttpFailure(401),
+            "retry_wait",
+            "target_auth_required",
+            "definite_not_inserted",
+            "deferred",
+        ),
+        (
+            HttpFailure(429),
+            "retry_wait",
+            "target_rate_limited",
+            "definite_not_inserted",
+            "deferred",
+        ),
+        (
+            HttpFailure(403, body=b'{"error":{"reason":"storage quota"}}'),
+            "retry_wait",
+            "target_storage_full",
+            "definite_not_inserted",
+            "deferred",
+        ),
+        (
+            HttpFailure(500),
+            "blocked",
+            "insert_result_unknown",
+            "pending_recovery",
+            "recovery",
+        ),
+    ),
+)
+def test_worker_target_failure_matrix_persists_safe_outcomes(
+    gmail_controller,
+    monkeypatch,
+    failure,
+    job_state,
+    error_code,
+    attempt_state,
+    receipt,
+):
+    parent = _trusted_parent()
+    raw = _raw("target-failure", "TARGET_FAILURE_SENTINEL")
+    gmail_controller.seed("source", "m-new", "thread-1", raw, payload=_payload(raw))
+    encoded = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    gmail_controller.script(
+        "target",
+        "messages.insert",
+        {
+            "userId": "me",
+            "body": {"raw": encoded},
+            "internalDateSource": "dateHeader",
+            "neverMarkSpam": True,
+        },
+        failure,
+    )
+    with TemporaryDirectory(prefix="facet-worker-target-failure-", dir=parent) as root:
+        owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
+        try:
+            worker, _, _ = _worker_adapters(gmail_controller, owner)
+            assert worker.run().expanded == 1
+            actual = worker.run()
+            assert getattr(actual, receipt) == 1
+            assert owner._connection.execute(
+                "SELECT state,last_error_code FROM sync_jobs "
+                "WHERE kind='project_message'"
+            ).fetchone() == (job_state, error_code)
+            assert owner._connection.execute(
+                "SELECT state,error_code FROM insert_attempts"
+            ).fetchone() == (attempt_state, error_code)
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM job_claims"
+            ).fetchone() == (0,)
+            assert gmail_controller.identifiers("target") == ()
+            if receipt == "recovery":
+                assert owner._connection.execute(
+                    "SELECT state FROM sync_jobs WHERE kind='recover_insert'"
+                ).fetchone() == ("queued",)
+        finally:
+            owner.close()
+
+
+@pytest.mark.parametrize(
+    ("failure", "error_code"),
+    (
+        (HttpFailure(401), "source_auth_required"),
+        (HttpFailure(429), "source_rate_limited"),
+        (HttpFailure(500), "network_unavailable"),
+    ),
+)
+def test_worker_source_failure_matrix_releases_claims(
+    gmail_controller, monkeypatch, failure, error_code
+):
+    parent = _trusted_parent()
+    gmail_controller.script(
+        "source",
+        "threads.get",
+        {"userId": "me", "id": "thread-1", "format": "metadata"},
+        failure,
+    )
+    with TemporaryDirectory(prefix="facet-worker-source-failure-", dir=parent) as root:
+        owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
+        try:
+            worker, _, _ = _worker_adapters(gmail_controller, owner)
+            assert worker.run().deferred == 1
+            assert owner._connection.execute(
+                "SELECT state,last_error_code FROM sync_jobs WHERE kind='expand_thread'"
+            ).fetchone() == ("retry_wait", error_code)
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM job_claims"
+            ).fetchone() == (0,)
+            assert gmail_controller.identifiers("target") == ()
+        finally:
+            owner.close()
+
+
+def test_worker_malformed_insert_response_is_unknown_not_definite_failure(
+    gmail_controller, monkeypatch
+):
+    parent = _trusted_parent()
+    raw = _raw("malformed", "MALFORMED_SENTINEL")
+    gmail_controller.seed("source", "m-new", "thread-1", raw, payload=_payload(raw))
+    with TemporaryDirectory(prefix="facet-worker-malformed-", dir=parent) as root:
+        owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
+        try:
+            worker, _, target = _worker_adapters(gmail_controller, owner)
+            assert worker.run().expanded == 1
+            uncertain = ProjectionWorker(
+                owner, worker._source, _UnknownInsertTarget(target)
+            )
+            assert uncertain.run().recovery == 1
+            assert gmail_controller.identifiers("target") == ("inserted-1",)
+            assert owner._connection.execute(
+                "SELECT state FROM insert_attempts"
+            ).fetchone() == ("pending_recovery",)
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM job_claims"
+            ).fetchone() == (0,)
+        finally:
+            owner.close()
+
+
+def test_worker_records_inflight_insert_when_thread_stops(
+    gmail_controller, monkeypatch
+):
+    parent = _trusted_parent()
+    raw = _raw("inflight", "INFLIGHT_SENTINEL")
+    gmail_controller.seed("source", "m-new", "thread-1", raw, payload=_payload(raw))
+    with TemporaryDirectory(prefix="facet-worker-inflight-", dir=parent) as root:
+        owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
+        try:
+            worker, _, target = _worker_adapters(gmail_controller, owner)
+            assert worker.run().expanded == 1
+            inflight = ProjectionWorker(
+                owner, worker._source, _StopAfterInsertTarget(target, owner)
+            )
+            assert inflight.run().verified == 1
+            assert gmail_controller.identifiers("target") == ("inserted-1",)
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM message_mappings"
+            ).fetchone() == (1,)
+            assert owner._connection.execute(
+                "SELECT active FROM tracked_threads"
+            ).fetchone() == (0,)
         finally:
             owner.close()
 
