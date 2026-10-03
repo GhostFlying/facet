@@ -126,6 +126,17 @@ def _page(uow, projection_id, poll, ordinal):
     return page
 
 
+def get_history_page(uow, projection_id, poll_id, ordinal):
+    """Return one typed persisted page for producer continuation."""
+
+    return _get(
+        uow,
+        projection_id,
+        "history_pages",
+        (("poll_id", poll_id), ("ordinal", ordinal)),
+    )
+
+
 @_mutating
 def begin_history_poll(uow, projection_id, row, guard):
     _require_row(projection_id, "history_polls", row)
