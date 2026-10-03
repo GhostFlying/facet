@@ -21,9 +21,9 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1-03 writer/runtime/CLI | Bounded writer foundation and corrected Thread harness integrated; production sync owner open | PR #20 exact `ea80db2` and PR #22 exact `befe278` actually merged after nonauthor review and candidate/main dual-Python CI; corrected harness retains production OS bytes, 150 focused/758 full tests; no-state bootstrap source separately released, not accepted provider/actor/credential integration |
 | M1-04 OAuth/binding | Early pure values/codec/client parser integrated; full package open | PR #18 actually merged exact `ff77e63`; 120 OP/608 full tests, independent source/head review, wheel and candidate/main 3.12/3.13 CI passed; actual OAuth/profile/files/publication remain |
 | M1-05 public status/privacy | Early pure/logging library integrated; full consumer gate open | PR #16 actually merged exact `f209fbe`, independent review and candidate/main CI passed with 488 offline tests; actual DB/auth/runtime/HTTP/DOM/Compose consumers still pending |
-| M1-06 authentication/initialization | Candidate implementation ready for independent review; not integrated | Candidate discovery converts ID-only pages into redacted typed candidate/attention results, rejects malformed metadata, and defaults source authentication to unknown; focused 11 + M1/M2 22 tests passed, with the preceding full 2441 offline suite, Ruff and safety passed. It does not provide real source-path attestation, initialization, or G1 |
+| M1-06 authentication/initialization | Typed candidate seam integrated; full package open | PR #39 exact `3ba6465` merged at main `05a6044`; candidate discovery converts ID-only pages into redacted typed candidate/attention results, rejects malformed metadata, and defaults source authentication to unknown. Independent implementation review, focused 22, full 2443 offline tests, Python 3.12/3.13 CI, Ruff and safety passed. Real source-path attestation, initialization and G1 remain open |
 | M1 foundation as a whole | Incomplete | Full persistence, process/view/credential ownership, init/doctor/config apply, authenticated bindings and real status consumers remain; G1 has not passed |
-| M2 automated projection core | Pure admission/rules preparation integrated; production core open | PR #36 exact candidate `6b13ca7` was independently approved as bounded pure prep and merged at main `28077e4`; focused 39 passed and Python 3.12/3.13 candidate CI passed. M1-06 trusted producer, typed adapter candidate, action-label effects, Backfill/History wiring, projection worker, fidelity, intent/recovery and restart remain open |
+| M2 automated projection core | Pure admission/rules plus typed candidate preparation integrated; production core open | PR #36 exact candidate `6b13ca7` and PR #39 exact candidate `3ba6465` were independently approved as bounded preparation and merged at main `28077e4`/`05a6044`; focused/full offline and Python 3.12/3.13 checks passed. A real source-path producer, action-label effects, Backfill/History wiring, projection worker, fidelity, intent/recovery and restart remain open |
 | M3 continuous recovery and Dashboard alpha | Not implemented | History gap recovery, reconcile/audit, aggregate read-only Web UI and status diagnostics |
 | M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
 | M5 self-hosted delivery | Not implemented | One-command Compose, Actions GHCR image, Nginx and bilingual operations docs |
@@ -72,11 +72,11 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   approved exact `6b13ca7` as bounded pure preparation only; focused 39 tests
   passed and candidate Python 3.12/3.13 CI passed.
 - This is not automatic admission, G2, or the first runnable production sync.
-  The M1-06 candidate now supplies the typed adapter boundary, but its
-  implementation review/integration and a separately verified real source-path
-  producer remain open. Only after those are released should the action-label
-  repository effect and BackfillProducer be wired. No Gmail, target write, DB
-  mapping, or live-account operation was performed by this unit.
+  PR #39 now supplies the reviewed typed adapter boundary. A separately
+  verified real source-path producer remains open; only after that should the
+  action-label repository effect and BackfillProducer be wired. No Gmail,
+  target write, DB mapping, or live-account operation was performed by this
+  unit.
 
 ## Active implementation record
 
