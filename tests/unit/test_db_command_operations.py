@@ -114,6 +114,18 @@ def test_start_is_one_owner_transaction_and_replays_lost_response():
         assert connection.execute("SELECT fence_history_id FROM epochs").fetchone() == (
             "H0",
         )
+        # A lost first response can be looked up after preview expiry; the
+        # committed request is authoritative and must not rerun H0 work.
+        late_replay = replace(
+            request,
+            operation_id=lid(120),
+            epoch_id=lid(121),
+            accepted_at=Timestamp(NOW.value + timedelta(days=2)),
+        )
+        with session.transaction() as uow:
+            late, late_epoch = start_backfill(uow, P, late_replay)
+        assert late.operation_id == start.operation_id
+        assert late_epoch.epoch_id == epoch.epoch_id
 
 
 def test_start_rejects_invalid_fence_without_publishing():

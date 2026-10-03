@@ -24,7 +24,7 @@ from facet.contracts.records import (
     PartitionRefSourceWindow,
 )
 
-from .codecs import encode_scalar, sqlite_failure, timestamp_from_sql
+from .codecs import StorageFailure, encode_scalar, sqlite_failure, timestamp_from_sql
 from .command_records import (
     BackfillPayloadRow,
     BackfillPreviewRequest,
@@ -346,6 +346,18 @@ def _backfill_guards(owner, projection_id):
     return projection, Revision(binding_guard), ruleset
 
 
+def _existing_backfill_request(owner, projection_id, request_nonce):
+    """Find a request-keyed row before evaluating mutable current guards."""
+    from .repositories.base import _get
+
+    projection = _get(owner, projection_id, "projections", ())
+    if projection is None:
+        _fail(ErrorCode.OWNER_UNAVAILABLE)
+    return _find_backfill(
+        owner, projection_id, projection.request_namespace, request_nonce
+    )
+
+
 def preview_backfill(owner, projection_id, request):
     """Persist a guarded typed backfill preview in the active owner UoW."""
     from .transactions import UnitOfWork
@@ -355,6 +367,21 @@ def preview_backfill(owner, projection_id, request):
     if type(request) is not BackfillPreviewRequest:
         _fail(ErrorCode.INVALID_INPUT)
     owner._check()
+    existing = _existing_backfill_request(owner, projection_id, request.request_nonce)
+    if existing[0] is not None:
+        old_operation, old_payload = existing
+        if (
+            old_operation.command is not LocalCommandKind.BACKFILL_PREVIEW
+            or old_operation.digest != _backfill_digest(old_operation, old_payload)
+            or old_payload.window_start != request.window_start
+            or old_payload.window_end != request.window_end
+            or old_payload.discovery_cutoff != request.discovery_cutoff
+            or old_payload.scope_digest != request.scope_digest
+            or old_payload.expires_at != request.expires_at
+            or old_payload.invalidating_revision != request.invalidating_revision
+        ):
+            _fail(ErrorCode.REQUEST_CONFLICT)
+        return old_operation
     projection, binding_revision, _ = _backfill_guards(owner, projection_id)
     operation = OperationRow(
         projection_id,
@@ -426,6 +453,26 @@ def start_backfill(owner, projection_id, request):
     if type(request) is not BackfillStartRequest:
         _fail(ErrorCode.INVALID_INPUT)
     owner._check()
+    existing = _existing_backfill_request(owner, projection_id, request.request_nonce)
+    if existing[0] is not None:
+        old_operation, old_payload = existing
+        if (
+            old_operation.command is not LocalCommandKind.BACKFILL_START
+            or old_operation.digest != _backfill_digest(old_operation, old_payload)
+            or old_operation.expected_preview_id != request.preview_operation_id
+        ):
+            _fail(ErrorCode.REQUEST_CONFLICT)
+        existing_epoch = _existing_backfill_epoch(
+            owner, projection_id, old_operation.operation_id
+        )
+        if existing_epoch is None:
+            raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+        if (
+            existing_epoch.fence_history_id != request.fence_history_id
+            or existing_epoch.fence_recorded_at != request.fence_recorded_at
+        ):
+            _fail(ErrorCode.REQUEST_CONFLICT)
+        return old_operation, existing_epoch
     projection, binding_revision, _ = _backfill_guards(owner, projection_id)
     preview, preview_payload = _find_backfill_by_id(
         owner, projection_id, request.preview_operation_id
