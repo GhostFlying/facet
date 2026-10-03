@@ -342,9 +342,17 @@ def _backfill_guards(owner, projection_id):
     if len(runtime) != 1 or len(bindings) != 2:
         _fail(ErrorCode.OWNER_UNAVAILABLE)
     binding_guard = runtime[0][0]
-    if any(row[0] != binding_guard for row in bindings):
+    if any(row[0] < 1 for row in bindings):
         _fail(ErrorCode.BINDING_MISMATCH)
-    return projection, Revision(binding_guard), ruleset, Revision(runtime[0][1])
+    invalidation = _query(
+        owner,
+        "SELECT COALESCE(SUM(generation),0) FROM tracked_threads WHERE projection_id=?",
+        (projection_id.value,),
+        maximum=1,
+    )
+    if len(invalidation) != 1:
+        _fail(ErrorCode.OWNER_UNAVAILABLE)
+    return projection, Revision(binding_guard), ruleset, Revision(invalidation[0][0])
 
 
 def _existing_backfill_request(owner, projection_id, request_nonce):
@@ -383,10 +391,10 @@ def preview_backfill(owner, projection_id, request):
         ):
             _fail(ErrorCode.REQUEST_CONFLICT)
         return old_operation
-    projection, binding_revision, _, control_revision = _backfill_guards(
+    projection, binding_revision, _, invalidation_revision = _backfill_guards(
         owner, projection_id
     )
-    if request.invalidating_revision != control_revision:
+    if request.invalidating_revision != invalidation_revision:
         _fail(ErrorCode.PREVIEW_INVALID)
     operation = OperationRow(
         projection_id,
@@ -478,7 +486,7 @@ def start_backfill(owner, projection_id, request):
         ):
             _fail(ErrorCode.REQUEST_CONFLICT)
         return old_operation, existing_epoch
-    projection, binding_revision, _, control_revision = _backfill_guards(
+    projection, binding_revision, _, invalidation_revision = _backfill_guards(
         owner, projection_id
     )
     preview, preview_payload = _find_backfill_by_id(
@@ -491,10 +499,19 @@ def start_backfill(owner, projection_id, request):
         or preview.expected_binding_revision != binding_revision
         or preview.expected_config_revision != projection.config_revision
         or preview_payload.ruleset_revision != projection.ruleset_revision
-        or preview_payload.invalidating_revision != control_revision
+        or preview_payload.invalidating_revision != invalidation_revision
+        or request.accepted_at.value < preview.accepted_at.value
         or preview_payload.expires_at.value < request.accepted_at.value
     ):
         _fail(ErrorCode.PREVIEW_INVALID)
+    initial_epochs = _owner_fetchall(
+        owner,
+        "SELECT epoch_id FROM epochs WHERE projection_id=? "
+        "AND kind='initial_backfill' LIMIT 2",
+        (projection_id.value,),
+    )
+    if initial_epochs:
+        _fail(ErrorCode.REQUEST_CONFLICT)
     operation = OperationRow(
         projection_id,
         request.operation_id,
@@ -667,6 +684,11 @@ def _find_backfill_by_id(owner, projection, operation_id, operation=None):
         operation = _operation_from_row(rows[0])
     if operation.projection_id != projection or operation.operation_id != operation_id:
         _fail(ErrorCode.CONSISTENCY_FAILURE)
+    if operation.command not in {
+        LocalCommandKind.BACKFILL_PREVIEW,
+        LocalCommandKind.BACKFILL_START,
+    }:
+        return operation, None
     rows = _owner_fetchall(
         owner,
         f"SELECT {_BACKFILL_COLUMNS} FROM operation_backfill "

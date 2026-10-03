@@ -7,32 +7,34 @@ import pytest
 from fakes.privacy import inspect_files, inspect_sqlite, markers
 from test_command_bootstrap_storage import storage
 from test_db_history import poll
+from test_db_repositories import T, admit, publish
 from test_db_schema import NOW, P, lid
 
 from facet.contracts import (
     EpochKind,
     ErrorCode,
+    Generation,
     ProviderId,
     Revision,
     Sha256Hex,
     Timestamp,
 )
-from facet.db.codecs import PollOrigin, StorageFailure
+from facet.db.codecs import PollOrigin, StorageFailure, ThreadStopReason
 from facet.db.command_records import BackfillPreviewRequest, BackfillStartRequest
 from facet.db.command_store import _find_backfill, preview_backfill, start_backfill
 from facet.db.models import RevisionGuard
-from facet.db.repositories import history
+from facet.db.repositories import history, policy
 
 
 def preview_request(n, *, scope="a" * 64):
     return BackfillPreviewRequest(
         lid(n),
         lid(n + 1),
-        Timestamp(NOW.value - timedelta(days=180)),
+        Timestamp(NOW.value.replace(month=4, day=1)),
         NOW,
         Timestamp(NOW.value - timedelta(minutes=1)),
         Sha256Hex(scope),
-        Timestamp(NOW.value + timedelta(days=1)),
+        Timestamp(NOW.value + timedelta(minutes=10)),
         Revision(0),
         NOW,
     )
@@ -142,17 +144,39 @@ def test_fence_at_discovery_cutoff_is_valid_when_other_guards_match():
         assert connection.execute("SELECT COUNT(*) FROM epochs").fetchone() == (1,)
 
 
+def test_fresh_start_request_cannot_publish_a_second_initial_epoch():
+    with storage() as (_, _, connection, session, _, *_):
+        with session.transaction() as uow:
+            preview = preview_backfill(uow, P, preview_request(128))
+            start_backfill(uow, P, start_request(130, preview.operation_id))
+        with pytest.raises(StorageFailure) as caught, session.transaction() as uow:
+            start_backfill(uow, P, start_request(132, preview.operation_id))
+        assert caught.value.code is ErrorCode.REQUEST_CONFLICT
+        assert connection.execute("SELECT COUNT(*) FROM epochs").fetchone() == (1,)
+
+
 def test_preview_invalidation_revision_must_match_current_owner_control():
     with storage() as (_, _, connection, session, _, *_):
         stale = replace(preview_request(160), invalidating_revision=Revision(1))
         with pytest.raises(StorageFailure) as caught, session.transaction() as uow:
             preview_backfill(uow, P, stale)
         assert caught.value.code is ErrorCode.PREVIEW_INVALID
+        publish(session)
+        admit(session)
         with session.transaction() as uow:
-            preview = preview_backfill(uow, P, preview_request(162))
-            uow._execute(
-                "UPDATE command_runtime SET control_revision=1 WHERE projection_id=?",
-                (P.value,),
+            preview = preview_backfill(
+                uow,
+                P,
+                replace(preview_request(162), invalidating_revision=Revision(1)),
+            )
+        with session.transaction() as uow:
+            policy.stop_thread(
+                uow,
+                P,
+                T,
+                Generation(1),
+                NOW,
+                ThreadStopReason.MANUAL_STOP,
             )
         with pytest.raises(StorageFailure) as caught, session.transaction() as uow:
             start_backfill(uow, P, start_request(164, preview.operation_id))

@@ -1,5 +1,7 @@
 """Fixed scan scope and progress; no scan, policy decision or cursor reset."""
 
+from datetime import timedelta
+
 from facet.contracts import (
     Count,
     EpochKind,
@@ -186,7 +188,7 @@ def _decision(uow, projection_id, epoch):
 
 def _backfill_decision(uow, projection_id, epoch):
     """Validate the journal-backed initial backfill fence before writing it."""
-    from ..command_records import LocalCommandKind
+    from ..command_records import LocalCommandKind, _valid_backfill_window
     from ..command_store import _backfill_digest, _find_backfill_by_id
 
     decision = epoch.decision
@@ -239,6 +241,15 @@ def _backfill_decision(uow, projection_id, epoch):
         or preview_payload.scope_digest != payload.scope_digest
         or preview_payload.expires_at != payload.expires_at
         or preview_payload.invalidating_revision != payload.invalidating_revision
+        or not _valid_backfill_window(
+            preview_payload.window_start,
+            preview_payload.window_end,
+            preview.accepted_at,
+        )
+        or preview_payload.expires_at.value
+        > preview.accepted_at.value + timedelta(minutes=15)
+        or preview.expected_binding_revision != operation.expected_binding_revision
+        or preview.expected_config_revision != operation.expected_config_revision
     ):
         _conflict()
     projection = _get(uow, projection_id, "projections", ())
@@ -247,8 +258,13 @@ def _backfill_decision(uow, projection_id, epoch):
     )
     runtime = _query(
         uow,
-        "SELECT binding_guard,control_revision FROM command_runtime "
-        "WHERE projection_id=? LIMIT 2",
+        "SELECT binding_guard FROM command_runtime WHERE projection_id=? LIMIT 2",
+        (projection_id.value,),
+        maximum=1,
+    )
+    invalidation = _query(
+        uow,
+        "SELECT COALESCE(SUM(generation),0) FROM tracked_threads WHERE projection_id=?",
         (projection_id.value,),
         maximum=1,
     )
@@ -259,11 +275,12 @@ def _backfill_decision(uow, projection_id, epoch):
         or not snapshot.sealed
         or projection.ruleset_revision != payload.ruleset_revision
         or len(runtime) != 1
+        or len(invalidation) != 1
         or preview.expected_config_revision != projection.config_revision
         or preview.expected_binding_revision.value != runtime[0][0]
         or operation.expected_config_revision != projection.config_revision
         or operation.expected_binding_revision.value != runtime[0][0]
-        or payload.invalidating_revision.value != runtime[0][1]
+        or payload.invalidating_revision.value != invalidation[0][0]
         or checkpoint is None
         or checkpoint.cursor is not None
         or checkpoint.reliable_coverage_at is not None

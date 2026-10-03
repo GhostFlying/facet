@@ -214,7 +214,7 @@ _TABLES = (
             _PROJECTION_FK,
             _OPERATION_FK,
             "CHECK(window_start<window_end)",
-            "CHECK(discovery_cutoff<=window_end)",
+            "CHECK(window_start<discovery_cutoff AND discovery_cutoff<window_end)",
             "CHECK(expires_at>=window_end)",
         ),
     ),

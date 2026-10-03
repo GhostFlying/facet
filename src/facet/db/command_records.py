@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass, fields
+from datetime import timedelta
 from enum import StrEnum
 from functools import cache
 from types import UnionType
@@ -32,6 +33,26 @@ def _fail(code=ErrorCode.INVALID_INPUT):
         error.__cause__ = None
         error.__context__ = None
         raise
+
+
+def _six_calendar_month_start(value):
+    month = value.year * 12 + value.month - 1 - 6
+    year, month = divmod(month, 12)
+    return value.replace(
+        year=year,
+        month=month + 1,
+        day=1,
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+
+def _valid_backfill_window(window_start, window_end, accepted_at):
+    return window_end.value == accepted_at.value and window_start.value == (
+        _six_calendar_month_start(window_end.value)
+    )
 
 
 class EnabledCommand(StrEnum):
@@ -277,7 +298,8 @@ class BackfillPayloadRow(_Record):
         if (
             self.purpose is not PreviewPurpose.START_BACKFILL
             or self.window_start.value >= self.window_end.value
-            or self.discovery_cutoff.value > self.window_end.value
+            or self.discovery_cutoff.value <= self.window_start.value
+            or self.discovery_cutoff.value >= self.window_end.value
             or self.expires_at.value < self.window_end.value
         ):
             _fail()
@@ -298,8 +320,13 @@ class BackfillPreviewRequest(_Record):
     def _validate(self):
         if (
             self.window_start.value >= self.window_end.value
-            or self.discovery_cutoff.value > self.window_end.value
+            or self.discovery_cutoff.value <= self.window_start.value
+            or self.discovery_cutoff.value >= self.window_end.value
             or self.expires_at.value < self.window_end.value
+            or self.expires_at.value > self.accepted_at.value + timedelta(minutes=15)
+            or not _valid_backfill_window(
+                self.window_start, self.window_end, self.accepted_at
+            )
         ):
             _fail()
 
