@@ -19,7 +19,7 @@ from fakes.privacy import inspect_files, inspect_sqlite, markers
 from test_command_bootstrap_storage import inputs
 from test_db_command_operations import preview_request, start_request
 from test_db_intents import dispatch, prepare, setup
-from test_db_repositories import view
+from test_db_repositories import ready_test_metadata, view
 from test_db_schema import P, create_state, lid
 
 from facet.contracts import ErrorCode, InsertState, Revision
@@ -79,9 +79,13 @@ def _worker(mode, path):
 def _operation_worker(mode, path):
     """Run an owner transaction and stop at its publication boundary."""
     with deny_network():
+        import facet.db.command_store as command_store
+
         connection = sqlite3.connect(path, autocommit=True)
         session = _initialize_database_v2(connection, **inputs())
+        ready_test_metadata(connection, session)
         preview = preview_request(100)
+        command_store._owner_now = lambda: preview.accepted_at
         if mode == "operation_before_commit":
             with session.transaction() as uow:
                 preview_backfill(uow, P, preview)

@@ -4,6 +4,7 @@ import hashlib
 import sqlite3
 import struct
 from dataclasses import fields, replace
+from datetime import UTC, datetime, timedelta
 
 from facet.contracts import (
     Count,
@@ -18,6 +19,7 @@ from facet.contracts import (
     ProjectionId,
     Revision,
     Sha256Hex,
+    Timestamp,
 )
 from facet.contracts.records import (
     EpochDecisionRefBackfillStart,
@@ -54,6 +56,11 @@ _BACKFILL_COLUMNS = (
     "window_start,window_end,discovery_cutoff,scope_digest,expires_at,"
     "invalidating_revision"
 )
+
+
+def _owner_now():
+    """Owner-observed clock fact; tests replace this private seam."""
+    return Timestamp(datetime.now(UTC))
 
 
 def _scalar(value):
@@ -335,14 +342,14 @@ def _backfill_guards(owner, projection_id):
     )
     bindings = _query(
         owner,
-        "SELECT binding_revision FROM bindings WHERE projection_id=? LIMIT 3",
+        "SELECT binding_revision,state FROM bindings WHERE projection_id=? LIMIT 3",
         (projection_id.value,),
         maximum=2,
     )
     if len(runtime) != 1 or len(bindings) != 2:
         _fail(ErrorCode.OWNER_UNAVAILABLE)
     binding_guard = runtime[0][0]
-    if any(row[0] < 1 for row in bindings):
+    if any(row[0] < 1 or row[1] != "verified" for row in bindings):
         _fail(ErrorCode.BINDING_MISMATCH)
     invalidation = _query(
         owner,
@@ -391,6 +398,11 @@ def preview_backfill(owner, projection_id, request):
         ):
             _fail(ErrorCode.REQUEST_CONFLICT)
         return old_operation
+    observed_at = _owner_now()
+    if request.accepted_at != observed_at:
+        _fail(ErrorCode.PREVIEW_INVALID)
+    if request.expires_at.value > observed_at.value + timedelta(minutes=15):
+        _fail(ErrorCode.PREVIEW_INVALID)
     projection, binding_revision, _, invalidation_revision = _backfill_guards(
         owner, projection_id
     )
@@ -486,6 +498,9 @@ def start_backfill(owner, projection_id, request):
         ):
             _fail(ErrorCode.REQUEST_CONFLICT)
         return old_operation, existing_epoch
+    observed_at = _owner_now()
+    if request.accepted_at != observed_at:
+        _fail(ErrorCode.PREVIEW_INVALID)
     projection, binding_revision, _, invalidation_revision = _backfill_guards(
         owner, projection_id
     )
@@ -501,6 +516,7 @@ def start_backfill(owner, projection_id, request):
         or preview_payload.ruleset_revision != projection.ruleset_revision
         or preview_payload.invalidating_revision != invalidation_revision
         or request.accepted_at.value < preview.accepted_at.value
+        or preview_payload.expires_at.value < observed_at.value
         or preview_payload.expires_at.value < request.accepted_at.value
     ):
         _fail(ErrorCode.PREVIEW_INVALID)

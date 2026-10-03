@@ -1,13 +1,15 @@
 """M2 owner transaction: typed preview/start lineage and replay guards."""
 
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 from fakes.privacy import inspect_files, inspect_sqlite, markers
 from test_command_bootstrap_storage import storage
 from test_db_history import poll
-from test_db_repositories import T, admit, publish
+from test_db_repositories import T, admit, publish, ready_test_metadata
 from test_db_schema import NOW, P, lid
 
 from facet.contracts import (
@@ -20,10 +22,25 @@ from facet.contracts import (
     Timestamp,
 )
 from facet.db.codecs import PollOrigin, StorageFailure, ThreadStopReason
-from facet.db.command_records import BackfillPreviewRequest, BackfillStartRequest
+from facet.db.command_records import (
+    BackfillPreviewRequest,
+    BackfillStartRequest,
+)
 from facet.db.command_store import _find_backfill, preview_backfill, start_backfill
 from facet.db.models import RevisionGuard
 from facet.db.repositories import history, policy
+
+
+@contextmanager
+def owner_storage():
+    import facet.db.command_store as command_store
+
+    with (
+        patch.object(command_store, "_owner_now", return_value=NOW),
+        storage() as value,
+    ):
+        ready_test_metadata(value[2], value[3])
+        yield value
 
 
 def preview_request(n, *, scope="a" * 64):
@@ -41,8 +58,8 @@ def preview_request(n, *, scope="a" * 64):
 
 
 def start_request(n, preview_id, *, fence_at=None, accepted_at=None, history_id="H0"):
-    fence_at = fence_at or Timestamp(NOW.value + timedelta(minutes=2))
-    accepted_at = accepted_at or Timestamp(NOW.value + timedelta(minutes=3))
+    fence_at = fence_at or NOW
+    accepted_at = accepted_at or NOW
     return BackfillStartRequest(
         lid(n),
         lid(n + 1),
@@ -55,15 +72,14 @@ def start_request(n, preview_id, *, fence_at=None, accepted_at=None, history_id=
 
 
 def test_preview_request_replay_and_conflict_are_metadata_only():
-    with storage() as (_, _, connection, session, _, *_):
+    with owner_storage() as (_, _, connection, session, _, *_):
+        request = preview_request(100)
         with session.transaction() as uow:
-            preview = preview_backfill(uow, P, preview_request(100))
+            preview = preview_backfill(uow, P, request)
             assert _find_backfill(uow, P, lid(3), lid(101))[0] == preview
         with session.transaction() as uow:
             assert (
-                preview_backfill(
-                    uow, P, replace(preview_request(102), request_nonce=lid(101))
-                )
+                preview_backfill(uow, P, replace(request, operation_id=lid(102)))
                 == preview
             )
         before = connection.execute(
@@ -93,7 +109,7 @@ def test_preview_request_replay_and_conflict_are_metadata_only():
 
 
 def test_start_is_one_owner_transaction_and_replays_lost_response():
-    with storage() as (_, _, connection, session, _, *_):
+    with owner_storage() as (_, _, connection, session, _, *_):
         with session.transaction() as uow:
             preview = preview_backfill(uow, P, preview_request(110))
             request = start_request(112, preview.operation_id)
@@ -131,10 +147,11 @@ def test_start_is_one_owner_transaction_and_replays_lost_response():
 
 
 def test_fence_at_discovery_cutoff_is_valid_when_other_guards_match():
-    with storage() as (_, _, connection, session, _, *_):
+    with owner_storage() as (_, _, connection, session, _, *_):
         with session.transaction() as uow:
-            preview = preview_backfill(uow, P, preview_request(125))
-            cutoff = Timestamp(NOW.value - timedelta(minutes=1))
+            request = preview_request(125)
+            preview = preview_backfill(uow, P, request)
+            cutoff = request.discovery_cutoff
             _, epoch = start_backfill(
                 uow,
                 P,
@@ -145,7 +162,7 @@ def test_fence_at_discovery_cutoff_is_valid_when_other_guards_match():
 
 
 def test_fresh_start_request_cannot_publish_a_second_initial_epoch():
-    with storage() as (_, _, connection, session, _, *_):
+    with owner_storage() as (_, _, connection, session, _, *_):
         with session.transaction() as uow:
             preview = preview_backfill(uow, P, preview_request(128))
             start_backfill(uow, P, start_request(130, preview.operation_id))
@@ -156,7 +173,7 @@ def test_fresh_start_request_cannot_publish_a_second_initial_epoch():
 
 
 def test_preview_invalidation_revision_must_match_current_owner_control():
-    with storage() as (_, _, connection, session, _, *_):
+    with owner_storage() as (_, _, connection, session, _, *_):
         stale = replace(preview_request(160), invalidating_revision=Revision(1))
         with pytest.raises(StorageFailure) as caught, session.transaction() as uow:
             preview_backfill(uow, P, stale)
@@ -184,8 +201,37 @@ def test_preview_invalidation_revision_must_match_current_owner_control():
         assert connection.execute("SELECT COUNT(*) FROM epochs").fetchone() == (0,)
 
 
+def test_pending_bindings_cannot_create_preview_authority():
+    with storage() as (_, _, _, session, _, *_):
+        with pytest.raises(StorageFailure) as caught, session.transaction() as uow:
+            preview_backfill(uow, P, preview_request(166))
+        assert caught.value.code is ErrorCode.PREVIEW_INVALID
+
+
+def test_owner_clock_rejects_expired_preview_even_with_current_timestamp():
+    import facet.db.command_store as command_store
+
+    with owner_storage() as (_, _, _, session, _, *_):
+        with session.transaction() as uow:
+            preview = preview_backfill(uow, P, preview_request(168))
+        owner_late = Timestamp(NOW.value + timedelta(minutes=16))
+        request = start_request(
+            170,
+            preview.operation_id,
+            fence_at=owner_late,
+            accepted_at=owner_late,
+        )
+        with (
+            patch.object(command_store, "_owner_now", return_value=owner_late),
+            pytest.raises(StorageFailure) as caught,
+            session.transaction() as uow,
+        ):
+            start_backfill(uow, P, request)
+        assert caught.value.code is ErrorCode.PREVIEW_INVALID
+
+
 def test_start_rejects_invalid_fence_without_publishing():
-    with storage() as (_, _, connection, session, _, *_):
+    with owner_storage() as (_, _, connection, session, _, *_):
         with session.transaction() as uow:
             preview = preview_backfill(uow, P, preview_request(120))
         with pytest.raises(ValueError):
@@ -194,7 +240,7 @@ def test_start_rejects_invalid_fence_without_publishing():
 
 
 def test_start_rolls_back_operation_and_h0_when_epoch_guard_fails():
-    with storage() as (_, _, connection, session, _, *_):
+    with owner_storage() as (_, _, connection, session, _, *_):
         with session.transaction() as uow:
             preview = preview_backfill(uow, P, preview_request(130))
         # The request is syntactically valid but its fence predates the
@@ -216,7 +262,7 @@ def test_start_rolls_back_operation_and_h0_when_epoch_guard_fails():
 
 def test_start_error_is_fixed_and_private_h0_text_stays_out_of_metadata():
     sentinel = "SYNTHETIC_PRIVATE_PROVIDER_EXCEPTION"
-    with storage() as (root, _, connection, session, _, *_):
+    with owner_storage() as (root, _, connection, session, _, *_):
         with session.transaction() as uow:
             preview = preview_backfill(uow, P, preview_request(140))
         request = start_request(
@@ -240,7 +286,7 @@ def test_start_error_is_fixed_and_private_h0_text_stays_out_of_metadata():
 
 
 def test_initial_history_poll_consumes_owner_committed_h0_epoch():
-    with storage() as (_, _, connection, session, _, *_):
+    with owner_storage() as (_, _, connection, session, _, *_):
         with session.transaction() as uow:
             preview = preview_backfill(uow, P, preview_request(150))
             _, epoch = start_backfill(uow, P, start_request(152, preview.operation_id))
