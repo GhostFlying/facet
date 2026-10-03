@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 
 from facet.config import RulesConfig
-from facet.contracts import RuleKind
+from facet.contracts import PolicyVersion, RuleKind
 from facet.db.codecs import RuleValue
 from facet.projection.rules import (
     RuleInputError,
@@ -71,6 +71,12 @@ def test_sender_globs_are_not_a_rule_language() -> None:
             normalize_rule(RuleKind.ALLOW_SENDER, value)
 
 
+@pytest.mark.parametrize("value", ["user;tag@example.com", 'user"tag@example.com'])
+def test_sender_uses_config_mailbox_grammar(value: str) -> None:
+    with pytest.raises(RuleInputError):
+        normalize_rule(RuleKind.ALLOW_SENDER, value)
+
+
 def test_learn_domain_rejects_source_and_own_domains() -> None:
     sender = normalize_sender("billing@sub.vendor.com")
     assert learn_domain(sender, source_primary="me@source.net").domain is not None
@@ -104,6 +110,16 @@ def test_rule_values_are_bounded_private_scalars() -> None:
     assert type(rule.storage_value) is RuleValue
     assert repr(rule) == "<normalized rule>"
     assert "example.com" not in repr(rule)
+
+
+def test_manual_public_suffix_or_foreign_policy_values_are_rejected() -> None:
+    from facet.projection.suffixes import CanonicalDomain, SuffixInputError
+
+    with pytest.raises(SuffixInputError):
+        CanonicalDomain("co.uk", "co.uk", PolicyVersion("foreign"))
+
+    with pytest.raises(SuffixInputError):
+        CanonicalDomain("co.uk", "co.uk")
 
 
 def test_replacing_config_with_invalid_type_is_rejected() -> None:
