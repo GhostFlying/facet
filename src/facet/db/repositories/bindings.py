@@ -17,14 +17,20 @@ def _conflict(code: ErrorCode = ErrorCode.REQUEST_CONFLICT) -> None:
 def verify_bindings(uow, projection_id: ProjectionId, verified):
     """Publish both verified profiles in one existing-writer transaction.
 
-    ``verified`` is intentionally duck-typed at this repository boundary: the
-    credential manager owns the profile value and validates its exact class
-    before calling this function. No arbitrary row or provider payload enters
-    storage here.
+    Only the closed credential verification values may cross this boundary. No
+    arbitrary row or provider payload enters storage here.
     """
 
+    from facet.gmail.credentials import VerifiedBindings, VerifiedProfile
+
+    if type(verified) is not VerifiedBindings:
+        _conflict(ErrorCode.INVALID_INPUT)
     profiles = getattr(verified, "profiles", None)
-    if type(profiles) is not tuple or len(profiles) != 2:
+    if (
+        type(profiles) is not tuple
+        or len(profiles) != 2
+        or any(type(profile) is not VerifiedProfile for profile in profiles)
+    ):
         _conflict(ErrorCode.INVALID_INPUT)
     if {profile.role for profile in profiles} != {Role.SOURCE, Role.TARGET}:
         _conflict(ErrorCode.INVALID_INPUT)

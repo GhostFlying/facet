@@ -17,7 +17,7 @@ from facet.contracts import (
     ProviderId,
     Timestamp,
 )
-from facet.contracts.records import SourceEventKeyLabelChanged
+from facet.contracts.records import SourceEvent, SourceEventKeyLabelChanged
 from facet.db.codecs import ActionKind, PrivateAddress, StorageFailure
 from facet.gmail.credentials import AccountAddress
 
@@ -165,27 +165,31 @@ class ActionLabelProducer:
 
     def consume(
         self,
-        event: SourceEventKeyLabelChanged,
+        event: SourceEvent,
         labels: PrivateActionLabelMap,
         source: ActionSourceReader,
         own_addresses: tuple[AccountAddress | PrivateAddress, ...],
     ) -> ActionActivation | ActionAttention:
         if (
-            type(event) is not SourceEventKeyLabelChanged
+            type(event) is not SourceEvent
             or type(labels) is not PrivateActionLabelMap
             or not hasattr(source, "get_thread_facts")
             or type(own_addresses) is not tuple
             or not own_addresses
-            or event.projection_id is None
         ):
             _fail()
-        if event.change is LabelChange.REMOVED:
-            return ActionAttention(event, ActionAttentionReason.REMOVED_LABEL)
-        kind = labels.kind(event.label_id)
+        key = event.key
+        if type(key) is not SourceEventKeyLabelChanged:
+            _fail()
+        if key.change is LabelChange.REMOVED:
+            return ActionAttention(key, ActionAttentionReason.REMOVED_LABEL)
+        kind = labels.kind(key.label_id)
         if kind is None:
-            return ActionAttention(event, ActionAttentionReason.UNKNOWN_LABEL)
+            return ActionAttention(key, ActionAttentionReason.UNKNOWN_LABEL)
+        if type(event.source_thread_id) is not ProviderId:
+            _fail()
         try:
-            facts = source.get_thread_facts(event.source_message_id)
+            facts = source.get_thread_facts(event.source_thread_id)
         except StorageFailure:
             raise
         except Exception:
@@ -204,10 +208,10 @@ class ActionLabelProducer:
             for fact in facts
         }
         if len(fact_keys) != len(facts):
-            return ActionAttention(event, ActionAttentionReason.DUPLICATE_EVENT)
+            return ActionAttention(key, ActionAttentionReason.DUPLICATE_EVENT)
         external = tuple(fact for fact in facts if not _own(fact.sender, own_addresses))
         if not external:
-            return ActionAttention(event, ActionAttentionReason.NO_EXTERNAL_SENDER)
+            return ActionAttention(key, ActionAttentionReason.NO_EXTERNAL_SENDER)
         ordered = sorted(
             external,
             key=lambda fact: (fact.observed_at.value, fact.source_message_id.value),
@@ -219,10 +223,8 @@ class ActionLabelProducer:
             and ordered[1].source_message_id == latest.source_message_id
             and ordered[1].sender != latest.sender
         ):
-            return ActionAttention(
-                event, ActionAttentionReason.AMBIGUOUS_EXTERNAL_SENDER
-            )
-        return ActionActivation(event, kind, latest.source_thread_id, latest.sender)
+            return ActionAttention(key, ActionAttentionReason.AMBIGUOUS_EXTERNAL_SENDER)
+        return ActionActivation(key, kind, latest.source_thread_id, latest.sender)
 
 
 def registered_action_producer_types() -> tuple[type, ...]:

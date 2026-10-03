@@ -16,7 +16,9 @@ from typing import Protocol
 
 from facet.config import Config
 from facet.contracts import (
+    BindingState,
     ErrorCode,
+    LocalId,
     ProjectionId,
     Revision,
     Role,
@@ -29,6 +31,7 @@ from .credential_codec import decode_envelope
 from .credential_models import (
     AccountAddress,
     CredentialEnvelope,
+    GrantEvidence,
     ProviderSecret,
     ScopePolicy,
     ScopeSet,
@@ -37,6 +40,7 @@ from .credential_models import (
 __all__ = (
     "ProfileEvidence",
     "ProfileReader",
+    "CredentialMetadata",
     "VerifiedProfile",
     "VerifiedBindings",
     "CredentialManager",
@@ -69,6 +73,46 @@ class ProfileEvidence:
 class ProfileReader(Protocol):
     def get_profile(self, role: Role, secret: ProviderSecret) -> ProfileEvidence:
         """Read only the provider profile using the manager-owned secret."""
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CredentialMetadata:
+    """Credential identity and grant metadata without provider secrets."""
+
+    version: int
+    projection_id: ProjectionId
+    state_instance_id: LocalId
+    role: Role
+    binding_revision: Revision
+    credential_revision: Revision
+    change_id: LocalId
+    account: AccountAddress
+    scope_policy: ScopePolicy
+    scope_policy_revision: Revision
+    grant: GrantEvidence
+    profile_verified_at: Timestamp
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.version) is not int
+            or type(self.projection_id) is not ProjectionId
+            or type(self.state_instance_id) is not LocalId
+            or type(self.role) is not Role
+            or type(self.binding_revision) is not Revision
+            or type(self.credential_revision) is not Revision
+            or type(self.change_id) is not LocalId
+            or type(self.account) is not AccountAddress
+            or type(self.scope_policy) is not ScopePolicy
+            or type(self.scope_policy_revision) is not Revision
+            or type(self.grant) is not GrantEvidence
+            or type(self.profile_verified_at) is not Timestamp
+        ):
+            _fail(ErrorCode.INVALID_INPUT)
+
+    def __repr__(self) -> str:
+        return "<credential metadata>"
+
+    __str__ = __repr__
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -217,7 +261,7 @@ class CredentialManager:
         name = "source.json" if role is Role.SOURCE else "target.json"
         return self._state_dir / "credentials" / name
 
-    def load(self, role: Role) -> CredentialEnvelope:
+    def _load_envelope(self, role: Role) -> CredentialEnvelope:
         envelope = _read_credential(self._path(role), role)
         owner = self._owner.owner_info
         if (
@@ -238,14 +282,38 @@ class CredentialManager:
             or account != declared
         ):
             _fail(ErrorCode.BINDING_MISMATCH)
+        expected_credential_revision = binding.credential_revision.value + (
+            1 if binding.state is BindingState.VERIFICATION_PENDING else 0
+        )
+        if envelope.credential_revision.value != expected_credential_revision:
+            _fail(ErrorCode.BINDING_MISMATCH)
         return envelope
+
+    def load(self, role: Role) -> CredentialMetadata:
+        """Read credential identity and grant metadata without secrets."""
+
+        envelope = self._load_envelope(role)
+        return CredentialMetadata(
+            envelope.version,
+            envelope.projection_id,
+            envelope.state_instance_id,
+            envelope.role,
+            envelope.binding_revision,
+            envelope.credential_revision,
+            envelope.change_id,
+            envelope.account,
+            envelope.scope_policy,
+            envelope.scope_policy_revision,
+            envelope.grant,
+            envelope.profile_verified_at,
+        )
 
     def verify(self, reader: ProfileReader) -> VerifiedBindings:
         if not hasattr(reader, "get_profile"):
             _fail(ErrorCode.INVALID_INPUT)
         profiles = []
         for role in (Role.SOURCE, Role.TARGET):
-            envelope = self.load(role)
+            envelope = self._load_envelope(role)
             try:
                 evidence = reader.get_profile(role, envelope.secret)
             except StorageFailure:

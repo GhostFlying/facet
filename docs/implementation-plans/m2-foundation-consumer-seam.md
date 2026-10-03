@@ -81,3 +81,14 @@ the owner, credential, or action interfaces here.
   are never copied into the repository or test output.
 - The slice does not claim M2/G2, M1-04, G1, or live Gmail evidence. It is an
   offline implementation input for the subsequent operation/discovery unit.
+
+## Corrective contract note (2026-10-03)
+
+The action producer consumes the existing typed `SourceEvent` envelope so a
+label event's explicit `source_thread_id` is required before reading thread
+facts; the message ID is never used as a thread ID. Its public credential read
+returns metadata without `ProviderSecret`; only the manager's private envelope
+loader supplies a secret to the injected profile boundary. Binding publication
+and its repository enforce the exact closed verification value types before
+opening the SQL mutation path. These corrections do not change the schema,
+migrations, command journal, epoch records, or provider/runtime scope.

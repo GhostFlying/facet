@@ -389,6 +389,10 @@ class StateOwner:
     def publish_verified_bindings(self, verified: VerifiedBindings):
         if self._closed:
             _invalid(ErrorCode.OWNER_UNAVAILABLE)
+        from facet.gmail.credentials import VerifiedBindings
+
+        if type(verified) is not VerifiedBindings:
+            _invalid(ErrorCode.INVALID_INPUT)
         from facet.db.repositories.bindings import verify_bindings
 
         with self.session.transaction() as uow:

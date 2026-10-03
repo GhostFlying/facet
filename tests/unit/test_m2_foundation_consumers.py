@@ -2,6 +2,7 @@
 
 import os
 import stat
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -19,7 +20,7 @@ from facet.contracts import (
     Role,
     Timestamp,
 )
-from facet.contracts.records import SourceEventKeyLabelChanged
+from facet.contracts.records import SourceEvent, SourceEventKeyLabelChanged
 from facet.db.codecs import ActionKind, PrivateAddress, StorageFailure
 from facet.gmail.credential_codec import encode_envelope
 from facet.gmail.credential_models import (
@@ -35,6 +36,7 @@ from facet.gmail.credential_models import (
 )
 from facet.gmail.credentials import (
     CredentialManager,
+    CredentialMetadata,
     ProfileEvidence,
 )
 from facet.projection.actions import (
@@ -86,13 +88,17 @@ def pid(value: str) -> ProviderId:
 
 
 def event(label: ProviderId, *, change=LabelChange.ADDED):
-    return SourceEventKeyLabelChanged(
-        "label_changed",
-        ProjectionId("gmail-default"),
-        pid("history-1"),
-        pid("message-1"),
-        label,
-        change,
+    return SourceEvent(
+        SourceEventKeyLabelChanged(
+            "label_changed",
+            ProjectionId("gmail-default"),
+            pid("history-1"),
+            pid("message-1"),
+            label,
+            change,
+        ),
+        NOW,
+        pid("thread"),
     )
 
 
@@ -191,6 +197,10 @@ def test_profile_verification_publishes_distinct_bindings(trusted_state_parent):
     )
     write_credentials(owner)
     manager = CredentialManager(owner.state_dir, config, owner)
+    metadata = manager.load(Role.SOURCE)
+    assert type(metadata) is CredentialMetadata
+    assert not hasattr(metadata, "secret")
+    assert "synthetic-access-token" not in repr(metadata)
     source_scopes = policy_scopes(ScopePolicy.SOURCE_READONLY, Role.SOURCE)
     target_scopes = policy_scopes(ScopePolicy.TARGET_DEFAULT, Role.TARGET)
     reader = Profiles(source_scopes, target_scopes)
@@ -208,6 +218,23 @@ def test_profile_verification_publishes_distinct_bindings(trusted_state_parent):
     assert all(type(secret).__name__ == "ProviderSecret" for _, secret in reader.calls)
     assert b"synthetic-access-token" not in owner.database_path.read_bytes()
     assert "synthetic-access-token" not in repr(verified)
+    owner.close()
+
+
+def test_credential_revision_must_be_pending_transition(trusted_state_parent):
+    config = initial_template("source@example.invalid", "target@example.invalid")
+    owner = StateOwner.create(
+        trusted_state_parent / "state", config, b"synthetic config"
+    )
+    source, _ = write_credentials(owner)
+    source = replace(source, credential_revision=Revision(2))
+    source_path = Path(owner.state_dir) / "credentials" / "source.json"
+    source_path.write_bytes(encode_envelope(source))
+    source_path.chmod(0o600)
+    manager = CredentialManager(owner.state_dir, config, owner)
+    with pytest.raises(StorageFailure) as caught:
+        manager.load(Role.SOURCE)
+    assert caught.value.code is ErrorCode.BINDING_MISMATCH
     owner.close()
 
 
@@ -266,8 +293,8 @@ def test_action_producer_is_typed_readonly_and_selects_latest_external_sender():
     )
 
     class Source:
-        def get_thread_facts(self, source_message_id):
-            assert source_message_id == pid("message-1")
+        def get_thread_facts(self, source_thread_id):
+            assert source_thread_id == pid("thread")
             return facts
 
     activation = ActionLabelProducer().consume(
@@ -321,7 +348,7 @@ def test_action_producer_attention_on_duplicate_typed_fact():
     )
 
     class Source:
-        def get_thread_facts(self, source_message_id):
+        def get_thread_facts(self, source_thread_id):
             return (fact, fact)
 
     attention = ActionLabelProducer().consume(
@@ -331,3 +358,35 @@ def test_action_producer_attention_on_duplicate_typed_fact():
         (AccountAddress("source@example.invalid"),),
     )
     assert attention.reason is ActionAttentionReason.DUPLICATE_EVENT
+
+
+def test_action_producer_requires_explicit_source_thread_context():
+    labels = PrivateActionLabelMap(
+        pid("add-sender"), pid("add-domain"), pid("blacklist")
+    )
+    with pytest.raises(StorageFailure) as caught:
+        ActionLabelProducer().consume(
+            replace(event(labels.add_sender_label_id), source_thread_id=None),
+            labels,
+            type("Source", (), {"get_thread_facts": lambda self, _: ()})(),
+            (AccountAddress("source@example.invalid"),),
+        )
+    assert caught.value.code is ErrorCode.INVALID_INPUT
+
+
+def test_binding_publication_rejects_row_shaped_values_before_sql(trusted_state_parent):
+    config = initial_template("source@example.invalid", "target@example.invalid")
+    owner = StateOwner.create(
+        trusted_state_parent / "state", config, b"synthetic config"
+    )
+    malicious = type("RowShaped", (), {"profiles": ()})()
+    with pytest.raises(StorageFailure) as caught:
+        owner.publish_verified_bindings(malicious)
+    assert caught.value.code is ErrorCode.INVALID_INPUT
+    from facet.db.repositories.bindings import verify_bindings
+
+    with pytest.raises(StorageFailure) as direct, owner.session.transaction() as uow:
+        verify_bindings(uow, owner.projection_id, malicious)
+    assert direct.value.code is ErrorCode.INVALID_INPUT
+    assert owner.bindings()[Role.SOURCE].state.value == "verification_pending"
+    owner.close()
