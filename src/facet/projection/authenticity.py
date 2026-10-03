@@ -186,7 +186,7 @@ def assess_evidence(
         return TrustAssessment(False, EvidenceReason.LINEAGE_MISMATCH)
     if now.value < evidence.observed_at.value:
         return TrustAssessment(False, EvidenceReason.NOT_YET_VALID)
-    if now.value > evidence.expires_at.value:
+    if now.value >= evidence.expires_at.value:
         return TrustAssessment(False, EvidenceReason.EXPIRED)
     if evidence.source_path is SourcePathStatus.REJECTED:
         return TrustAssessment(False, EvidenceReason.SOURCE_PATH_REJECTED)

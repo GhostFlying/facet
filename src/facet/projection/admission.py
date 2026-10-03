@@ -104,8 +104,10 @@ class AdmissionResult:
             or type(self.attention_reason) not in {AdmissionAttentionReason, type(None)}
         ):
             raise ValueError("invalid_input")
-        if self.admit != (self.rule is not None) or (
-            self.admit and self.attention_reason is not None
+        if (
+            self.admit != (self.rule is not None)
+            or (self.admit and self.attention_reason is not None)
+            or (not self.admit and self.attention_reason is None)
         ):
             raise ValueError("invalid_input")
 
@@ -134,6 +136,7 @@ class AdmissionEvaluator:
         if (
             type(rules) is not tuple
             or any(type(rule) is not AdmissionRule for rule in rules)
+            or len(rules) > 1000
             or type(source_account) is not PrivateAddress
             or type(binding_revision) is not Revision
             or type(credential_revision) is not Revision
@@ -161,14 +164,16 @@ class AdmissionEvaluator:
             return _attention(AdmissionAttentionReason.CANDIDATE_INVALID)
         if candidate.evidence is not None and (
             candidate.observed_at.value < candidate.evidence.observed_at.value
-            or candidate.observed_at.value > candidate.evidence.expires_at.value
+            or candidate.observed_at.value >= candidate.evidence.expires_at.value
         ):
             return _attention(AdmissionAttentionReason.AUTHENTICITY_STALE)
 
         enabled = tuple(rule for rule in self._rules if rule.enabled)
         for rule in enabled:
-            if rule.normalized.kind is RuleKind.BLACKLIST_SENDER and _matches(
-                rule.normalized, candidate.sender
+            if (
+                rule.normalized.kind is RuleKind.BLACKLIST_SENDER
+                and candidate.observed_at.value >= rule.effective_at.value
+                and _matches(rule.normalized, candidate.sender)
             ):
                 return _attention(AdmissionAttentionReason.BLACKLISTED)
         matches = tuple(
