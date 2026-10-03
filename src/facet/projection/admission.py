@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from facet.contracts import (
+    PolicyVersion,
     ProviderId,
     Revision,
     RuleKind,
@@ -21,6 +22,8 @@ from .authenticity import (
     assess_evidence,
 )
 from .rules import CanonicalSender, NormalizedRule, RuleInputError, domain_matches
+
+_DEFAULT_EVIDENCE_POLICY = PolicyVersion("auth-v1")
 
 
 class AdmissionAttentionReason(StrEnum):
@@ -126,6 +129,7 @@ class AdmissionEvaluator:
         source_account: PrivateAddress,
         binding_revision: Revision,
         credential_revision: Revision,
+        evidence_policy: PolicyVersion = _DEFAULT_EVIDENCE_POLICY,
     ) -> None:
         if (
             type(rules) is not tuple
@@ -133,12 +137,14 @@ class AdmissionEvaluator:
             or type(source_account) is not PrivateAddress
             or type(binding_revision) is not Revision
             or type(credential_revision) is not Revision
+            or type(evidence_policy) is not PolicyVersion
         ):
             raise ValueError("invalid_input")
         self._rules = rules
         self._source_account = source_account
         self._binding_revision = binding_revision
         self._credential_revision = credential_revision
+        self._evidence_policy = evidence_policy
 
     def evaluate(
         self, candidate: DiscoveryCandidate, now: Timestamp
@@ -185,6 +191,7 @@ class AdmissionEvaluator:
             now=now,
             binding_revision=self._binding_revision,
             credential_revision=self._credential_revision,
+            policy_version=self._evidence_policy,
         )
         if not assessment.trusted:
             if assessment.reason is EvidenceReason.MISSING:

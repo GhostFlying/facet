@@ -298,6 +298,8 @@ def learn_domain(
     own: tuple[str, ...] = (),
     policy: RulePolicy | None = None,
 ) -> LearnResult:
+    if type(source_primary) is not str or type(own) is not tuple:
+        return LearnResult(None, LearnReason.INVALID)
     selected = policy or load_rule_policy()
     try:
         normalized_sender = (

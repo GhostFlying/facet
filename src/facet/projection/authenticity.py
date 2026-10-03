@@ -36,6 +36,7 @@ class EvidenceReason(StrEnum):
     SOURCE_PATH_UNKNOWN = "source_path_unknown"
     FROM_MISALIGNED = "from_misaligned"
     FROM_UNKNOWN = "from_unknown"
+    POLICY_MISMATCH = "policy_mismatch"
 
 
 @dataclass(frozen=True, slots=True, repr=False, init=False)
@@ -158,6 +159,7 @@ def assess_evidence(
     now: Timestamp,
     binding_revision: Revision,
     credential_revision: Revision,
+    policy_version: PolicyVersion | None = None,
 ) -> TrustAssessment:
     if evidence is None:
         return TrustAssessment(False, EvidenceReason.MISSING)
@@ -175,6 +177,8 @@ def assess_evidence(
         return TrustAssessment(False, EvidenceReason.ACCOUNT_MISMATCH)
     if evidence.source_message_id != message_id:
         return TrustAssessment(False, EvidenceReason.MESSAGE_MISMATCH)
+    if policy_version is not None and evidence.policy_version != policy_version:
+        return TrustAssessment(False, EvidenceReason.POLICY_MISMATCH)
     if (
         evidence.binding_revision != binding_revision
         or evidence.credential_revision != credential_revision
