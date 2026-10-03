@@ -89,15 +89,15 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   next production-critical seam is real source History/Backfill discovery and
   worker wiring; M2 and the first runnable production sync remain open.
 - The bounded serial projection worker implementation is prepared in candidate
-  commit `85e4f5d868b24f9bd8f855dbb25c823e01752d79` on reviewed main base
+  commit `39215847c3165174dc5c8f1165d5fcb5ebe62398` on reviewed main base
   `5dd9b06fe0828fb4052efda22b721f170a1a82a8`. It expands admitted threads from
   typed metadata, excludes drafts, inserts one in-memory raw message at a time,
   verifies target MIME semantics/thread facts, persists mappings, and leaves
   uncertain insert outcomes in recovery without a blind retry. Synthetic
   temporary-owner tests cover two-message ordering/anchor reuse, target
   readback, replay-safe no-op reruns, raw/privacy sentinels, and response loss.
-  Eight focused worker tests plus expansion/result/adapter tests passed; complete offline
-  regression and independent implementation review are still required. CLI
+  Twenty-eight focused worker/adapter tests plus expansion/result tests passed;
+  complete offline regression and independent implementation review are still required. CLI
   execution, History scheduling, recovery attribution, stale-claim takeover,
   Dashboard, Compose, Actions and live Gmail remain open.
 
