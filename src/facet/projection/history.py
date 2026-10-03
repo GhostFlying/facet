@@ -71,22 +71,18 @@ def _digest(keys) -> Sha256Hex:
     return Sha256Hex(digest.hexdigest())
 
 
-def _message(value: dict) -> tuple[ProviderId, ProviderId]:
-    return ProviderId(value["id"]), ProviderId(value["threadId"])
-
-
 def _typed_events(
     projection_id,
     history_id: ProviderId,
-    records: tuple[dict, ...],
+    records,
     observed: Timestamp,
 ):
     """Normalize only Gmail typed history facts; generic ``messages`` is ignored."""
     selected = {}
     for record in records:
-        record_id = ProviderId(str(record["id"]))
-        for message in record.get("messagesAdded", ()):
-            message_id, thread_id = _message(message["message"])
+        record_id = record.record_id
+        for message in record.messages_added:
+            message_id, thread_id = message.message_id, message.thread_id
             key = SourceEventKeyMessageAdded(
                 "message_added", projection_id, record_id, message_id
             )
@@ -99,8 +95,8 @@ def _typed_events(
                 Revision(0),
                 None,
             )
-        for message in record.get("messagesDeleted", ()):
-            message_id, thread_id = _message(message["message"])
+        for message in record.messages_deleted:
+            message_id, thread_id = message.message_id, message.thread_id
             key = SourceEventKeyMessageDeleted(
                 "message_deleted", projection_id, record_id, message_id
             )
@@ -113,14 +109,14 @@ def _typed_events(
                 Revision(0),
                 None,
             )
-        for field, change in (
-            ("labelsAdded", LabelChange.ADDED),
-            ("labelsRemoved", LabelChange.REMOVED),
+        for messages, change in (
+            (record.labels_added, LabelChange.ADDED),
+            (record.labels_removed, LabelChange.REMOVED),
         ):
-            for message in record.get(field, ()):
-                message_id, thread_id = _message(message["message"])
-                for label_id in message.get("labelIds", ()):
-                    label = ProviderId(str(label_id))
+            for message in messages:
+                message_id = message.message.message_id
+                thread_id = message.message.thread_id
+                for label in message.label_ids:
                     key = SourceEventKeyLabelChanged(
                         "label_changed",
                         projection_id,

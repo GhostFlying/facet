@@ -5,9 +5,10 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 
-from facet.contracts import ProviderId, Role
+from facet.contracts import ErrorCode, ProviderId, Role
+from facet.db.codecs import RfcMessageId
 
-from .retry import execute
+from .retry import ProviderFailure, execute
 
 __all__ = ("TargetProfile", "TargetInsertResult", "TargetAdapter", "GmailTarget")
 
@@ -36,6 +37,13 @@ class TargetInsertResult:
         )
 
 
+def _id(value: object) -> ProviderId:
+    try:
+        return ProviderId(value)
+    except (TypeError, ValueError):
+        raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.TARGET) from None
+
+
 class TargetAdapter:
     role = Role.TARGET
 
@@ -46,7 +54,7 @@ class TargetAdapter:
         value = execute(self._service.users().getProfile(userId="me"), self.role)
         return TargetProfile(
             value["emailAddress"],
-            ProviderId(value["historyId"]),
+            _id(value["historyId"]),
             int(value.get("messagesTotal", 0)),
             int(value.get("threadsTotal", 0)),
         )
@@ -75,26 +83,31 @@ class TargetAdapter:
             self.role,
         )
         return TargetInsertResult(
-            ProviderId(value["id"]),
-            ProviderId(value["threadId"]),
-            None if value.get("historyId") is None else ProviderId(value["historyId"]),
+            _id(value["id"]),
+            _id(value["threadId"]),
+            None if value.get("historyId") is None else _id(value["historyId"]),
         )
 
     def find_by_rfc_message_id(self, value: str):
-        if type(value) is not str or not value:
+        if type(value) is not RfcMessageId:
             raise ValueError("invalid_input")
         response = execute(
             self._service.users()
             .messages()
             .list(
                 userId="me",
-                q=f"rfc822msgid:<{value}>",
+                q=f"rfc822msgid:<{value.value}>",
                 includeSpamTrash=True,
                 maxResults=100,
             ),
             self.role,
         )
-        return tuple(ProviderId(item["id"]) for item in response.get("messages", ()))
+        try:
+            return tuple(
+                ProviderId(item["id"]) for item in response.get("messages", ())
+            )
+        except (KeyError, TypeError, ValueError):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.TARGET) from None
 
 
 GmailTarget = TargetAdapter

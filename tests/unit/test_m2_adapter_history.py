@@ -28,7 +28,12 @@ from facet.contracts import (
     Sha256Hex,
     Timestamp,
 )
-from facet.db.codecs import PollOrigin, PollState, RuleValue, StorageFailure
+from facet.db.codecs import (
+    PollOrigin,
+    PollState,
+    RuleValue,
+    StorageFailure,
+)
 from facet.db.models import (
     HistoryPollRow,
     RevisionGuard,
@@ -41,7 +46,12 @@ from facet.db.repositories import policy
 from facet.gmail.credential_models import ScopePolicy, policy_scopes
 from facet.gmail.credentials import CredentialManager
 from facet.gmail.retry import ProviderFailure, classify_http_status
-from facet.gmail.source import SourceAdapter
+from facet.gmail.source import (
+    HistoryLabel,
+    HistoryMessage,
+    HistoryRecord,
+    SourceAdapter,
+)
 from facet.gmail.target import TargetAdapter
 from facet.projection.backfill import (
     AdmissionEvaluator,
@@ -254,25 +264,25 @@ def test_history_normalization_keeps_typed_events_and_deduplicates():
         projection,
         ProviderId("h-1"),
         (
-            {
-                "id": "h-1",
-                "messagesAdded": [
-                    {"message": {"id": "m-1", "threadId": "t-1", "labelIds": []}}
-                ],
-                "labelsAdded": [
-                    {
-                        "message": {"id": "m-1", "threadId": "t-1", "labelIds": []},
-                        "labelIds": ["AI/AddSender"],
-                    }
-                ],
-                "messages": [{"id": "generic-ignored", "threadId": "t-1"}],
-            },
-            {
-                "id": "h-1",
-                "messagesAdded": [
-                    {"message": {"id": "m-1", "threadId": "t-1", "labelIds": []}}
-                ],
-            },
+            HistoryRecord(
+                ProviderId("h-1"),
+                (HistoryMessage(ProviderId("m-1"), ProviderId("t-1")),),
+                (),
+                (
+                    HistoryLabel(
+                        HistoryMessage(ProviderId("m-1"), ProviderId("t-1")),
+                        (ProviderId("AI/AddSender"),),
+                    ),
+                ),
+                (),
+            ),
+            HistoryRecord(
+                ProviderId("h-1"),
+                (HistoryMessage(ProviderId("m-1"), ProviderId("t-1")),),
+                (),
+                (),
+                (),
+            ),
         ),
         observed,
     )
@@ -438,27 +448,33 @@ def test_history_producer_paginates_and_replays_final_cursor(tmp_path, monkeypat
                 HistoryPage(
                     ProviderId("h1"),
                     (
-                        {
-                            "id": "record-1",
-                            "messagesAdded": [
-                                {"message": {"id": "m-1", "threadId": "t-1"}}
-                            ],
-                        },
+                        HistoryRecord(
+                            ProviderId("record-1"),
+                            (HistoryMessage(ProviderId("m-1"), ProviderId("t-1")),),
+                            (),
+                            (),
+                            (),
+                        ),
                     ),
                     ProviderPageToken("next"),
                 ),
                 HistoryPage(
                     ProviderId("h2"),
                     (
-                        {
-                            "id": "record-2",
-                            "labelsAdded": [
-                                {
-                                    "message": {"id": "m-2", "threadId": "t-1"},
-                                    "labelIds": ["AI/AddSender"],
-                                }
-                            ],
-                        },
+                        HistoryRecord(
+                            ProviderId("record-2"),
+                            (),
+                            (),
+                            (
+                                HistoryLabel(
+                                    HistoryMessage(
+                                        ProviderId("m-2"), ProviderId("t-1")
+                                    ),
+                                    (ProviderId("AI/AddSender"),),
+                                ),
+                            ),
+                            (),
+                        ),
                     ),
                     None,
                 ),

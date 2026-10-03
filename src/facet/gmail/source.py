@@ -20,6 +20,9 @@ __all__ = (
     "DiscoveryItem",
     "DiscoveryPage",
     "HistoryPage",
+    "HistoryMessage",
+    "HistoryLabel",
+    "HistoryRecord",
     "MessageMetadata",
     "ThreadMetadata",
     "SourceAdapter",
@@ -30,11 +33,19 @@ __all__ = (
 def _id(value: object) -> ProviderId:
     if not isinstance(value, str):
         raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.SOURCE)
-    return ProviderId(value)
+    try:
+        return ProviderId(value)
+    except ValueError:
+        raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.SOURCE) from None
 
 
 def _token(value: object | None) -> ProviderPageToken | None:
-    return None if value is None else ProviderPageToken(value)
+    if value is None:
+        return None
+    try:
+        return ProviderPageToken(value)
+    except (TypeError, ValueError):
+        raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.SOURCE) from None
 
 
 def _timestamp(value: object) -> datetime:
@@ -70,7 +81,7 @@ class DiscoveryPage:
 @dataclass(frozen=True, slots=True, repr=False)
 class HistoryPage:
     history_id: ProviderId
-    records: tuple[dict, ...]
+    records: tuple[HistoryRecord, ...]
     next_page_token: ProviderPageToken | None
 
     def __repr__(self) -> str:
@@ -78,6 +89,27 @@ class HistoryPage:
             f"HistoryPage(history_id={self.history_id.value!r},"
             f"records={len(self.records)})"
         )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class HistoryMessage:
+    message_id: ProviderId
+    thread_id: ProviderId
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class HistoryLabel:
+    message: HistoryMessage
+    label_ids: tuple[ProviderId, ...]
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class HistoryRecord:
+    record_id: ProviderId
+    messages_added: tuple[HistoryMessage, ...]
+    messages_deleted: tuple[HistoryMessage, ...]
+    labels_added: tuple[HistoryLabel, ...]
+    labels_removed: tuple[HistoryLabel, ...]
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -163,7 +195,7 @@ class SourceAdapter:
         if page_token is not None:
             args["pageToken"] = page_token.value
         value = execute(self._service.users().history().list(**args), self.role)
-        records = tuple(value.get("history", ()))
+        records = tuple(_history_record(record) for record in value.get("history", ()))
         return HistoryPage(
             _id(value.get("historyId", cursor.value)),
             records,
@@ -221,3 +253,34 @@ def _message(value: dict) -> MessageMetadata:
         _timestamp(value.get("internalDate")),
         headers,
     )
+
+
+def _history_message(value: dict) -> HistoryMessage:
+    try:
+        message = value.get("message", value)
+        return HistoryMessage(_id(message["id"]), _id(message["threadId"]))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.SOURCE) from None
+
+
+def _history_labels(value: dict) -> HistoryLabel:
+    try:
+        return HistoryLabel(
+            _history_message(value),
+            tuple(_id(label) for label in value.get("labelIds", ())),
+        )
+    except (AttributeError, KeyError, TypeError, ValueError):
+        raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.SOURCE) from None
+
+
+def _history_record(value: dict) -> HistoryRecord:
+    try:
+        return HistoryRecord(
+            _id(value["id"]),
+            tuple(_history_message(item) for item in value.get("messagesAdded", ())),
+            tuple(_history_message(item) for item in value.get("messagesDeleted", ())),
+            tuple(_history_labels(item) for item in value.get("labelsAdded", ())),
+            tuple(_history_labels(item) for item in value.get("labelsRemoved", ())),
+        )
+    except (AttributeError, KeyError, TypeError, ValueError):
+        raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.SOURCE) from None
