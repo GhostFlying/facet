@@ -166,3 +166,25 @@ def test_draft_only_facts_become_attention_without_action_or_rule(state):
         )
         assert reads.get_action(uow, P, lid(1070)) is None
         assert reads.get_job(uow, P, lid(1070)).state.value == "needs_attention"
+
+
+def test_removed_label_becomes_attention_without_source_read(state):
+    _, _, session, _ = state
+    labels = PrivateActionLabelMap(
+        ProviderId("add-sender"), ProviderId("add-domain"), ProviderId("blacklist")
+    )
+    row = _event(
+        session,
+        label=labels.add_sender_label_id,
+        n=75,
+        change=LabelChange.REMOVED,
+    )
+    result = _consumer(labels, ()).process(session, P, row.event_id)
+    assert result.receipt is None
+    assert result.attention is not None
+    with session.transaction() as uow:
+        assert (
+            reads.get_event(uow, P, row.event_id).processing.value
+            == "needs_attention"
+        )
+        assert reads.get_job(uow, P, lid(1075)).state.value == "needs_attention"

@@ -19,7 +19,6 @@ from facet.contracts import (
     Generation,
     JobKind,
     JobState,
-    LabelChange,
     LocalId,
     Priority,
     ProjectionId,
@@ -309,10 +308,7 @@ class ActionEffectConsumer:
             if event is None:
                 raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
             key = event.event.key
-            if (
-                type(key) is not SourceEventKeyLabelChanged
-                or key.change is not LabelChange.ADDED
-            ):
+            if type(key) is not SourceEventKeyLabelChanged:
                 raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
             job = _resolve_job(uow, projection_id, event)
             if job is None or job.kind is not JobKind.RESOLVE_EVENT:
