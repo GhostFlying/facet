@@ -134,6 +134,20 @@ def test_blacklist_precedes_allow() -> None:
     assert result.attention_reason is AdmissionAttentionReason.BLACKLISTED
 
 
+def test_future_blacklist_is_prospective() -> None:
+    future = Timestamp(NOW.value + timedelta(hours=1))
+    result = evaluator(
+        rule(RuleKind.ALLOW_DOMAIN, "example.com"),
+        rule(RuleKind.BLACKLIST_SENDER, "user@example.com", effective=future),
+    ).evaluate(candidate(), NOW)
+    assert result.admit
+
+
+def test_admission_rules_are_bounded() -> None:
+    with pytest.raises(ValueError):
+        evaluator(*(rule(RuleKind.ALLOW_DOMAIN, "example.com") for _ in range(1001)))
+
+
 def test_effective_at_is_prospective() -> None:
     future = Timestamp(NOW.value + timedelta(hours=1))
     result = evaluator(
@@ -167,6 +181,14 @@ def test_evidence_policy_mismatch_is_untrusted() -> None:
         candidate(evidence=foreign), NOW
     )
     assert result.attention_reason is AdmissionAttentionReason.AUTHENTICITY_UNTRUSTED
+
+
+def test_evidence_expiry_is_exclusive() -> None:
+    expiry = Timestamp(NOW.value + timedelta(days=1))
+    result = evaluator(rule(RuleKind.ALLOW_DOMAIN, "example.com")).evaluate(
+        candidate(evidence=evidence(expires=expiry)), expiry
+    )
+    assert result.attention_reason is AdmissionAttentionReason.AUTHENTICITY_STALE
 
 
 def test_no_matching_rule_is_not_implicit_admission() -> None:
