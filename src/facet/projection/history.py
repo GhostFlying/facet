@@ -51,7 +51,7 @@ def _digest(keys) -> Sha256Hex:
 
     def fields_for(key):
         return tuple(
-            getattr(key, field)
+            getattr(getattr(key, field), "value", getattr(key, field))
             for field in (
                 "tag",
                 "history_record_id",
@@ -63,17 +63,7 @@ def _digest(keys) -> Sha256Hex:
         )
 
     for key in sorted(keys, key=lambda value: repr(fields_for(value))):
-        fields = tuple(
-            getattr(key, field)
-            for field in (
-                "tag",
-                "history_record_id",
-                "source_message_id",
-                "label_id",
-                "change",
-            )
-            if hasattr(key, field)
-        )
+        fields = fields_for(key)
         digest.update(repr(fields).encode("utf-8"))
         digest.update(b"\0")
     return Sha256Hex(digest.hexdigest())
