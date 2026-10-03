@@ -48,6 +48,7 @@ source of truth or silently classify a no-op as success.
 | `docs/implementation-plans/m2-action-label-effect.md` | this plan and exact handoff evidence |
 | `src/facet/projection/action_consumer.py` | typed consumer/orchestration; no provider calls, raw data or generic registry |
 | `src/facet/db/repositories/actions.py` | release one fixed compiled `ActionLabelProducer` effect entry point and keep all relational checks inside the existing owner boundary |
+| `src/facet/db/repositories/events.py` | permit a completed label action to finalize its source event as `CONSUMED` without inventing a projection job; preserve the existing guard for every other no-job event |
 | `tests/unit/test_projection_action_consumer.py` | synthetic source facts, rule/action/blacklist decisions and attention routing |
 | `tests/integration/test_projection_action_effect.py` | one real SQLite transaction/reopen/replay path with private-value assertions |
 | `docs/development-status.md` | root-owned status handoff after review/integration |
@@ -78,10 +79,15 @@ active authorization is not duplicated; replay returns the repository's
 stable receipt. No historical matching threads are scanned.
 
 The source event is classified only after the effect or attention decision is
-ready. Successful action effects use `CONSUMED` with the exact job/effect
-identity. Attention uses `NEEDS_ATTENTION` with a fixed `ErrorCode` and no
-business rows. A provider/source reader exception is a controlled attention
-result; raw exception text and source headers never cross the boundary.
+ready. Because the action repository's consumed scope cannot be mutated again,
+the successful effect and event finalization are two short owner transactions:
+the first registers/completes the action and creates any allow expansion job;
+the second marks the exact label event `CONSUMED` (with that job for allow
+actions, or no job only when the completed blacklist action is found). A
+restart between them replays the finalization by stable event/action keys.
+`NEEDS_ATTENTION` uses a fixed `ErrorCode` and no business rows. A
+provider/source reader exception is a controlled attention result; raw
+exception text and source headers never cross the boundary.
 
 The fixed compiled producer inventory may contain exactly the shipping
 `ActionLabelProducer` type. There is no registration API, import-by-name,
@@ -100,6 +106,9 @@ callback, environment switch or caller-supplied producer class.
 - Event/action/rule/job revisions and effective time are derived from persisted
   typed values; stale guards, forged producer objects, foreign threads and
   mismatched events fail closed through controlled storage errors.
+- A completed blacklist action can finalize its label event without a fake
+  projection job; a non-label or pending/unknown no-job consumption remains
+  `OWNER_UNAVAILABLE`.
 - No body, subject, full headers, attachment, raw bytes, credentials, private
   address or provider error appears in repr/str, logs, SQLite diagnostic fields
   or test-facing public result values.
