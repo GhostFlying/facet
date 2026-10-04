@@ -11,7 +11,7 @@ import sqlite3
 from datetime import UTC
 
 from facet.config import ConfigError
-from facet.contracts import ErrorCode, InsertState, JobKind, JobState, LocalId
+from facet.contracts import ErrorCode, InsertState, JobKind, JobState, LocalId, Role
 from facet.db.codecs import StorageFailure, timestamp_from_sql
 from facet.db.repositories.serialization import COLUMNS, _decode_row
 
@@ -84,7 +84,6 @@ def read_recovery_list(options) -> dict:
             "recovery_jobs_by_state": jobs,
             "target_writes": 0,
             "scope": "projection",
-            "freshness": "offline_snapshot",
         }
     finally:
         if connection.in_transaction:
@@ -132,6 +131,44 @@ def _selected_recovery(connection, config, job_id: LocalId):
     if len(linkage) != 1:
         raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
     return job, attempt
+
+
+def _read_owner_context(connection, config):
+    """Read binding/instance lineage without opening a writer owner."""
+
+    projection_rows = connection.execute(
+        "SELECT projection_id,state_instance_id FROM projections "
+        "WHERE projection_id=? LIMIT 2",
+        (config.projection.id.value,),
+    ).fetchall()
+    if len(projection_rows) != 1:
+        raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+    try:
+        state_instance_id = LocalId(projection_rows[0][1])
+        rows = connection.execute(
+            "SELECT "
+            + ",".join(COLUMNS["bindings"])
+            + " FROM bindings WHERE projection_id=? ORDER BY role",
+            (config.projection.id.value,),
+        ).fetchall()
+        bindings = {
+            binding.role: binding
+            for binding in (_decode(connection, "bindings", row) for row in rows)
+        }
+    except (TypeError, ValueError, KeyError):
+        raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE) from None
+    if len(rows) != 2 or set(bindings) != {Role.SOURCE, Role.TARGET}:
+        raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+    expected = {
+        Role.SOURCE: config.projection.source_email,
+        Role.TARGET: config.projection.target_email,
+    }
+    if any(
+        binding.declared_address.value.casefold() != expected[role].casefold()
+        for role, binding in bindings.items()
+    ):
+        raise ConfigError(ErrorCode.BINDING_MISMATCH)
+    return state_instance_id, bindings
 
 
 def _attempt_data(attempt):

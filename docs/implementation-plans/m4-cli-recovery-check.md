@@ -36,9 +36,11 @@ or target payload is serialized.
 * `src/facet/cli/recovery_views.py`: offline read-only list/show views using
   the existing owner-only SQLite snapshot helper. Validate attempt/job lineage
   and reject public item inspection with `scope_required`.
-* `src/facet/gmail/target.py` and a small runtime helper only if needed: reuse
-  the existing RFC Message-ID search and readback adapters; do not add a
-  generic recovery framework or change insert behavior.
+* `src/facet/gmail/target.py` and the credential/read-only runtime seam only if
+  needed: reuse the existing RFC Message-ID search and readback adapters; the
+  remote check must use a read-only SQLite snapshot and must not acquire the
+  sync-owner lease or hold a writer across Gmail I/O. Do not add a generic
+  recovery framework or change insert behavior.
 * `tests/cli/test_bootstrap.py` and focused recovery tests: command parsing,
   privacy, zero SQLite writes, no insert invocation, unique/duplicate/not-found
   checks, binding/scope failures, and fake transport subprocess behavior. The

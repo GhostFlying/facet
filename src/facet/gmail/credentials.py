@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sqlite3
 import stat
 import threading
 from dataclasses import dataclass, replace
@@ -31,7 +32,7 @@ from facet.contracts import (
     Timestamp,
 )
 from facet.db.codecs import StorageFailure
-from facet.db.models import CredentialChangeRow
+from facet.db.models import BindingRow, CredentialChangeRow
 
 from .credential_codec import decode_envelope, encode_envelope
 from .credential_models import (
@@ -222,6 +223,120 @@ def _expected_policy(config: Config, role: Role) -> ScopePolicy:
     return ScopePolicy.TARGET_DEFAULT
 
 
+def _check_private_root_path(state_dir: Path) -> Path:
+    try:
+        state = state_dir.stat(follow_symlinks=False)
+        credentials = (state_dir / "credentials").stat(follow_symlinks=False)
+    except OSError:
+        _fail(ErrorCode.PERSISTENCE_FAILURE)
+    if (
+        not stat.S_ISDIR(state.st_mode)
+        or state.st_uid != os.geteuid()
+        or stat.S_IMODE(state.st_mode) & 0o77
+        or not stat.S_ISDIR(credentials.st_mode)
+        or credentials.st_uid != os.geteuid()
+        or stat.S_IMODE(credentials.st_mode) & 0o77
+    ):
+        _fail(ErrorCode.SCOPE_REQUIRED)
+    return state_dir / "credentials"
+
+
+def _snapshot_verified_values(
+    role: Role, envelope: CredentialEnvelope, binding: BindingRow, observed: Timestamp
+) -> AccessSnapshot:
+    if (
+        type(binding) is not BindingRow
+        or binding.state is not BindingState.VERIFIED
+        or binding.credential_revision != envelope.credential_revision
+    ):
+        _fail(ErrorCode.BINDING_PENDING)
+    if envelope.secret.expires_at.value <= observed.value:
+        _fail(
+            ErrorCode.SOURCE_AUTH_REQUIRED
+            if role is Role.SOURCE
+            else ErrorCode.TARGET_AUTH_REQUIRED
+        )
+    return AccessSnapshot(
+        role,
+        envelope.credential_revision,
+        envelope.binding_revision,
+        envelope.scope_policy_revision,
+        envelope.secret.access_token,
+        envelope.secret.expires_at,
+    )
+
+
+def read_verified_snapshot(
+    state_dir: str | os.PathLike[str],
+    config: Config,
+    connection: sqlite3.Connection,
+    *,
+    state_instance_id: LocalId,
+    binding: BindingRow,
+    role: Role,
+) -> AccessSnapshot:
+    """Read one verified access snapshot without acquiring the owner lease.
+
+    This is intentionally limited to stopped/read-only inspection commands.
+    The connection must already be configured query-only by the caller; this
+    function never refreshes, writes credentials, or changes SQLite state.
+    """
+
+    if (
+        type(config) is not Config
+        or not isinstance(connection, sqlite3.Connection)
+        or type(state_instance_id) is not LocalId
+        or type(binding) is not BindingRow
+        or type(role) is not Role
+        or binding.projection_id != config.projection.id
+        or binding.role is not role
+    ):
+        _fail(ErrorCode.INVALID_INPUT)
+    try:
+        if connection.execute("PRAGMA query_only").fetchone() != (1,):
+            _fail(ErrorCode.DATABASE_UNAVAILABLE)
+    except sqlite3.Error:
+        _fail(ErrorCode.DATABASE_UNAVAILABLE)
+    if (
+        binding.declared_address.value.casefold()
+        != (
+            config.projection.source_email
+            if role is Role.SOURCE
+            else config.projection.target_email
+        ).casefold()
+    ):
+        _fail(ErrorCode.BINDING_MISMATCH)
+    try:
+        unresolved = connection.execute(
+            "SELECT 1 FROM credential_changes WHERE projection_id=? AND role=? "
+            "AND phase IN('requesting','validated','attention') LIMIT 1",
+            (config.projection.id.value, role.value),
+        ).fetchone()
+    except sqlite3.Error:
+        _fail(ErrorCode.DATABASE_UNAVAILABLE)
+    if unresolved is not None:
+        _fail(ErrorCode.MAINTENANCE_REQUIRED)
+    credentials_dir = _check_private_root_path(Path(state_dir))
+    path = credentials_dir / ("source.json" if role is Role.SOURCE else "target.json")
+    envelope = _read_credential(path, role)
+    account = envelope.account.value.casefold()
+    if (
+        envelope.projection_id != config.projection.id
+        or envelope.state_instance_id != state_instance_id
+        or envelope.role is not role
+        or envelope.binding_revision.value < 1
+        or envelope.credential_revision.value < 1
+        or envelope.scope_policy is not _expected_policy(config, role)
+        or envelope.binding_revision != binding.binding_revision
+        or account != binding.declared_address.value.casefold()
+        or envelope.credential_revision.value
+        != binding.credential_revision.value
+        + (1 if binding.state is BindingState.VERIFICATION_PENDING else 0)
+    ):
+        _fail(ErrorCode.BINDING_MISMATCH)
+    return _snapshot_verified_values(role, envelope, binding, _owner_now())
+
+
 def _read_credential(path: Path, role: Role) -> CredentialEnvelope:
     try:
         parent = path.parent
@@ -339,21 +454,7 @@ class CredentialManager:
         return envelope
 
     def _check_private_root(self) -> Path:
-        try:
-            state = self._state_dir.stat(follow_symlinks=False)
-            credentials = (self._state_dir / "credentials").stat(follow_symlinks=False)
-        except OSError:
-            _fail(ErrorCode.PERSISTENCE_FAILURE)
-        if (
-            not stat.S_ISDIR(state.st_mode)
-            or state.st_uid != os.geteuid()
-            or stat.S_IMODE(state.st_mode) & 0o77
-            or not stat.S_ISDIR(credentials.st_mode)
-            or credentials.st_uid != os.geteuid()
-            or stat.S_IMODE(credentials.st_mode) & 0o77
-        ):
-            _fail(ErrorCode.SCOPE_REQUIRED)
-        return self._state_dir / "credentials"
+        return _check_private_root_path(self._state_dir)
 
     def _snapshot_verified(
         self,
@@ -362,26 +463,7 @@ class CredentialManager:
         binding,
         observed: Timestamp,
     ) -> AccessSnapshot:
-        if (
-            binding is None
-            or binding.state is not BindingState.VERIFIED
-            or binding.credential_revision != envelope.credential_revision
-        ):
-            _fail(ErrorCode.BINDING_PENDING)
-        if envelope.secret.expires_at.value <= observed.value:
-            _fail(
-                ErrorCode.SOURCE_AUTH_REQUIRED
-                if role is Role.SOURCE
-                else ErrorCode.TARGET_AUTH_REQUIRED
-            )
-        return AccessSnapshot(
-            role,
-            envelope.credential_revision,
-            envelope.binding_revision,
-            envelope.scope_policy_revision,
-            envelope.secret.access_token,
-            envelope.secret.expires_at,
-        )
+        return _snapshot_verified_values(role, envelope, binding, observed)
 
     def snapshot(self, role: Role) -> AccessSnapshot:
         """Return a verified-role access token without exposing refresh material."""

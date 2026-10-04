@@ -1366,49 +1366,24 @@ def _recovery_check(options: object) -> tuple[dict, tuple[str, ...]]:
         job_id = LocalId(options.job)
     except (TypeError, ValueError):
         raise ConfigError(ErrorCode.INVALID_INPUT) from None
+    from facet.cli.recovery_views import (
+        _open_snapshot,
+        _read_owner_context,
+        _selected_recovery,
+    )
     from facet.db.codecs import PrivateAddress
-    from facet.db.repositories.base import _get
-    from facet.gmail.credentials import CredentialManager
+    from facet.gmail.credentials import read_verified_snapshot
     from facet.gmail.retry import ProviderFailure
     from facet.gmail.service_factory import GoogleGmailServiceFactory
     from facet.gmail.source import SourceAdapter
     from facet.gmail.synthetic import SyntheticGmailServiceFactory
     from facet.gmail.target import TargetAdapter
     from facet.projection.fidelity import inspect
-    from facet.runtime.state_owner import StateOwner
 
-    paths = select_paths(getattr(options, "state_dir", None), None)
-    raw = read_managed_config(paths)
-    config = load_config(raw)
-    owner = StateOwner.open(paths.root, config)
+    paths, _raw, config, connection = _open_snapshot(options)
     try:
-        owner.verify_config_artifact(raw)
-        with owner.session.transaction() as uow:
-            job = _get(uow, config.projection.id, "sync_jobs", (("job_id", job_id),))
-            if job is None or job.kind.value != "recover_insert":
-                raise ConfigError(ErrorCode.INVALID_INPUT)
-            attempt = _get(
-                uow,
-                config.projection.id,
-                "insert_attempts",
-                (("attempt_id", job.subject.attempt_id),),
-            )
-            original = (
-                None
-                if attempt is None
-                else _get(
-                    uow,
-                    config.projection.id,
-                    "sync_jobs",
-                    (("job_id", attempt.job_id),),
-                )
-            )
-        if (
-            attempt is None
-            or original is None
-            or original.kind.value != "project_message"
-        ):
-            raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
+        job, attempt = _selected_recovery(connection, config, job_id)
+        state_instance_id, bindings = _read_owner_context(connection, config)
         if attempt.state.value != "pending_recovery":
             return {
                 "job_id": job.job_id.value,
@@ -1431,11 +1406,30 @@ def _recovery_check(options: object) -> tuple[dict, tuple[str, ...]]:
                 "insert_invocations": 0,
                 "sqlite_mutated": False,
             }, ()
+        source_binding = bindings[Role.SOURCE]
+        target_binding = bindings[Role.TARGET]
+        source_snapshot = read_verified_snapshot(
+            paths.root,
+            config,
+            connection,
+            state_instance_id=state_instance_id,
+            binding=source_binding,
+            role=Role.SOURCE,
+        )
+        target_snapshot = read_verified_snapshot(
+            paths.root,
+            config,
+            connection,
+            state_instance_id=state_instance_id,
+            binding=target_binding,
+            role=Role.TARGET,
+        )
+    finally:
+        if connection.in_transaction:
+            connection.rollback()
+        connection.close()
 
-        manager = CredentialManager(owner.state_dir, config, owner)
-        source_snapshot = manager.snapshot(Role.SOURCE)
-        target_snapshot = manager.snapshot(Role.TARGET)
-        source_binding = owner.bindings()[Role.SOURCE]
+    try:
         if getattr(options, "fake", False):
             if not source_snapshot.access_token.value.startswith("facet-synthetic-"):
                 raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
@@ -1447,8 +1441,8 @@ def _recovery_check(options: object) -> tuple[dict, tuple[str, ...]]:
         source = SourceAdapter(
             factory.service(Role.SOURCE, source_snapshot),
             source_account=PrivateAddress(config.projection.source_email),
-            binding_revision=source_binding.binding_revision,
-            credential_revision=source_binding.credential_revision,
+            binding_revision=source_snapshot.binding_revision,
+            credential_revision=source_snapshot.credential_revision,
         )
         target = TargetAdapter(factory.service(Role.TARGET, target_snapshot))
         candidate_ids = target.find_by_rfc_message_id(attempt.rfc_message_id)
@@ -1502,8 +1496,6 @@ def _recovery_check(options: object) -> tuple[dict, tuple[str, ...]]:
         raise ConfigError(error.code) from None
     except (KeyError, TypeError, ValueError):
         raise ConfigError(ErrorCode.CONSISTENCY_FAILURE) from None
-    finally:
-        owner.close()
 
 
 def _check_arguments(argv: list[str]) -> None:

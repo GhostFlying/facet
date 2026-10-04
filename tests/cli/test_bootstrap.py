@@ -545,6 +545,7 @@ def test_recovery_check_uses_target_evidence_without_second_insert(
     from facet.gmail.retry import ProviderFailure
     from facet.gmail.synthetic import SyntheticGmailServiceFactory
     from facet.gmail.target import TargetAdapter
+    from facet.runtime import locks, private_root
 
     shared = SyntheticGmailServiceFactory("source@example.com", "target@example.com")
     lose_response = True
@@ -636,6 +637,10 @@ def test_recovery_check_uses_target_evidence_without_second_insert(
         before = connection.execute(
             "SELECT state,revision,recovery_checks FROM insert_attempts"
         ).fetchone()
+        owner_before = (
+            connection.execute("SELECT last_owner_run_id FROM projections").fetchone(),
+            connection.execute("SELECT owner_run_id FROM command_runtime").fetchone(),
+        )
         assert connection.execute(
             "SELECT COUNT(*) FROM message_mappings"
         ).fetchone() == (0,)
@@ -645,6 +650,21 @@ def test_recovery_check_uses_target_evidence_without_second_insert(
     shown = invoke("recovery", "show", "--job", recovery_job, private=True)
     assert shown["data"]["attempt"]["state"] == "pending_recovery"
     assert shown["data"]["job"]["kind"] == "recover_insert"
+
+    original_find = TargetAdapter.find_by_rfc_message_id
+
+    def find_without_owner_lease(self, value):
+        # The remote evidence phase must not retain Facet's writer lease.
+        with (
+            private_root.open_existing_root(str(state / "runtime-locks")) as root,
+            locks.acquire_owner(root),
+        ):
+            pass
+        return original_find(self, value)
+
+    monkeypatch.setattr(
+        TargetAdapter, "find_by_rfc_message_id", find_without_owner_lease
+    )
     checked = invoke(
         "recovery",
         "check",
@@ -664,6 +684,10 @@ def test_recovery_check_uses_target_evidence_without_second_insert(
             ).fetchone()
             == before
         )
+        assert (
+            connection.execute("SELECT last_owner_run_id FROM projections").fetchone(),
+            connection.execute("SELECT owner_run_id FROM command_runtime").fetchone(),
+        ) == owner_before
         assert connection.execute(
             "SELECT COUNT(*) FROM message_mappings"
         ).fetchone() == (0,)
