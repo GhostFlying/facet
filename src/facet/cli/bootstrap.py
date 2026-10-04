@@ -457,6 +457,17 @@ def _auth_authorize(options: object) -> tuple[dict, tuple[str, ...]]:
     owner = StateOwner.open(paths.root, config)
     try:
         owner.verify_config_artifact(config_raw)
+        # A rule command owns the raw request nonce.  Check this before
+        # registering the two role-specific authorization operations so a
+        # cross-command reuse is reported as a request conflict, not as a
+        # transaction consistency failure.
+        with owner.session.transaction() as uow:
+            rule_collision = uow._execute(
+                "SELECT 1 FROM rules WHERE projection_id=? AND rule_id=? LIMIT 1",
+                (config.projection.id.value, request_nonce.value),
+            ).fetchone()
+        if rule_collision:
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
         operation_ids = {}
         replayed = True
         with owner.session.transaction() as uow:
@@ -465,11 +476,6 @@ def _auth_authorize(options: object) -> tuple[dict, tuple[str, ...]]:
                 operation_ids[role] = command_store.authorize_operation(
                     uow, config.projection.id, role, role_nonce
                 )
-                if uow._execute(
-                    "SELECT 1 FROM rules WHERE projection_id=? AND rule_id=? LIMIT 1",
-                    (config.projection.id.value, request_nonce.value),
-                ).fetchone():
-                    raise ConfigError(ErrorCode.REQUEST_CONFLICT)
                 row = uow._execute(
                     "SELECT state FROM operations WHERE projection_id=? "
                     "AND operation_id=? LIMIT 2",
@@ -481,6 +487,52 @@ def _auth_authorize(options: object) -> tuple[dict, tuple[str, ...]]:
 
         if replayed:
             return {"binding_state": "verified"}, ()
+
+        # A process can stop after binding publication but before recording
+        # both command receipts. Recover that exact request only when its two
+        # credential changes are present; a fresh request cannot piggyback on
+        # an unrelated already-verified binding.
+        if all(
+            binding is not None and binding.state.value == "verified"
+            for binding in owner.bindings().values()
+        ):
+            from facet.db.repositories import credentials as credential_rows
+
+            recoverable = True
+            with owner.session.transaction() as uow:
+                for role in Role:
+                    row = uow._execute(
+                        "SELECT change_id FROM credential_changes WHERE "
+                        "projection_id=? AND operation_id=? AND role=? LIMIT 2",
+                        (
+                            config.projection.id.value,
+                            operation_ids[role].value,
+                            role.value,
+                        ),
+                    ).fetchall()
+                    if len(row) != 1:
+                        recoverable = False
+                        break
+                    change = credential_rows.get_change(
+                        uow,
+                        config.projection.id,
+                        role,
+                        LocalId(row[0][0]),
+                    )
+                    if change.phase == "validated":
+                        credential_rows.commit_authorization(
+                            uow, config.projection.id, change
+                        )
+                    elif change.phase != "committed":
+                        recoverable = False
+                        break
+                if recoverable:
+                    for operation_id in operation_ids.values():
+                        command_store.complete_authorize_operation(
+                            uow, config.projection.id, operation_id
+                        )
+            if recoverable:
+                return {"binding_state": "verified"}, ()
 
         class SyntheticProfiles:
             def get_profile(self, role, _secret):
@@ -550,30 +602,36 @@ def _rules_add_sender(options: object) -> tuple[dict, tuple[str, ...]]:
         rule_id = request_id
         auth_nonces = tuple(_auth_role_nonce(request_id, role).value for role in Role)
         with owner.session.transaction() as uow:
-            if uow._execute(
+            occupied = uow._execute(
                 "SELECT 1 FROM operations WHERE projection_id=? AND "
-                "request_nonce IN (?,?) LIMIT 1",
-                (config.projection.id.value, *auth_nonces),
-            ).fetchone():
-                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+                "request_nonce IN (?,?,?) LIMIT 1",
+                (config.projection.id.value, request_id.value, *auth_nonces),
+            ).fetchone()
             existing_rule = _get(
                 uow, config.projection.id, "rules", (("rule_id", rule_id),)
             )
-            if existing_rule is not None:
-                if (
-                    existing_rule.kind is not normalized.kind
-                    or existing_rule.normalized_value != normalized.storage_value
-                ):
-                    raise ConfigError(ErrorCode.REQUEST_CONFLICT)
-                rows = uow._execute(
+            members = (
+                uow._execute(
                     "SELECT ruleset_revision FROM ruleset_members WHERE "
-                    "projection_id=? AND rule_id=? ORDER BY ruleset_revision "
-                    "ASC LIMIT 1",
+                    "projection_id=? AND rule_id=? "
+                    "ORDER BY ruleset_revision ASC LIMIT 1",
                     (config.projection.id.value, rule_id.value),
                 ).fetchall()
-                if not rows:
-                    raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
-                return {"ruleset_revision": rows[0][0]}, ()
+                if existing_rule is not None
+                else ()
+            )
+        if occupied:
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        if existing_rule is not None:
+            if (
+                existing_rule.kind is not normalized.kind
+                or existing_rule.normalized_value != normalized.storage_value
+            ):
+                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+            if not members:
+                raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
+            return {"ruleset_revision": members[0][0]}, ()
+        with owner.session.transaction() as uow:
             projection = _get(uow, config.projection.id, "projections", ())
             if projection is None:
                 raise ConfigError(ErrorCode.OWNER_UNAVAILABLE)
@@ -659,27 +717,27 @@ def _backfill_preview(options: object) -> tuple[dict, tuple[str, ...]]:
             _auth_role_nonce(request_nonce, role).value for role in Role
         )
         with owner.session.transaction() as uow:
-            if uow._execute(
+            occupied = uow._execute(
                 "SELECT 1 FROM operations WHERE projection_id=? AND "
                 "request_nonce IN (?,?) LIMIT 1",
                 (config.projection.id.value, *auth_nonces),
-            ).fetchone():
-                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
-            if uow._execute(
+            ).fetchone()
+            rule_collision = uow._execute(
                 "SELECT 1 FROM rules WHERE projection_id=? AND rule_id=? LIMIT 1",
                 (config.projection.id.value, request_nonce.value),
-            ).fetchone():
-                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+            ).fetchone()
             existing = _find_backfill(
                 uow,
                 config.projection.id,
                 owner.owner_info.request_namespace,
                 request_nonce,
             )
-            if existing[0] is not None:
-                if existing[0].command.value != "backfill_preview":
-                    raise ConfigError(ErrorCode.REQUEST_CONFLICT)
-                return {"preview_id": existing[0].operation_id.value}, ()
+        if occupied or rule_collision:
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        if existing[0] is not None:
+            if existing[0].command.value != "backfill_preview":
+                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+            return {"preview_id": existing[0].operation_id.value}, ()
         now = Timestamp(datetime.now(UTC))
         month = now.value.year * 12 + now.value.month - 7
         year, month_index = divmod(month, 12)
@@ -743,29 +801,30 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
             _auth_role_nonce(request_nonce, role).value for role in Role
         )
         with owner.session.transaction() as uow:
-            if uow._execute(
+            occupied = uow._execute(
                 "SELECT 1 FROM operations WHERE projection_id=? AND "
                 "request_nonce IN (?,?) LIMIT 1",
                 (config.projection.id.value, *auth_nonces),
-            ).fetchone():
-                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
-            if uow._execute(
+            ).fetchone()
+            rule_collision = uow._execute(
                 "SELECT 1 FROM rules WHERE projection_id=? AND rule_id=? LIMIT 1",
                 (config.projection.id.value, request_nonce.value),
-            ).fetchone():
-                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+            ).fetchone()
             existing_start = _find_backfill(
                 uow,
                 config.projection.id,
                 owner.owner_info.request_namespace,
                 request_nonce,
             )
-            if existing_start[0] is not None:
-                if (
-                    existing_start[0].command.value != "backfill_start"
-                    or existing_start[0].expected_preview_id != preview_id
-                ):
-                    raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        if occupied or rule_collision:
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        if existing_start[0] is not None:
+            if (
+                existing_start[0].command.value != "backfill_start"
+                or existing_start[0].expected_preview_id != preview_id
+            ):
+                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+            with owner.session.transaction() as uow:
                 row = uow._execute(
                     "SELECT epoch_id FROM epochs WHERE projection_id=? "
                     "AND operation_id=? LIMIT 2",
@@ -774,9 +833,12 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
                         existing_start[0].operation_id.value,
                     ),
                 ).fetchall()
-                if len(row) != 1:
-                    raise ConfigError(ErrorCode.MAINTENANCE_REQUIRED)
-                return {"epoch_id": row[0][0]}, ()
+                epoch_id = row[0][0] if len(row) == 1 else None
+                if epoch_id is not None:
+                    resume_projection(uow, config.projection.id)
+            if epoch_id is None:
+                raise ConfigError(ErrorCode.MAINTENANCE_REQUIRED)
+            return {"epoch_id": epoch_id}, ()
         manager = CredentialManager(owner.state_dir, config, owner)
         snapshot = manager.snapshot(Role.SOURCE)
         if not snapshot.access_token.value.startswith("facet-synthetic-"):
@@ -812,8 +874,6 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
         _, epoch = BackfillProducer(source, Admission()).start(
             owner.session, config.projection.id, start
         )
-        with owner.session.transaction() as uow:
-            resume_projection(uow, config.projection.id)
         return {"epoch_id": epoch.epoch_id.value}, ()
     finally:
         owner.close()

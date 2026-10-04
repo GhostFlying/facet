@@ -771,6 +771,11 @@ def start_backfill(owner, projection_id, request):
         Revision(0),
     )
     epochs.start_epoch(owner, projection_id, epoch, (partition,))
+    _owner_execute(
+        owner,
+        "UPDATE projections SET daemon_paused=0 WHERE projection_id=?",
+        (projection_id.value,),
+    )
     return operation, epoch
 
 
