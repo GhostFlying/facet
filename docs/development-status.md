@@ -593,7 +593,7 @@ receipt exposes aggregate counts only.
 The default source-auth provider is still `UnknownSourceAuthProvider`, so an
 unknown candidate cannot be admitted or inserted into target. No Gmail network
 call, OAuth exchange, target write, deployment, or release was performed by
-this unit. Focused CLI/runtime tests and the complete offline suite (2511
+this unit. Focused CLI/runtime tests and the complete offline suite (2512
 tests) passed, as did Ruff/format and repository safety. This is
 implemented/offline-verified only; a separately verified source-Gmail-path
 attestation and controlled live Gmail run remain external gates.

@@ -33,7 +33,11 @@ by this unit.
 - `src/facet/cli/bootstrap.py`: dispatch non-fake `run --once` through the
   existing `ForegroundRuntime`; allow non-fake `backfill start` to use the
   verified source credential and profile fence while preserving request replay,
-  preview guards, and role/scope checks.
+  preview guards, role/scope checks, and an exact provider-profile/account
+  binding check before H0 is persisted.
+- `src/facet/gmail/source.py`: reject a provider profile whose account differs
+  from the constructor's verified source binding before exposing its History
+  cursor to the backfill fence.
 - `tests/unit/test_cli_production_path.py`, `tests/cli/test_bootstrap.py` and focused runtime tests: prove the production
   dispatch seam is selected only after binding checks, provider construction is
   injectable/offline, and the command output remains aggregate-only. Existing

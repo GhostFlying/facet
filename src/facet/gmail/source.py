@@ -239,8 +239,16 @@ class SourceAdapter:
 
     def profile(self) -> SourceProfile:
         value = execute(self._service.users().getProfile(userId="me"), self.role)
+        account = value.get("emailAddress")
+        if not isinstance(account, str):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+        if (
+            self._source_account is not None
+            and account.casefold() != self._source_account.value.casefold()
+        ):
+            raise ProviderFailure(ErrorCode.BINDING_MISMATCH, self.role)
         return SourceProfile(
-            value["emailAddress"],
+            account,
             _id(value["historyId"]),
             int(value.get("messagesTotal", 0)),
             int(value.get("threadsTotal", 0)),

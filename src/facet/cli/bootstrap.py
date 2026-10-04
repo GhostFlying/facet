@@ -1025,6 +1025,11 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
             if epoch_id is None:
                 raise ConfigError(ErrorCode.MAINTENANCE_REQUIRED)
             return {"epoch_id": epoch_id}, ()
+        with owner.session.transaction() as uow:
+            existing = _find_backfill_by_id(uow, config.projection.id, preview_id)
+        if existing[0] is None:
+            raise ConfigError(ErrorCode.PREVIEW_INVALID)
+        preview, payload = existing
         if any(
             binding is None or binding.state.value != "verified"
             for binding in owner.bindings().values()
@@ -1047,11 +1052,6 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
             binding_revision=binding.binding_revision,
             credential_revision=binding.credential_revision,
         )
-        with owner.session.transaction() as uow:
-            existing = _find_backfill_by_id(uow, config.projection.id, preview_id)
-        if existing[0] is None:
-            raise ConfigError(ErrorCode.PREVIEW_INVALID)
-        preview, payload = existing
         start = BackfillStartRequest(
             LocalId(uuid4().hex),
             request_nonce,

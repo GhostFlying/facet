@@ -53,6 +53,23 @@ def _adapter(gmail_controller, *, auth_provider=None):
     )
 
 
+def test_profile_rejects_provider_account_mismatch(gmail_controller):
+    gmail_controller.profile(
+        "source",
+        {
+            "emailAddress": "wrong@example.invalid",
+            "messagesTotal": 0,
+            "threadsTotal": 0,
+            "historyId": "701",
+        },
+    )
+
+    with pytest.raises(ProviderFailure) as error:
+        _adapter(gmail_controller).profile()
+
+    assert error.value.code is ErrorCode.BINDING_MISMATCH
+
+
 def test_candidate_default_is_unknown_and_metadata_is_not_exposed(gmail_controller):
     gmail_controller.script(
         "source",
