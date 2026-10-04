@@ -1,7 +1,8 @@
 # M4 recovery inspection and check
 
-Status: implementation in progress after independent plan approval. Base candidate:
-`origin/main` at `adaea8a42af49e5d2788673a45ac7dd324de0741`.
+Status: candidate `aa646bb` has independent implementation approval; full
+candidate CI and merge remain pending. Base candidate: `origin/main` at
+`adaea8a42af49e5d2788673a45ac7dd324de0741`.
 
 ## User-observable delivery
 
