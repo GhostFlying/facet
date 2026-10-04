@@ -202,6 +202,21 @@ def build_parser() -> _Parser:
     _common(add_domain)
     _mutations(add_domain)
     add_domain.add_argument("--domain", required=True)
+    list_rules = rule_action.add_parser(
+        "list",
+        add_help=False,
+        allow_abbrev=False,
+        help="show aggregate persisted rule state",
+    )
+    _common(list_rules)
+    show_rule = rule_action.add_parser(
+        "show",
+        add_help=False,
+        allow_abbrev=False,
+        help="show one persisted rule's private metadata",
+    )
+    _common(show_rule)
+    show_rule.add_argument("--rule-id", required=True)
     backfill = commands.add_parser(
         "backfill",
         add_help=False,
@@ -1441,6 +1456,12 @@ def main(argv: list[str] | None = None) -> int:
             elif options.action == "add-domain":
                 command = "rules.add-domain"
                 data, warnings = _rules_add_domain(options)
+            elif options.action in {"list", "show"}:
+                command = f"rules.{options.action}"
+                from facet.cli.rule_views import read_rules
+
+                data = read_rules(options, show=options.action == "show")
+                warnings = ()
             else:
                 raise _InputError()
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)

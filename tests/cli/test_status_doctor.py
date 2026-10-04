@@ -207,6 +207,108 @@ def test_aggregate_maintenance_views_reuse_offline_status_snapshot(trusted_root)
         assert after.get(name) == digest
 
 
+def test_rule_views_are_sealed_read_only_and_private_by_default(trusted_root):
+    state = trusted_root / "state"
+    _init(trusted_root, state)
+
+    empty = _run(
+        trusted_root,
+        "rules",
+        "list",
+        "--state-dir",
+        str(state),
+        guard=True,
+    )
+    assert empty.returncode == 0, empty.stderr + empty.stdout
+    assert json.loads(empty.stdout)["data"] == {
+        "ruleset_revision": 0,
+        "rule_count": 0,
+    }
+
+    def invoke(*args):
+        result = _run(trusted_root, *args, "--state-dir", str(state))
+        assert result.returncode == 0, result.stderr + result.stdout
+        return json.loads(result.stdout)
+
+    invoke(
+        "auth",
+        "authorize",
+        "--fake",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000051",
+    )
+    rule = invoke(
+        "rules",
+        "add-sender",
+        "--sender",
+        "sender@example.com",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000052",
+    )
+    assert rule["data"]["ruleset_revision"] == 1
+    listed = invoke("rules", "list")
+    assert listed["data"] == {"ruleset_revision": 1, "rule_count": 1}
+
+    public = _run(
+        trusted_root,
+        "rules",
+        "show",
+        "--rule-id",
+        "00000000000040008000000000000052",
+        "--state-dir",
+        str(state),
+        guard=True,
+    )
+    assert public.returncode == 3
+    assert json.loads(public.stdout)["code"] == "scope_required"
+
+    private = _run(
+        trusted_root,
+        "rules",
+        "show",
+        "--rule-id",
+        "00000000000040008000000000000052",
+        "--private-metadata",
+        "--state-dir",
+        str(state),
+        guard=True,
+    )
+    assert private.returncode == 0, private.stderr + private.stdout
+    private_data = json.loads(private.stdout)["data"]
+    assert private_data["rule_id"] == "00000000000040008000000000000052"
+    assert private_data["normalized_value"] == "sender@example.com"
+    assert private_data["kind"] == "allow_sender"
+    assert private_data["enabled"] is True
+    assert private_data["origin"] == "cli"
+
+    malformed = _run(
+        trusted_root,
+        "rules",
+        "show",
+        "--rule-id",
+        "not-a-uuid",
+        "--private-metadata",
+        "--state-dir",
+        str(state),
+    )
+    assert malformed.returncode == 2
+    assert json.loads(malformed.stdout)["code"] == "invalid_input"
+    foreign = _run(
+        trusted_root,
+        "rules",
+        "show",
+        "--rule-id",
+        "00000000000040008000000000000053",
+        "--private-metadata",
+        "--state-dir",
+        str(state),
+    )
+    assert foreign.returncode == 4
+    assert json.loads(foreign.stdout)["code"] == "owner_unavailable"
+
+
 def test_status_reports_the_synthetic_projection_closure(trusted_root):
     state = trusted_root / "state"
     _init(trusted_root, state)
