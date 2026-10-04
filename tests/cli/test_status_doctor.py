@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -307,6 +308,111 @@ def test_rule_views_are_sealed_read_only_and_private_by_default(trusted_root):
     )
     assert foreign.returncode == 4
     assert json.loads(foreign.stdout)["code"] == "owner_unavailable"
+
+
+def test_queue_show_is_private_read_only_job_metadata(trusted_root):
+    state = trusted_root / "state"
+    _init(trusted_root, state)
+
+    def invoke(*args):
+        result = _run(trusted_root, *args, "--state-dir", str(state))
+        assert result.returncode == 0, result.stderr + result.stdout
+        return json.loads(result.stdout)
+
+    invoke(
+        "auth",
+        "authorize",
+        "--fake",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000061",
+    )
+    invoke(
+        "rules",
+        "add-sender",
+        "--sender",
+        "sender@example.com",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000062",
+    )
+    preview = invoke(
+        "backfill",
+        "preview",
+        "--fake",
+        "--request-id",
+        "00000000000040008000000000000063",
+    )["data"]["preview_id"]
+    invoke(
+        "backfill",
+        "start",
+        "--fake",
+        "--preview-id",
+        preview,
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000064",
+    )
+    invoke("run", "--once", "--fake")
+    with sqlite3.connect(state / "facet.db") as connection:
+        job_id = connection.execute(
+            "SELECT job_id FROM sync_jobs ORDER BY created_at LIMIT 1"
+        ).fetchone()[0]
+
+    public = _run(
+        trusted_root,
+        "queue",
+        "show",
+        "--job-id",
+        job_id,
+        "--state-dir",
+        str(state),
+        guard=True,
+    )
+    assert public.returncode == 3
+    assert json.loads(public.stdout)["code"] == "scope_required"
+    public_malformed = _run(
+        trusted_root,
+        "queue",
+        "show",
+        "--job-id",
+        "not-a-uuid",
+        "--state-dir",
+        str(state),
+        guard=True,
+    )
+    assert public_malformed.returncode == 2
+    assert json.loads(public_malformed.stdout)["code"] == "invalid_input"
+    private = _run(
+        trusted_root,
+        "queue",
+        "show",
+        "--job-id",
+        job_id,
+        "--private-metadata",
+        "--state-dir",
+        str(state),
+        guard=True,
+    )
+    assert private.returncode == 0, private.stderr + private.stdout
+    data = json.loads(private.stdout)["data"]
+    assert data["job_id"] == job_id
+    assert data["state"] == "completed"
+    assert data["kind"] in {"expand_thread", "project_message", "resolve_event"}
+    assert isinstance(data["attempt_count"], int)
+    assert data["source_thread_id"] is not None
+    malformed = _run(
+        trusted_root,
+        "queue",
+        "show",
+        "--job-id",
+        "not-a-uuid",
+        "--private-metadata",
+        "--state-dir",
+        str(state),
+    )
+    assert malformed.returncode == 2
+    assert json.loads(malformed.stdout)["code"] == "invalid_input"
 
 
 def test_status_reports_the_synthetic_projection_closure(trusted_root):
