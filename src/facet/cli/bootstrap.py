@@ -226,6 +226,43 @@ def build_parser() -> _Parser:
     _mutations(start)
     start.add_argument("--preview-id", required=True)
     start.add_argument("--fake", action="store_true")
+    backfill_status = backfill_action.add_parser(
+        "status",
+        add_help=False,
+        allow_abbrev=False,
+        help="show aggregate backfill progress",
+    )
+    _common(backfill_status)
+    queue = commands.add_parser(
+        "queue",
+        add_help=False,
+        allow_abbrev=False,
+        help="show aggregate projection queue state",
+    )
+    _common(queue)
+    queue_action = queue.add_subparsers(dest="action", parser_class=_Parser)
+    queue_list = queue_action.add_parser(
+        "list",
+        add_help=False,
+        allow_abbrev=False,
+        help="show aggregate queue counts",
+    )
+    _common(queue_list)
+    review = commands.add_parser(
+        "review",
+        add_help=False,
+        allow_abbrev=False,
+        help="show aggregate attention state",
+    )
+    _common(review)
+    review_action = review.add_subparsers(dest="action", parser_class=_Parser)
+    review_list = review_action.add_parser(
+        "list",
+        add_help=False,
+        allow_abbrev=False,
+        help="show categorized attention groups",
+    )
+    _common(review_list)
     web = commands.add_parser(
         "web",
         add_help=False,
@@ -1414,9 +1451,47 @@ def main(argv: list[str] | None = None) -> int:
             elif options.action == "start":
                 command = "backfill.start"
                 data, warnings = _backfill_start(options)
+            elif options.action == "status":
+                command = "backfill.status"
+                from facet.cli.status import read_status
+
+                result = read_status(options)
+                data, warnings = result.data["progress"], ()
             else:
                 raise _InputError()
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
+        if options.family == "queue":
+            if options.action != "list":
+                raise _InputError()
+            command = "queue.list"
+            from facet.cli.status import read_status
+
+            result = read_status(options)
+            progress = result.data["progress"]
+            progress_data = progress["data"]
+            data = {
+                "jobs": progress_data["jobs"],
+                "oldest_runnable_job_age_seconds": progress_data[
+                    "oldest_runnable_job_age_seconds"
+                ],
+                "sampled_at": progress["sampled_at"],
+                "freshness": progress["freshness"],
+                "age_seconds": progress["age_seconds"],
+                "scope": progress["scope"],
+            }
+            return _emit(command, data=data, json_mode=json_mode)
+        if options.family == "review":
+            if options.action != "list":
+                raise _InputError()
+            command = "review.list"
+            from facet.cli.status import read_status
+
+            result = read_status(options)
+            return _emit(
+                command,
+                data=result.data["issues"],
+                json_mode=json_mode,
+            )
         if options.family != "config" or options.action is None:
             raise _InputError()
         command = f"config.{options.action}"
