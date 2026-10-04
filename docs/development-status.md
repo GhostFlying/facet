@@ -167,6 +167,19 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   review, Python 3.12/3.13 CI, and no-publish image build. Rule deletion,
   blacklist mutation, and item-level review/recovery operations remain open.
 
+- The read-only queue-item inspection unit is integrated in PR #69 at main
+  merge `4a23c06` (final implementation candidate `4b5adaa`; plan:
+  `implementation-plans/m4-cli-queue-show.md`). `facet queue show --job-id
+  <id> --private-metadata --json` returns only typed job/source-thread IDs,
+  kind/state/priority, attempts, error code, and timestamps from the configured
+  projection's SQLite snapshot. Malformed selectors return `invalid_input`,
+  well-formed public selectors return `scope_required`, and absent/foreign
+  selectors return `owner_unavailable` without existence disclosure. The
+  candidate passed 63 CLI tests, a focused precedence fix review, Python
+  3.12/3.13 CI, and no-publish image build. Queue retry/claim/cancel/recovery
+  remains unimplemented; this is not complete maintenance CLI or a Phase 1
+  gate.
+
 - The bounded Dashboard/Compose HTTP unit is integrated on main `e2b9b17`
   after independent plan approval. `facet web` serves only the
   allowlisted aggregate routes (`/api/v1/status`, `/api/v1/progress`,
