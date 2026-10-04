@@ -29,7 +29,7 @@ from facet.projection.authenticity import (
     _issuer_for_provider,
     assess_evidence,
 )
-from facet.projection.rules import normalize_sender
+from facet.projection.rules import CanonicalSender, normalize_sender
 from facet.projection.suffixes import normalize_domain
 
 _AUTH_POLICY = PolicyVersion("auth-v1")
@@ -62,6 +62,7 @@ class SourceAuthProvider(Protocol):
         observed_at: Timestamp,
         binding_revision: Revision,
         credential_revision: Revision,
+        expected_sender: CanonicalSender | None = None,
         raw: bytes | None = None,
     ) -> VerifiedSourceEvidence | None:
         """Return evidence for this exact message, or unknown (``None``)."""
@@ -79,6 +80,7 @@ class UnknownSourceAuthProvider:
         observed_at: Timestamp,
         binding_revision: Revision,
         credential_revision: Revision,
+        expected_sender: CanonicalSender | None = None,
         raw: bytes | None = None,
     ) -> None:
         if (
@@ -120,6 +122,7 @@ class SyntheticSourceAuthProvider:
         observed_at: Timestamp,
         binding_revision: Revision,
         credential_revision: Revision,
+        expected_sender: CanonicalSender | None = None,
         raw: bytes | None = None,
     ) -> VerifiedSourceEvidence | None:
         if (
@@ -182,6 +185,7 @@ class DkimSourceAuthProvider:
         observed_at: Timestamp,
         binding_revision: Revision,
         credential_revision: Revision,
+        expected_sender: CanonicalSender | None = None,
         raw: bytes | None = None,
     ) -> VerifiedSourceEvidence | None:
         if (
@@ -190,21 +194,25 @@ class DkimSourceAuthProvider:
             or type(observed_at) is not Timestamp
             or type(binding_revision) is not Revision
             or type(credential_revision) is not Revision
+            or type(expected_sender) is not CanonicalSender
             or type(raw) is not bytes
             or not raw
             or len(raw) > self.max_raw_bytes
         ):
             return None
         try:
-            from_domain, signing_domains = self._verified_domains(raw)
+            from_sender, signing_domains = self._verified_domains(raw)
         except Exception:
             # The exception may contain provider/raw data.  It must not cross
             # the provider boundary or enter logs/diagnostics.
             return None
+        if from_sender != expected_sender:
+            return None
         aligned = {
             domain
             for domain in signing_domains
-            if domain == from_domain or domain.registrable == from_domain.registrable
+            if domain == from_sender.domain
+            or domain.registrable == from_sender.domain.registrable
         }
         if len(aligned) != 1:
             return None
@@ -238,7 +246,7 @@ class DkimSourceAuthProvider:
         addresses = getaddresses(from_values)
         if len(addresses) != 1 or not addresses[0][1]:
             raise ValueError("from_ambiguous")
-        from_domain = normalize_sender(addresses[0][1]).domain
+        from_sender = normalize_sender(addresses[0][1])
 
         verifier = dkim.DKIM(raw, logger=_SILENT_LOGGER, timeout=self.timeout)
         signatures = [
@@ -247,7 +255,7 @@ class DkimSourceAuthProvider:
             if name.lower() == b"dkim-signature"
         ]
         if not signatures:
-            return from_domain, ()
+            return from_sender, ()
         signing_domains = []
         for index, signature in enumerate(signatures):
             try:
@@ -259,7 +267,7 @@ class DkimSourceAuthProvider:
             if not valid:
                 raise ValueError("signature_invalid")
             signing_domains.append(signing_domain)
-        return from_domain, tuple(signing_domains)
+        return from_sender, tuple(signing_domains)
 
 
 __all__ = (

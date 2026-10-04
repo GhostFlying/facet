@@ -15,10 +15,12 @@ from facet.projection.authenticity import (
     SourcePathStatus,
     _issuer_for_tests,
 )
+from facet.projection.rules import normalize_sender
 
 NOW = datetime(2026, 10, 4, 1, 2, 3, tzinfo=UTC)
 ACCOUNT = PrivateAddress("source@example.invalid")
 MESSAGE = ProviderId("m-1")
+EXPECTED_SENDER = normalize_sender("sender@example.com")
 _SIGNED_RAW = base64.b64decode(
     "REtJTS1TaWduYXR1cmU6IHY9MTsgYT1yc2Etc2hhMjU2OyBjPXJlbGF4ZWQvc2ltcGxlOyBkPWV4YW1wbGUuY29tOw0KIGk9QGV4YW1wbGUuY29tOyBxPWRucy90eHQ7IHM9c2VsOyB0PTE3OTExNTAwNDA7IGg9ZnJvbSA6IHRvIDogc3ViamVjdDsNCiBiaD14L044L2l2UmZHTXhGNTZwOC92a3JUYUhsUGFkR2lqSFJXejBNQjg3OFdrPTsNCiBiPVBGS01ZdEsxaUU0TXhJRWJrMlFwNzkxcDlmdUVTUEd2bmZJeGlzWmg0K1dKWmNaNDdPZmprcy93QkdkT2crcEdIdE5YSQ0KIDVoa2cwdnRkc3h4akh2QVhKVi85c1hzbjgySENYcXN1WTR5b1ozV0ZwZVhKNmpEaTYxeFUrRGphMDgzeXNYY01lTmNIZVkvDQogd2xZOGFQTk5MUitTalpaZCtOUFF4R2xBVmpwVUU1ND0NCkZyb206IHNlbmRlckBleGFtcGxlLmNvbQ0KVG86IHRhcmdldEBleGFtcGxlLmludmFsaWQNClN1YmplY3Q6IFN5bnRoZXRpYw0KDQpCb2R5DQo="
 )
@@ -118,6 +120,7 @@ def test_dkim_provider_issues_bound_evidence_for_aligned_signature():
         observed_at=Timestamp(NOW),
         binding_revision=Revision(1),
         credential_revision=Revision(1),
+        expected_sender=EXPECTED_SENDER,
         raw=_signed_raw(),
     )
     assert evidence is not None
@@ -144,6 +147,7 @@ def test_dkim_provider_fails_closed_for_untrusted_delivery(raw):
             observed_at=Timestamp(NOW),
             binding_revision=Revision(1),
             credential_revision=Revision(1),
+            expected_sender=EXPECTED_SENDER,
             raw=raw,
         )
         is None
@@ -159,6 +163,7 @@ def test_dkim_provider_does_not_use_bounded_or_missing_raw():
             observed_at=Timestamp(NOW),
             binding_revision=Revision(1),
             credential_revision=Revision(1),
+            expected_sender=EXPECTED_SENDER,
         )
         is None
     )
@@ -169,6 +174,22 @@ def test_dkim_provider_does_not_use_bounded_or_missing_raw():
             observed_at=Timestamp(NOW),
             binding_revision=Revision(1),
             credential_revision=Revision(1),
+            expected_sender=EXPECTED_SENDER,
+            raw=_signed_raw(),
+        )
+        is None
+    )
+
+
+def test_dkim_provider_rejects_metadata_raw_sender_mismatch():
+    assert (
+        _dkim_provider().attest(
+            source_account=ACCOUNT,
+            message_id=MESSAGE,
+            observed_at=Timestamp(NOW),
+            binding_revision=Revision(1),
+            credential_revision=Revision(1),
+            expected_sender=normalize_sender("other@example.com"),
             raw=_signed_raw(),
         )
         is None
