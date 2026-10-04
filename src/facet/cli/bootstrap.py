@@ -451,7 +451,7 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
     from facet.gmail.oauth import GoogleOAuthAuthorizer, read_desktop_client
     from facet.gmail.service_factory import GoogleGmailServiceFactory
     from facet.private_paths import read_managed_config
-    from facet.runtime.foreground_runtime import _policy, _ProfileProbe
+    from facet.runtime.foreground_runtime import _policy
     from facet.runtime.state_owner import StateOwner
 
     paths = select_paths(getattr(options, "state_dir", None), None)
@@ -461,6 +461,24 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
     try:
         owner.verify_config_artifact(raw)
         with owner.session.transaction() as uow:
+            rule_collision = uow._execute(
+                "SELECT 1 FROM rules WHERE projection_id=? AND rule_id=? LIMIT 1",
+                (config.projection.id.value, request_nonce.value),
+            ).fetchone()
+        if rule_collision:
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        existing = False
+        with owner.session.transaction() as uow:
+            existing_rows = uow._execute(
+                "SELECT state FROM operations WHERE projection_id=? "
+                "AND request_namespace=? AND request_nonce=? LIMIT 2",
+                (
+                    config.projection.id.value,
+                    owner.owner_info.request_namespace.value,
+                    request_nonce.value,
+                ),
+            ).fetchall()
+            existing = bool(existing_rows)
             operation_id = command_store.authorize_operation(
                 uow, config.projection.id, role, request_nonce
             )
@@ -473,17 +491,76 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
             raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
         if row[0][0] == "completed":
             return {"role": role.value, "binding_state": "verified"}, ()
+        if existing and owner.bindings()[role].state.value != "verified":
+            with owner.session.transaction() as uow:
+                changes = uow._execute(
+                    "SELECT phase FROM credential_changes WHERE "
+                    "projection_id=? AND operation_id=? AND role=? LIMIT 2",
+                    (
+                        config.projection.id.value,
+                        operation_id.value,
+                        role.value,
+                    ),
+                ).fetchall()
+            if changes:
+                raise ConfigError(ErrorCode.MAINTENANCE_REQUIRED)
+            raise ConfigError(ErrorCode.REQUEST_OUTCOME_UNKNOWN)
+        if owner.bindings()[role].state.value == "verified":
+            from facet.db.repositories import credentials as credential_rows
+
+            with owner.session.transaction() as uow:
+                changes = uow._execute(
+                    "SELECT change_id FROM credential_changes WHERE "
+                    "projection_id=? AND operation_id=? AND role=? LIMIT 2",
+                    (
+                        config.projection.id.value,
+                        operation_id.value,
+                        role.value,
+                    ),
+                ).fetchall()
+                change = (
+                    credential_rows.get_change(
+                        uow,
+                        config.projection.id,
+                        role,
+                        LocalId(changes[0][0]),
+                    )
+                    if len(changes) == 1
+                    else None
+                )
+            if change is None:
+                raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
+            if change.phase not in {"validated", "committed"}:
+                raise ConfigError(ErrorCode.MAINTENANCE_REQUIRED)
+            with owner.session.transaction() as uow:
+                if change.phase == "validated":
+                    credential_rows.commit_authorization(
+                        uow, config.projection.id, change
+                    )
+                command_store.complete_authorize_operation(
+                    uow, config.projection.id, operation_id
+                )
+            return {"role": role.value, "binding_state": "verified"}, ()
         client = read_desktop_client(options.oauth_client)
-        secret = GoogleOAuthAuthorizer().authorize(
+        oauth_result = GoogleOAuthAuthorizer().authorize(
             role,
             client,
             policy_scopes(_policy(config, role), role),
             port=port,
         )
+        factory = GoogleGmailServiceFactory()
+
+        class OAuthProfileProbe:
+            def get_profile(self, probe_role, secret):
+                account = factory.profile_account(probe_role, secret)
+                from facet.gmail.credentials import ProfileEvidence
+
+                return ProfileEvidence(account, oauth_result.scopes)
+
         CredentialManager(owner.state_dir, config, owner).authorize_role(
             role,
-            secret,
-            _ProfileProbe(config, GoogleGmailServiceFactory()),
+            oauth_result.secret,
+            OAuthProfileProbe(),
             operation_id,
         )
         with owner.session.transaction() as uow:

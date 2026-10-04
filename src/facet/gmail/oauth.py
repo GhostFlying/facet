@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import contextlib
+import errno
 import os
 import stat
 import sys
+import wsgiref.simple_server
+import wsgiref.util
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import parse_qs, urlsplit
 
 from facet.contracts import ErrorCode, Role, Timestamp
 from facet.db.codecs import StorageFailure
@@ -24,6 +27,7 @@ from .credential_models import (
 
 __all__ = (
     "OAuthAuthorizer",
+    "OAuthResult",
     "GoogleOAuthAuthorizer",
     "read_desktop_client",
 )
@@ -46,16 +50,53 @@ def _scope_values(scopes: ScopeSet) -> tuple[str, ...]:
         _fail(ErrorCode.INVALID_INPUT)
 
 
+_SCOPE_NAMES = {
+    "https://www.googleapis.com/auth/gmail.readonly": ScopeName.GMAIL_READONLY,
+    "https://www.googleapis.com/auth/gmail.insert": ScopeName.GMAIL_INSERT,
+    "https://www.googleapis.com/auth/gmail.modify": ScopeName.GMAIL_MODIFY,
+    "https://www.googleapis.com/auth/gmail.labels": ScopeName.GMAIL_LABELS,
+}
+
+
+class OAuthResult:
+    __slots__ = ("secret", "scopes")
+
+    def __init__(self, secret: ProviderSecret, scopes: ScopeSet):
+        if type(secret) is not ProviderSecret or type(scopes) is not ScopeSet:
+            _fail(ErrorCode.INVALID_INPUT)
+        self.secret = secret
+        self.scopes = scopes
+
+    def __repr__(self):
+        return "<oauth result>"
+
+    __str__ = __repr__
+
+
 def _read_private(path: Path) -> bytes:
+    if not path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        _fail(ErrorCode.SCOPE_REQUIRED)
+    directory = None
     try:
-        parent = path.parent.stat(follow_symlinks=False)
+        directory = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        for component in path.parts[1:-1]:
+            child = os.open(
+                component,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=directory,
+            )
+            os.close(directory)
+            directory = child
+        parent = os.fstat(directory)
         if (
             not stat.S_ISDIR(parent.st_mode)
             or parent.st_uid != os.geteuid()
             or stat.S_IMODE(parent.st_mode) & 0o77
         ):
             _fail(ErrorCode.SCOPE_REQUIRED)
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        descriptor = os.open(
+            path.parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory
+        )
         try:
             info = os.fstat(descriptor)
             if (
@@ -69,12 +110,19 @@ def _read_private(path: Path) -> bytes:
             raw = os.read(descriptor, 32769)
         finally:
             os.close(descriptor)
+            os.close(directory)
+            directory = None
     except FileNotFoundError:
         _fail(ErrorCode.SOURCE_AUTH_REQUIRED)
     except StorageFailure:
         raise
-    except OSError:
+    except OSError as error:
+        if error.errno in {errno.ELOOP, errno.ENOTDIR}:
+            _fail(ErrorCode.SCOPE_REQUIRED)
         _fail(ErrorCode.PERSISTENCE_FAILURE)
+    finally:
+        if directory is not None:
+            os.close(directory)
     if len(raw) > 32768:
         _fail(ErrorCode.SCOPE_REQUIRED)
     return raw
@@ -101,7 +149,7 @@ class OAuthAuthorizer(Protocol):
         scopes: ScopeSet,
         *,
         port: int,
-    ) -> ProviderSecret:
+    ) -> OAuthResult:
         """Exchange one explicit role's loopback consent for private secrets."""
 
 
@@ -115,7 +163,7 @@ class GoogleOAuthAuthorizer:
         scopes: ScopeSet,
         *,
         port: int,
-    ) -> ProviderSecret:
+    ) -> OAuthResult:
         if (
             type(role) is not Role
             or type(client) is not DesktopClientConfig
@@ -137,18 +185,79 @@ class GoogleOAuthAuthorizer:
                 }
             }
             flow = InstalledAppFlow.from_client_config(config, _scope_values(scopes))
-            # google-auth-oauthlib prints its prompt itself. Redirect that
-            # private URL-bearing output to stderr so JSON stdout stays clean.
-            with contextlib.redirect_stdout(sys.stderr):
-                credentials = flow.run_local_server(
-                    host="localhost",
-                    bind_addr="127.0.0.1",
-                    port=port,
-                    open_browser=True,
-                    authorization_prompt_message=(
-                        "Open this authorization URL in the controlling browser: {url}"
-                    ),
+            wsgi_app = _RedirectApp()
+            server = wsgiref.simple_server.make_server(
+                "127.0.0.1",
+                port,
+                wsgi_app,
+                handler_class=_SilentRequestHandler,
+            )
+            try:
+                flow.redirect_uri = f"http://localhost:{server.server_port}/"
+                auth_url, expected_state = flow.authorization_url(
+                    access_type="offline",
+                    prompt="consent",
+                    include_granted_scopes="true",
                 )
+                print(
+                    "Open this authorization URL in the controlling browser: "
+                    + auth_url,
+                    file=sys.stderr,
+                )
+                server.timeout = 300
+                server.handle_request()
+                if wsgi_app.last_request_uri is None or not _valid_callback(
+                    wsgi_app.last_request_uri,
+                    expected_state,
+                    server.server_port,
+                ):
+                    _fail(
+                        ErrorCode.SOURCE_AUTH_REQUIRED
+                        if role is Role.SOURCE
+                        else ErrorCode.TARGET_AUTH_REQUIRED
+                    )
+                flow.fetch_token(
+                    authorization_response=wsgi_app.last_request_uri.replace(
+                        "http", "https", 1
+                    )
+                )
+                credentials = flow.credentials
+            finally:
+                server.server_close()
+            expiry = getattr(credentials, "expiry", None)
+            token = getattr(credentials, "token", None)
+            refresh = getattr(credentials, "refresh_token", None)
+            if not isinstance(token, str) or not token or not isinstance(refresh, str):
+                _fail(
+                    ErrorCode.SOURCE_AUTH_REQUIRED
+                    if role is Role.SOURCE
+                    else ErrorCode.TARGET_AUTH_REQUIRED
+                )
+            if not isinstance(expiry, datetime):
+                _fail(ErrorCode.INVALID_INPUT)
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=UTC)
+            granted = getattr(credentials, "scopes", None)
+            if granted is None:
+                granted = getattr(credentials, "granted_scopes", None)
+            if not isinstance(granted, (tuple, list, set)):
+                _fail(ErrorCode.SCOPE_REQUIRED)
+            try:
+                scope_set = ScopeSet(
+                    frozenset(_SCOPE_NAMES[value] for value in granted)
+                )
+            except (KeyError, TypeError, ValueError):
+                _fail(ErrorCode.SCOPE_REQUIRED)
+            return OAuthResult(
+                ProviderSecret(
+                    ClientIdText(client.client_id.value),
+                    SecretText(client.client_secret.value),
+                    SecretText(token),
+                    SecretText(refresh),
+                    Timestamp(expiry.astimezone(UTC)),
+                ),
+                scope_set,
+            )
         except StorageFailure:
             raise
         except Exception:
@@ -157,23 +266,39 @@ class GoogleOAuthAuthorizer:
                 if role is Role.SOURCE
                 else ErrorCode.TARGET_AUTH_REQUIRED
             )
-        expiry = getattr(credentials, "expiry", None)
-        token = getattr(credentials, "token", None)
-        refresh = getattr(credentials, "refresh_token", None)
-        if not isinstance(token, str) or not token or not isinstance(refresh, str):
-            _fail(
-                ErrorCode.SOURCE_AUTH_REQUIRED
-                if role is Role.SOURCE
-                else ErrorCode.TARGET_AUTH_REQUIRED
-            )
-        if not isinstance(expiry, datetime):
-            _fail(ErrorCode.INVALID_INPUT)
-        if expiry.tzinfo is None:
-            expiry = expiry.replace(tzinfo=UTC)
-        return ProviderSecret(
-            ClientIdText(client.client_id.value),
-            SecretText(client.client_secret.value),
-            SecretText(token),
-            SecretText(refresh),
-            Timestamp(expiry.astimezone(UTC)),
-        )
+
+
+class _SilentRequestHandler(wsgiref.simple_server.WSGIRequestHandler):
+    def log_message(self, _format, *_args):
+        return
+
+
+class _RedirectApp:
+    def __init__(self):
+        self.last_request_uri = None
+
+    def __call__(self, environ, start_response):
+        if environ.get("REQUEST_METHOD") == "GET":
+            self.last_request_uri = wsgiref.util.request_uri(environ)
+        start_response("200 OK", [("Content-type", "text/plain; charset=utf-8")])
+        return [b"Authorization completed. You may close this tab."]
+
+
+def _valid_callback(uri, expected_state, port):
+    if not isinstance(uri, str) or not isinstance(expected_state, str):
+        return False
+    parsed = urlsplit(uri)
+    if (
+        parsed.scheme != "http"
+        or parsed.netloc != f"localhost:{port}"
+        or parsed.path != "/"
+        or parsed.fragment
+    ):
+        return False
+    query = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=False)
+    states = query.get("state", ())
+    codes = query.get("code", ())
+    errors = query.get("error", ())
+    if len(states) != 1 or states[0] != expected_state:
+        return False
+    return (len(codes) == 1 and not errors) or (len(errors) == 1 and not codes)
