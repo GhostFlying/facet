@@ -232,3 +232,42 @@ def test_page_enumeration_failure_is_not_partial(gmail_controller):
             window_end=datetime(2026, 7, 1, tzinfo=UTC),
         )
     assert getattr(error.value, "code", None).value == "network_unavailable"
+
+
+def test_action_label_map_is_optional_when_fixed_labels_are_absent(gmail_controller):
+    gmail_controller.labels(
+        "source",
+        [{"id": "other", "name": "Other", "type": "user"}],
+    )
+    assert _adapter(gmail_controller).action_label_map() is None
+
+
+def test_action_label_map_resolves_all_fixed_labels(gmail_controller):
+    gmail_controller.labels(
+        "source",
+        [
+            {"id": "add-sender", "name": "AI/AddSender", "type": "user"},
+            {"id": "add-domain", "name": "AI/AddDomain", "type": "user"},
+            {"id": "blacklist", "name": "AI/BlackList", "type": "user"},
+        ],
+    )
+    labels = _adapter(gmail_controller).action_label_map()
+    assert labels is not None
+    assert labels.add_sender_label_id.value == "add-sender"
+    assert labels.add_domain_label_id.value == "add-domain"
+    assert labels.blacklist_label_id.value == "blacklist"
+
+
+def test_action_label_map_rejects_duplicate_fixed_labels(gmail_controller):
+    gmail_controller.labels(
+        "source",
+        [
+            {"id": "add-sender-1", "name": "AI/AddSender", "type": "user"},
+            {"id": "add-sender-2", "name": "AI/AddSender", "type": "user"},
+            {"id": "add-domain", "name": "AI/AddDomain", "type": "user"},
+            {"id": "blacklist", "name": "AI/BlackList", "type": "user"},
+        ],
+    )
+    with pytest.raises(ProviderFailure) as error:
+        _adapter(gmail_controller).action_label_map()
+    assert error.value.code is ErrorCode.CONSISTENCY_FAILURE
