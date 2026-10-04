@@ -31,6 +31,7 @@ from facet.contracts import (
     Timestamp,
 )
 from facet.db.codecs import StorageFailure
+from facet.db.models import CredentialChangeRow
 
 from .credential_codec import decode_envelope, encode_envelope
 from .credential_models import (
@@ -391,6 +392,176 @@ class CredentialManager:
         binding = self._owner.bindings()[role]
         return self._snapshot_verified(role, envelope, binding, _owner_now())
 
+    def authorize(self, secrets, reader, operation_ids=None) -> VerifiedBindings:
+        """Persist and verify both initial role credentials as one operation.
+
+        Provider OAuth/exchange is supplied by ``reader``'s profile probe. The
+        manager owns envelope construction, durable change rows, file writes,
+        and the single binding publication; callers cannot mark readiness by
+        writing SQLite rows directly.
+        """
+
+        if (
+            type(secrets) is not dict
+            or set(secrets) != {Role.SOURCE, Role.TARGET}
+            or not hasattr(reader, "get_profile")
+            or any(type(value) is not ProviderSecret for value in secrets.values())
+            or (
+                operation_ids is not None
+                and (
+                    type(operation_ids) is not dict
+                    or set(operation_ids) != {Role.SOURCE, Role.TARGET}
+                    or any(
+                        type(value) is not LocalId for value in operation_ids.values()
+                    )
+                )
+            )
+        ):
+            _fail(ErrorCode.INVALID_INPUT)
+        observed = _owner_now()
+        bindings = self._owner.bindings()
+        profiles = []
+        changes = []
+        candidates = []
+        for role in (Role.SOURCE, Role.TARGET):
+            binding = bindings.get(role)
+            if (
+                binding is None
+                or binding.state is not BindingState.VERIFICATION_PENDING
+            ):
+                _fail(ErrorCode.BINDING_PENDING)
+            secret = secrets[role]
+            if secret.expires_at.value <= observed.value:
+                _fail(
+                    ErrorCode.SOURCE_AUTH_REQUIRED
+                    if role is Role.SOURCE
+                    else ErrorCode.TARGET_AUTH_REQUIRED
+                )
+            try:
+                evidence = reader.get_profile(role, secret)
+            except StorageFailure:
+                raise
+            except Exception:
+                _fail(
+                    ErrorCode.SOURCE_AUTH_REQUIRED
+                    if role is Role.SOURCE
+                    else ErrorCode.TARGET_AUTH_REQUIRED
+                )
+            if type(evidence) is not ProfileEvidence:
+                _fail(ErrorCode.INVALID_INPUT)
+            policy = _expected_policy(self._config, role)
+            expected_scopes = policy_scopes(policy, role)
+            if evidence.scopes != expected_scopes:
+                _fail(ErrorCode.SCOPE_REQUIRED)
+            configured = (
+                self._config.projection.source_email
+                if role is Role.SOURCE
+                else self._config.projection.target_email
+            )
+            if evidence.account.value.casefold() != configured.casefold():
+                _fail(ErrorCode.BINDING_MISMATCH)
+            change_id = LocalId(uuid4().hex)
+            profiles.append(
+                VerifiedProfile(
+                    self._config.projection.id,
+                    role,
+                    evidence.account,
+                    evidence.scopes,
+                    binding.binding_revision,
+                    Revision(1),
+                    observed,
+                )
+            )
+            changes.append(
+                CredentialChangeRow(
+                    self._config.projection.id,
+                    self._owner.owner_info.state_instance_id,
+                    change_id,
+                    role,
+                    "authorize",
+                    "requesting",
+                    Revision(0),
+                    Revision(1),
+                    binding.binding_revision,
+                    Revision(1),
+                    None if operation_ids is None else operation_ids[role],
+                    None,
+                    None,
+                    policy.value,
+                    None,
+                    None,
+                    None,
+                    None,
+                    observed,
+                    secret.expires_at,
+                    observed,
+                    observed,
+                    None,
+                )
+            )
+            candidates.append(
+                CredentialEnvelope(
+                    1,
+                    self._config.projection.id,
+                    self._owner.owner_info.state_instance_id,
+                    role,
+                    binding.binding_revision,
+                    Revision(1),
+                    change_id,
+                    evidence.account,
+                    policy,
+                    Revision(1),
+                    GrantEvidence(
+                        GrantEvidenceKind.AUTHORIZATION_EXPLICIT,
+                        expected_scopes,
+                        expected_scopes,
+                        observed,
+                        None,
+                    ),
+                    observed,
+                    secret,
+                )
+            )
+        from facet.db.repositories import credentials as repository
+
+        for change in changes:
+            with self._owner.session.transaction() as uow:
+                repository.begin_change(uow, self._config.projection.id, change)
+        try:
+            validated = []
+            for change, candidate in zip(changes, candidates, strict=True):
+                raw = encode_envelope(candidate)
+                digest = Sha256Hex(hashlib.sha256(raw).hexdigest())
+                row = replace(
+                    change,
+                    phase="validated",
+                    envelope_digest=digest,
+                    grant_kind=candidate.grant.kind.value,
+                    granted_scopes=",".join(
+                        sorted(scope.value for scope in candidate.grant.granted.value)
+                    ),
+                    grant_observed_at=candidate.grant.observed_at,
+                    profile_verified_at=observed,
+                    expires_at=candidate.secret.expires_at,
+                    updated_at=observed,
+                )
+                with self._owner.session.transaction() as uow:
+                    repository.mark_validated(uow, self._config.projection.id, row)
+                _atomic_write(self._path(change.role), raw)
+                validated.append(row)
+            verified = VerifiedBindings(self._config.projection.id, tuple(profiles))
+            self._owner.publish_verified_bindings(verified)
+            for row in validated:
+                with self._owner.session.transaction() as uow:
+                    repository.commit_authorization(
+                        uow, self._config.projection.id, row
+                    )
+            return verified
+        except StorageFailure as error:
+            for row in changes:
+                self._attention(row.role, row.change_id, error.code)
+            raise
+
     def refresh(self, role: Role, exchange):
         """Single-flight one synthetic/provider-mediated refresh and publish it."""
 
@@ -449,7 +620,6 @@ class CredentialManager:
         observed = _owner_now()
         new_revision = Revision(old.credential_revision.value + 1)
         change_id = LocalId(uuid4().hex)
-        from facet.db.models import CredentialChangeRow
         from facet.db.repositories import credentials as repository
 
         requesting = CredentialChangeRow(

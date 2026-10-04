@@ -211,6 +211,44 @@ def test_verify_rejects_expired_envelope_before_profile_or_publish(
         owner.close()
 
 
+def test_authorize_publishes_both_role_bindings_from_profile_probe(
+    trusted_state_parent, monkeypatch
+):
+    config = initial_template("source@example.invalid", "target@example.invalid")
+    owner = StateOwner.create(
+        trusted_state_parent / "state", config, b"synthetic config"
+    )
+    monkeypatch.setattr(credentials_module, "_owner_now", lambda: FUTURE)
+    manager = CredentialManager(owner.state_dir, config, owner)
+    source_scopes = policy_scopes(ScopePolicy.SOURCE_READONLY, Role.SOURCE)
+    target_scopes = policy_scopes(ScopePolicy.TARGET_DEFAULT, Role.TARGET)
+    reader = Profiles()
+    reader._profiles = {
+        Role.SOURCE: ProfileEvidence(
+            AccountAddress("source@example.invalid"), source_scopes
+        ),
+        Role.TARGET: ProfileEvidence(
+            AccountAddress("target@example.invalid"), target_scopes
+        ),
+    }
+    try:
+        verified = manager.authorize(
+            {
+                Role.SOURCE: _future_secret("source-access"),
+                Role.TARGET: _future_secret("target-access"),
+            },
+            reader,
+        )
+        assert {profile.role for profile in verified.profiles} == {
+            Role.SOURCE,
+            Role.TARGET,
+        }
+        assert all(row.state.value == "verified" for row in owner.bindings().values())
+        assert manager.snapshot(Role.SOURCE).access_token.value == "source-access"
+    finally:
+        owner.close()
+
+
 def test_refresh_serializes_and_commits_metadata_only(
     trusted_state_parent, monkeypatch
 ):

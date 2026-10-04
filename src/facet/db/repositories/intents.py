@@ -355,11 +355,23 @@ def _result_binding(uow, projection_id, attempt):
         ),
     )
     current = _get(uow, projection_id, "bindings", (("role", Role.TARGET),))
+    historical_identity_matches = (
+        historical is not None
+        and current is not None
+        and (
+            historical.verified_address == current.declared_address
+            or (
+                historical.verified_address is None
+                and historical.declared_address == current.declared_address
+                and historical.state.value == "verification_pending"
+            )
+        )
+    )
     if (
         historical is None
         or current is None
         or attempt.binding_role is not Role.TARGET
-        or historical.verified_address != current.declared_address
+        or not historical_identity_matches
         or historical.declared_address != current.declared_address
     ):
         _conflict()

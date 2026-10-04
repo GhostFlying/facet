@@ -1,6 +1,6 @@
 # CLI sync closure
 
-Date: 2026-10-04. Status: fact check and convergence plan.
+Date: 2026-10-04. Status: implementation candidate in focused verification.
 
 ## User-observable next delivery
 
@@ -55,3 +55,18 @@ producer; fake evidence is test-only and cannot close that live gate.
 
 This is a minimal revision to the next execution-plan ordering, not a new Phase
 1 contract or a waiver of M1–M6 acceptance gates.
+
+## Candidate evidence and remaining gap
+
+The current candidate implements the fake-only authorization command, exact
+sender rule command, write-free preview, explicit start, persisted ruleset
+loading, and `run --once --fake` runtime dispatch. A clean subprocess path has
+passed init → authorize → rule → preview → start → run twice: the first run
+discovered one synthetic thread, completed one insert/readback and one durable
+mapping; the second run projected zero new messages. The same behavior is
+covered by `tests/cli/test_bootstrap.py` without database readiness seeding.
+
+This does not close live automatic admission. The non-fake authorization path
+still returns `source_auth_required`, and the fake runner uses test-only source
+attestation evidence. A real OAuth flow and verified Gmail source-path
+attestation remain the next external/provider-bound implementation gap.

@@ -524,14 +524,21 @@ engineering integration and remaining gates are in the sections above.
 
 ## Current product closure
 
-The next unit is bounded by `implementation-plans/cli-sync-closure.md`. It
-owns one user-visible path: auth/binding command, persisted rules, preview,
-explicit backfill start, `run --once` dispatch, and a subprocess restart E2E
-against fake OAuth/Gmail. Current CLI commands are `init`, config reads, and
-preflight-only `run --once`; no command yet completes a sync. The key missing
-technical gate is real source-path attestation for automatic admission; fake
-evidence remains test-only. Dashboard, Compose, Actions, scheduling and
-unrelated maintenance commands are not on this closure path.
+The bounded unit in `implementation-plans/cli-sync-closure.md` now has an
+offline-tested candidate. From a clean private state directory, the CLI can
+execute `init`, fake authorization/profile binding for both roles, exact sender
+rule creation, write-free backfill preview, explicit backfill start, and
+`run --once --fake`. The first run discovers one synthetic thread, inserts and
+reads back one message, and persists one mapping; a second process run produces
+zero new projections. The subprocess evidence is in
+`tests/cli/test_bootstrap.py`; the complete offline suite is 2495 passed.
+
+This is implemented and offline-tested, not live-Gmail-verified or Phase 1
+complete. Non-fake authorization still stops at `source_auth_required`, and
+the fake runner uses test-only source-path evidence. Real OAuth/profile
+attestation and controlled Gmail verification remain the next provider-bound
+gates. Dashboard, Compose, Actions, scheduling and unrelated maintenance
+commands remain outside this closure unit.
 
 ## Historical next-unit note
 

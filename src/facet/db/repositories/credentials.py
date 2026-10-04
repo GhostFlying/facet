@@ -12,6 +12,7 @@ __all__ = (
     "begin_change",
     "mark_validated",
     "commit_change",
+    "commit_authorization",
     "abandon_change",
     "mark_attention",
 )
@@ -250,6 +251,28 @@ def commit_change(uow, projection_id: ProjectionId, row: CredentialChangeRow):
             projection_id.value,
             row.change_id.value,
             row.role.value,
+        ),
+    )
+    return WriteReceipt("updated", row.change_id, row.new_revision)
+
+
+@_mutating
+def commit_authorization(uow, projection_id: ProjectionId, row: CredentialChangeRow):
+    """Finalize an authorization after both role bindings are published."""
+
+    if type(row) is not CredentialChangeRow or row.projection_id != projection_id:
+        _fail(ErrorCode.INVALID_INPUT)
+    current = _find(uow, projection_id, row.role, row.change_id)
+    if current is None or current != row or row.kind != "authorize":
+        _fail(ErrorCode.REQUEST_CONFLICT)
+    uow._execute(
+        "UPDATE credential_changes SET phase='committed',updated_at=? "
+        "WHERE projection_id=? AND role=? AND change_id=? AND phase='validated'",
+        (
+            timestamp_to_sql(row.updated_at),
+            projection_id.value,
+            row.role.value,
+            row.change_id.value,
         ),
     )
     return WriteReceipt("updated", row.change_id, row.new_revision)
