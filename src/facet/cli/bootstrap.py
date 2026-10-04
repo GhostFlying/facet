@@ -479,7 +479,10 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
                     request_nonce.value,
                 ),
             ).fetchall()
-            existing = bool(existing_rows)
+        if any(command != "auth_authorize" for command, _state in existing_rows):
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        existing = bool(existing_rows)
+        with owner.session.transaction() as uow:
             operation_id = command_store.authorize_operation(
                 uow, config.projection.id, role, request_nonce
             )
@@ -488,8 +491,6 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
                 "AND operation_id=? LIMIT 2",
                 (config.projection.id.value, operation_id.value),
             ).fetchall()
-        if any(command != "auth_authorize" for command, _state in existing_rows):
-            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
         if len(row) != 1:
             raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
         if row[0][0] == "completed":
