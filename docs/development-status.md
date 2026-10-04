@@ -109,7 +109,7 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   pending-binding publication, access-only service construction, and then
   invokes the existing `ForegroundSync` through one injectable factory seam.
   Synthetic evidence is `tests/integration/test_foreground_runtime.py` plus
-  the credential consumer/manager suites (27 focused tests); the Google
+  the credential consumer/manager suites (36 focused tests); the Google
   factory never receives refresh tokens and no provider payload is persisted.
   This is offline-tested only. The CLI still stops at its preflight until the
   production OAuth command and persisted-rule admission loader are delivered;
@@ -517,11 +517,23 @@ engineering integration and remaining gates are in the sections above.
 - The follow-up candidate adds typed factory failures, access-token-only
   construction tests, and missing/swapped/expired/mismatched credential tests
   with unchanged bindings and no sync service on failure. The focused runtime
-  and factory suite passes (10 tests); Ruff and format checks pass locally.
-  Full-suite completion, independent candidate review, and CI rerun remain
-  required before merge. No live Gmail or deployment action was used.
+  and factory suite passes (36 tests including credential consumers); the
+  complete offline suite passed 2490 tests, both CI lanes passed, and the
+  candidate merged as `bc3922a908458ba0e8db1d1573773bfd22fe6dbd`. No live
+  Gmail or deployment action was used.
 
-## Next authorized development unit
+## Current product closure
+
+The next unit is bounded by `implementation-plans/cli-sync-closure.md`. It
+owns one user-visible path: auth/binding command, persisted rules, preview,
+explicit backfill start, `run --once` dispatch, and a subprocess restart E2E
+against fake OAuth/Gmail. Current CLI commands are `init`, config reads, and
+preflight-only `run --once`; no command yet completes a sync. The key missing
+technical gate is real source-path attestation for automatic admission; fake
+evidence remains test-only. Dashboard, Compose, Actions, scheduling and
+unrelated maintenance commands are not on this closure path.
+
+## Historical next-unit note
 
 The next product-bearing unit is the smallest integration that can turn the
 pure M2 seam into a real discovery decision: release M1-06's verified
