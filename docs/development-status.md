@@ -67,7 +67,7 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   `config.yaml`, and can replay a completed or incomplete bootstrap without a
   second database. `facet run --once` opens managed state and stops at
   `binding_pending` before any Gmail/provider construction. Focused subprocess
-  evidence is `tests/cli/test_init.py` (4) plus the retained CLI suite (38);
+  evidence is `tests/cli/test_init.py` (8) plus the retained CLI suite (40);
   exact candidate review/full CI are still pending. The bootstrap slice uses
   explicit request IDs only; the complete G1 TTY journal/generation protocol,
   OAuth/profile verification and a real Gmail service factory remain open.

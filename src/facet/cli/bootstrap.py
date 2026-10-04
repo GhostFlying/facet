@@ -14,7 +14,11 @@ from uuid import uuid4
 from facet import __version__
 from facet.config import ConfigError, dump_config, initial_template, load_config
 from facet.contracts import ErrorCode, ProjectionId
-from facet.private_paths import inspect_state_root, select_paths
+from facet.private_paths import (
+    inspect_state_root,
+    read_managed_config,
+    select_paths,
+)
 
 from .config import config_read
 
@@ -133,7 +137,7 @@ def _write_config(path: Path, raw: bytes) -> None:
         ):
             raise ConfigError(ErrorCode.SCOPE_REQUIRED)
         try:
-            if _read_managed_config(path) == raw:
+            if read_managed_config(select_paths(str(parent), None)) == raw:
                 _sync_directory(parent)
                 return
         except ConfigError:
@@ -183,41 +187,6 @@ def _sync_directory(path: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
-
-
-def _read_managed_config(path: Path) -> bytes:
-    try:
-        descriptor = os.open(
-            path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
-        )
-    except OSError:
-        raise ConfigError(ErrorCode.OWNER_UNAVAILABLE) from None
-    try:
-        info = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_uid != os.geteuid()
-            or stat.S_IMODE(info.st_mode) & 0o77
-            or info.st_nlink != 1
-            or info.st_size > 1024 * 1024
-        ):
-            raise ConfigError(ErrorCode.SCOPE_REQUIRED)
-        chunks = []
-        remaining = info.st_size + 1
-        while remaining:
-            chunk = os.read(descriptor, remaining)
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        raw = b"".join(chunks)
-    except OSError:
-        raise ConfigError(ErrorCode.PERSISTENCE_FAILURE) from None
-    finally:
-        os.close(descriptor)
-    if len(raw) != info.st_size or len(raw) > 1024 * 1024:
-        raise ConfigError(ErrorCode.OWNER_BUSY)
-    return raw
 
 
 def _init_command(options: object) -> tuple[dict, tuple[str, ...]]:
@@ -291,7 +260,7 @@ def _run_preflight(options: object) -> tuple[dict, tuple[str, ...]]:
     )
     if getattr(options, "config_path", None) is not None:
         raise ConfigError(ErrorCode.INVALID_INPUT)
-    raw = _read_managed_config(paths.config)
+    raw = read_managed_config(paths)
     config = load_config(raw)
     if (
         getattr(options, "projection", None) is not None
@@ -300,6 +269,10 @@ def _run_preflight(options: object) -> tuple[dict, tuple[str, ...]]:
         raise ConfigError(ErrorCode.BINDING_MISMATCH)
     owner = StateOwner.open(paths.root, config)
     try:
+        locked_raw = read_managed_config(paths)
+        if locked_raw != raw:
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        owner.verify_config_artifact(locked_raw)
         bindings = owner.bindings()
         if any(
             binding is None or binding.state.value != "verified"

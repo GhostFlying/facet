@@ -421,6 +421,32 @@ class StateOwner:
                     private_root.close_root(root)
             raise
 
+    def verify_config_artifact(self, config_bytes: bytes) -> None:
+        """Verify the locked state's canonical bootstrap artifact digest."""
+        if type(config_bytes) is not bytes:
+            _invalid()
+        digest = hashlib.sha256(config_bytes).hexdigest()
+        try:
+            rows = self._connection.execute(
+                "SELECT b.config_artifact_digest "
+                "FROM operation_bootstrap b "
+                "JOIN operations o ON o.projection_id=b.projection_id "
+                "AND o.operation_id=b.operation_id "
+                "WHERE b.projection_id=? AND o.command=? "
+                "AND o.state=? LIMIT 2",
+                (
+                    self._config.projection.id.value,
+                    BootstrapCommand.FACET_INIT.value,
+                    "completed",
+                ),
+            ).fetchall()
+        except sqlite3.Error:
+            _invalid(ErrorCode.DATABASE_UNAVAILABLE)
+        if len(rows) != 1:
+            _invalid(ErrorCode.MAINTENANCE_REQUIRED)
+        if rows[0][0] != digest:
+            _invalid(ErrorCode.REQUEST_CONFLICT)
+
     @property
     def state_dir(self) -> Path:
         return self._state_dir

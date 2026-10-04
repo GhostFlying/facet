@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 import pytest
 
 from facet.config import dump_config, initial_template
+from facet.db.codecs import StorageFailure
 from facet.runtime.state_owner import StateOwner
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -225,3 +226,74 @@ def test_init_replay_refuses_active_owner(trusted_root):
     )
     assert result.returncode == 2
     assert json.loads(result.stdout)["code"] == "invalid_input"
+
+
+def test_run_rejects_changed_managed_config_after_initialization(trusted_root):
+    state = trusted_root / "state"
+    result = _run(
+        trusted_root,
+        "init",
+        "--state-dir",
+        str(state),
+        "--source",
+        "source@synthetic.example",
+        "--target",
+        "target@synthetic.example",
+        "--request-id",
+        REQUEST,
+        "--yes",
+    )
+    assert result.returncode == 0
+    config_path = state / "config.yaml"
+    config_path.write_bytes(
+        config_path.read_bytes().replace(
+            b"poll_interval_seconds: 30", b"poll_interval_seconds: 31"
+        )
+    )
+    blocked = _run(trusted_root, "run", "--state-dir", str(state), "--once")
+    assert blocked.returncode == 3
+    assert json.loads(blocked.stdout)["code"] == "request_conflict"
+
+
+def test_run_rejects_managed_config_symlink(trusted_root):
+    state = trusted_root / "state"
+    result = _run(
+        trusted_root,
+        "init",
+        "--state-dir",
+        str(state),
+        "--source",
+        "source@synthetic.example",
+        "--target",
+        "target@synthetic.example",
+        "--request-id",
+        REQUEST,
+        "--yes",
+    )
+    assert result.returncode == 0
+    config_path = state / "config.yaml"
+    external = trusted_root / "external-config.yaml"
+    external.write_bytes(config_path.read_bytes())
+    config_path.unlink()
+    config_path.symlink_to(external)
+    blocked = _run(trusted_root, "run", "--state-dir", str(state), "--once")
+    assert blocked.returncode == 3
+    assert json.loads(blocked.stdout)["code"] == "scope_required"
+
+
+def test_missing_bootstrap_digest_is_maintenance_required():
+    config = initial_template("source@synthetic.example", "target@synthetic.example")
+
+    class EmptyConnection:
+        def execute(self, *_args):
+            return self
+
+        def fetchall(self):
+            return []
+
+    owner = object.__new__(StateOwner)
+    owner._connection = EmptyConnection()
+    owner._config = config
+    with pytest.raises(StorageFailure) as error:
+        owner.verify_config_artifact(dump_config(config))
+    assert error.value.code.value == "maintenance_required"

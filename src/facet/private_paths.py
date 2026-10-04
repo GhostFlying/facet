@@ -152,6 +152,81 @@ def read_standalone_config(paths: PrivatePaths, *, explicit: bool) -> bytes:
             os.close(parent)
 
 
+def read_managed_config(paths: PrivatePaths) -> bytes:
+    """Read the fixed root/config.yaml inode without following a path race."""
+    if paths.config != paths.root / "config.yaml":
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+    parent = descriptor = None
+    try:
+        parent = _open_parent(paths.root)
+        root_info = os.stat(paths.root.name, dir_fd=parent, follow_symlinks=False)
+        _owner_only(root_info, directory=True)
+        root = os.open(
+            paths.root.name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=parent,
+        )
+        os.close(parent)
+        parent = root
+        before_parent = os.fstat(parent)
+        descriptor = os.open(
+            "config.yaml",
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
+            dir_fd=parent,
+        )
+        before = os.fstat(descriptor)
+        _owner_only(before)
+        if before.st_size > MAX_CONFIG_BYTES:
+            raise ConfigError()
+        chunks = []
+        remaining = MAX_CONFIG_BYTES + 1
+        while remaining:
+            chunk = os.read(descriptor, min(remaining, 65536))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        after = os.fstat(descriptor)
+        named = os.stat("config.yaml", dir_fd=parent, follow_symlinks=False)
+        current_parent = os.fstat(parent)
+        if (
+            (
+                before_parent.st_dev,
+                before_parent.st_ino,
+            )
+            != (current_parent.st_dev, current_parent.st_ino)
+            or (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            )
+            != (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            )
+            or (after.st_dev, after.st_ino) != (named.st_dev, named.st_ino)
+        ):
+            raise ConfigError(ErrorCode.OWNER_BUSY)
+        raw = b"".join(chunks)
+        if len(raw) > MAX_CONFIG_BYTES:
+            raise ConfigError()
+        return raw
+    except ConfigError:
+        raise
+    except OSError:
+        raise ConfigError(ErrorCode.SCOPE_REQUIRED) from None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if parent is not None:
+            os.close(parent)
+
+
 def filesystem_warning(root: Path) -> str:
     """Reject known remote filesystems; unknown detection never proves WAL safety."""
     try:

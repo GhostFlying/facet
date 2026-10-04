@@ -78,6 +78,8 @@ construction are delivered separately.
 - `src/facet/runtime/state_owner.py`: the existing owner API gains the minimal
   request-seeded create and stopped-bootstrap inspection/recovery methods; no
   second lock/session implementation is introduced.
+- `src/facet/private_paths.py`: fixed managed-config reads use root-relative,
+  no-follow descriptors and inode/parent consistency checks.
 - New focused tests under `tests/cli/` and `tests/unit/`.
 - `docs/development-status.md` and `docs/phase-1-progress.md`: one integration
   handoff after acceptance; no concurrent historical rewrite.
