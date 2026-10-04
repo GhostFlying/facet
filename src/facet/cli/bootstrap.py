@@ -1,13 +1,24 @@
 """Production CLI foundation, with sanitized errors and no implicit live calls."""
 
 import argparse
+import hashlib
 import json
 import math
+import os
+import stat
 import sys
+from contextlib import suppress
+from pathlib import Path
+from uuid import uuid4
 
 from facet import __version__
-from facet.config import ConfigError
+from facet.config import ConfigError, dump_config, initial_template, load_config
 from facet.contracts import ErrorCode, ProjectionId
+from facet.private_paths import (
+    inspect_state_root,
+    read_managed_config,
+    select_paths,
+)
 
 from .config import config_read
 
@@ -46,9 +57,8 @@ def build_parser() -> _Parser:
         add_help=False,
         allow_abbrev=False,
         description=(
-            "Facet production foundation: offline standalone config reads. "
-            "Managed reads and mutations await the single-writer owner; "
-            "no Gmail calls or backfill are started."
+            "Facet private initialization and offline config reads. "
+            "Run currently performs preflight only; OAuth and sync wiring pending."
         ),
     )
     _common(parser)
@@ -57,10 +67,12 @@ def build_parser() -> _Parser:
         "init",
         add_help=False,
         allow_abbrev=False,
-        help="unavailable until ownership/init integration",
+        help="initialize one private Facet projection state",
     )
     _common(init)
     _mutations(init)
+    init.add_argument("--source")
+    init.add_argument("--target")
     config = commands.add_parser(
         "config",
         add_help=False,
@@ -91,7 +103,185 @@ def build_parser() -> _Parser:
             command.add_argument("--target")
         if name == "apply":
             command.add_argument("--file", help="planned operational-change input")
+    run = commands.add_parser(
+        "run",
+        add_help=False,
+        allow_abbrev=False,
+        help="check foreground prerequisites; sync service wiring pending",
+    )
+    _common(run)
+    run.add_argument("--once", action="store_true")
     return parser
+
+
+def _write_config(path: Path, raw: bytes) -> None:
+    """Publish a newly-created private config without following links."""
+    parent = path.parent
+    info = parent.stat(follow_symlinks=False)
+    if (
+        not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.geteuid()
+        or stat.S_IMODE(info.st_mode) & 0o77
+    ):
+        raise ConfigError(ErrorCode.SCOPE_REQUIRED)
+    try:
+        existing = path.lstat()
+    except FileNotFoundError:
+        existing = None
+    if existing is not None:
+        if (
+            not stat.S_ISREG(existing.st_mode)
+            or existing.st_uid != os.geteuid()
+            or stat.S_IMODE(existing.st_mode) & 0o77
+            or existing.st_nlink != 1
+        ):
+            raise ConfigError(ErrorCode.SCOPE_REQUIRED)
+        try:
+            if read_managed_config(select_paths(str(parent), None)) == raw:
+                _sync_directory(parent)
+                return
+        except ConfigError:
+            raise
+        except OSError:
+            raise ConfigError(ErrorCode.PERSISTENCE_FAILURE) from None
+        raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+    temporary = parent / (".config-" + uuid4().hex + ".pending")
+    descriptor = None
+    created = False
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+        )
+        created = True
+        offset = 0
+        while offset < len(raw):
+            written = os.write(descriptor, raw[offset:])
+            if written == 0:
+                raise OSError()
+            offset += written
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = None
+        # link is atomic and fails if another file already occupies config.yaml.
+        os.link(temporary, path, follow_symlinks=False)
+        temporary.unlink()
+        created = False
+        _sync_directory(parent)
+    except FileExistsError:
+        raise ConfigError(ErrorCode.OWNER_BUSY) from None
+    except OSError:
+        raise ConfigError(ErrorCode.PERSISTENCE_FAILURE) from None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if created:
+            with suppress(OSError):
+                temporary.unlink()
+
+
+def _sync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _init_command(options: object) -> tuple[dict, tuple[str, ...]]:
+    if getattr(options, "config_path", None) is not None:
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+    if getattr(options, "public", False):
+        raise ConfigError(ErrorCode.SCOPE_REQUIRED)
+    if not getattr(options, "yes", False):
+        raise ConfigError(ErrorCode.CONFIRMATION_REQUIRED)
+    request_id = getattr(options, "request_id", None)
+    if request_id is None:
+        raise ConfigError(ErrorCode.CONFIRMATION_REQUIRED)
+    from facet.db.command_records import RequestId
+    from facet.runtime.state_owner import StateOwner
+
+    try:
+        RequestId(request_id)
+        config = initial_template(
+            options.source,
+            options.target,
+            getattr(options, "projection", None) or "gmail-default",
+        )
+        raw = dump_config(config)
+    except (TypeError, ValueError):
+        raise ConfigError(ErrorCode.INVALID_INPUT) from None
+    paths = select_paths(getattr(options, "state_dir", None), None)
+    if inspect_state_root(paths.root):
+        with StateOwner.inspect_initialization(
+            paths.root, config.projection.id, request_id
+        ) as inspection:
+            payload = inspection.current_payload
+            if (
+                payload is None
+                or payload.config_artifact_digest.value
+                != hashlib.sha256(raw).hexdigest()
+            ):
+                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+            _write_config(paths.config, raw)
+        data = {
+            "state_initialized": True,
+            "binding_state": "verification_pending",
+            "replayed": True,
+        }
+    else:
+        owner = StateOwner.create(paths.root, config, raw, request_id=request_id)
+        try:
+            _write_config(paths.config, raw)
+        finally:
+            owner.close()
+        data = {
+            "state_initialized": True,
+            "binding_state": "verification_pending",
+            "replayed": False,
+        }
+    if getattr(options, "private_metadata", False):
+        data["private_metadata"] = {
+            "projection": config.projection.id.value,
+            "source_email": config.projection.source_email,
+            "target_email": config.projection.target_email,
+            "state_dir": str(paths.root),
+            "config": str(paths.config),
+        }
+    return data, ("binding_verification_pending",)
+
+
+def _run_preflight(options: object) -> tuple[dict, tuple[str, ...]]:
+    from facet.runtime.state_owner import StateOwner
+
+    paths = select_paths(
+        getattr(options, "state_dir", None), getattr(options, "config_path", None)
+    )
+    if getattr(options, "config_path", None) is not None:
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+    raw = read_managed_config(paths)
+    config = load_config(raw)
+    if (
+        getattr(options, "projection", None) is not None
+        and ProjectionId(options.projection) != config.projection.id
+    ):
+        raise ConfigError(ErrorCode.BINDING_MISMATCH)
+    owner = StateOwner.open(paths.root, config)
+    try:
+        locked_raw = read_managed_config(paths)
+        if locked_raw != raw:
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        owner.verify_config_artifact(locked_raw)
+        bindings = owner.bindings()
+        if any(
+            binding is None or binding.state.value != "verified"
+            for binding in bindings.values()
+        ):
+            raise ConfigError(ErrorCode.BINDING_PENDING)
+        raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
+    finally:
+        owner.close()
 
 
 def _check_arguments(argv: list[str]) -> None:
@@ -115,8 +305,13 @@ def _emit(
 ) -> int:
     exits = {
         ErrorCode.INVALID_INPUT: 2,
+        ErrorCode.CONFIRMATION_REQUIRED: 2,
+        ErrorCode.REQUEST_CONFLICT: 3,
         ErrorCode.BINDING_MISMATCH: 3,
+        ErrorCode.BINDING_PENDING: 3,
         ErrorCode.SCOPE_REQUIRED: 3,
+        ErrorCode.SOURCE_AUTH_REQUIRED: 3,
+        ErrorCode.TARGET_AUTH_REQUIRED: 3,
         ErrorCode.OWNER_UNAVAILABLE: 4,
         ErrorCode.OWNER_BUSY: 4,
         ErrorCode.MAINTENANCE_INCOMPLETE: 4,
@@ -171,7 +366,14 @@ def main(argv: list[str] | None = None) -> int:
                 raise _InputError()
         if options.family == "init":
             command = "init"
-            raise ConfigError(ErrorCode.OWNER_UNAVAILABLE)
+            data, warnings = _init_command(options)
+            return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
+        if options.family == "run":
+            command = "run"
+            if not getattr(options, "once", False):
+                raise _InputError()
+            data, warnings = _run_preflight(options)
+            return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
         if options.family != "config" or options.action is None:
             raise _InputError()
         command = f"config.{options.action}"
@@ -185,3 +387,8 @@ def main(argv: list[str] | None = None) -> int:
         return _emit(command, code=ErrorCode.INVALID_INPUT, json_mode=json_mode)
     except OSError:
         return _emit(command, code=ErrorCode.PERSISTENCE_FAILURE, json_mode=json_mode)
+    except Exception as error:
+        code = getattr(error, "code", ErrorCode.PERSISTENCE_FAILURE)
+        if type(code) is not ErrorCode:
+            code = ErrorCode.PERSISTENCE_FAILURE
+        return _emit(command, code=code, json_mode=json_mode)

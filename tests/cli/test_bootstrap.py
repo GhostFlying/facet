@@ -93,7 +93,6 @@ def run(tmp_path, env, *arguments, module=False):
         ("--version",),
         ("--json", "--help"),
         ("--json", "--version"),
-        ("init", "--json", "--yes", "--request-id", "synthetic-key"),
         (
             "config",
             "init",
@@ -129,6 +128,24 @@ def test_help_version_and_unavailable_routes_are_zero_effect(tmp_path, arguments
     else:
         assert result.returncode == 4
         assert json.loads(result.stdout)["code"] == "owner_unavailable"
+
+
+def test_init_missing_scope_is_zero_effect(tmp_path):
+    _, env = setup(tmp_path)
+    before = snapshot(tmp_path)
+    result = run(
+        tmp_path,
+        env,
+        "init",
+        "--source",
+        "source@synthetic.example",
+        "--target",
+        "target@synthetic.example",
+        "--json",
+    )
+    assert result.returncode == 2
+    assert json.loads(result.stdout)["code"] == "confirmation_required"
+    assert snapshot(tmp_path) == before
 
 
 @pytest.mark.parametrize("position", ["before", "middle", "after"])

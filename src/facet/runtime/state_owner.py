@@ -12,7 +12,7 @@ import hashlib
 import os
 import sqlite3
 import stat
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -36,12 +36,14 @@ from facet.db.command_records import (
     BootstrapCommand,
     BootstrapOperationSeed,
     FreshCommandBootstrap,
+    RequestId,
 )
 from facet.db.connection import (
     WriterSession,
     _begin_owner_session_v2,
     _configure_writer,
     _initialize_database_v2,
+    _inspect_bootstrap_v2,
 )
 from facet.db.models import (
     BindingRow,
@@ -68,6 +70,17 @@ def _new_id() -> LocalId:
 
 def _timestamp() -> Timestamp:
     return Timestamp(datetime.now(UTC))
+
+
+def _request_parts(request_id: str | None) -> tuple[LocalId, LocalId]:
+    if request_id is None:
+        return _new_id(), _new_id()
+    try:
+        parsed = RequestId(request_id)
+        _, namespace, nonce = parsed.value.split("_")
+        return LocalId(namespace), LocalId(nonce)
+    except (TypeError, ValueError):
+        _invalid(ErrorCode.INVALID_INPUT)
 
 
 def _check_directory(path: Path, *, create: bool) -> None:
@@ -193,10 +206,15 @@ class StateOwner:
 
     @classmethod
     def create(
-        cls, state_dir: str | os.PathLike[str], config: Config, config_bytes: bytes
+        cls,
+        state_dir: str | os.PathLike[str],
+        config: Config,
+        config_bytes: bytes,
+        request_id: str | None = None,
     ) -> StateOwner:
         if type(config) is not Config or type(config_bytes) is not bytes:
             _invalid()
+        request_namespace, bootstrap_nonce = _request_parts(request_id)
         state = Path(state_dir)
         _check_directory(state, create=True)
         runtime = state / "runtime-locks"
@@ -210,7 +228,7 @@ class StateOwner:
             database = state / "facet.db"
             connection = _open_database(database, create=True)
             now = _timestamp()
-            info = OwnerSessionInfo(_new_id(), _new_id(), _new_id())
+            info = OwnerSessionInfo(_new_id(), _new_id(), request_namespace)
             projection = ProjectionRow(
                 config.projection.id,
                 Count(1),
@@ -242,7 +260,6 @@ class StateOwner:
                 )
                 for role in Role
             )
-            bootstrap_nonce = _new_id()
             session = _initialize_database_v2(
                 connection,
                 bootstrap=BootstrapInitContext(info, bootstrap_nonce),
@@ -276,6 +293,58 @@ class StateOwner:
                 with suppress(BaseException):
                     private_root.close_root(root)
             raise
+
+    @classmethod
+    @contextmanager
+    def inspect_initialization(
+        cls,
+        state_dir: str | os.PathLike[str],
+        projection_id: ProjectionId,
+        request_id: str,
+    ):
+        """Inspect a stopped bootstrap journal while holding the owner lock."""
+        if type(projection_id) is not ProjectionId:
+            _invalid()
+        request_namespace, nonce = _request_parts(request_id)
+        state = Path(state_dir)
+        _check_directory(state, create=False)
+        runtime = state / "runtime-locks"
+        credentials = state / "credentials"
+        _check_directory(runtime, create=False)
+        _check_directory(credentials, create=False)
+        database = state / "facet.db"
+        _check_file(database)
+        root = lease = connection = None
+        try:
+            root = private_root.open_existing_root(str(runtime))
+            lease = locks.acquire_owner(root)
+            connection = _open_database(database, create=False)
+            _configure_writer(connection, creating=False)
+            try:
+                inspection = _inspect_bootstrap_v2(
+                    connection,
+                    projection_id=projection_id,
+                    namespace=request_namespace,
+                    nonce=nonce,
+                    prior_config_nonce=None,
+                )
+            except StorageFailure as error:
+                if error.code is ErrorCode.REQUEST_LINEAGE_MISMATCH:
+                    _invalid(ErrorCode.REQUEST_CONFLICT)
+                raise
+            # Keep the same owner lease through digest validation and config
+            # publication, including incomplete-init replay.
+            yield inspection
+        finally:
+            if connection is not None:
+                with suppress(BaseException):
+                    connection.close()
+            if lease is not None:
+                with suppress(BaseException):
+                    locks.release_lock(lease)
+            if root is not None:
+                with suppress(BaseException):
+                    private_root.close_root(root)
 
     @classmethod
     def open(cls, state_dir: str | os.PathLike[str], config: Config) -> StateOwner:
@@ -351,6 +420,32 @@ class StateOwner:
                 with suppress(BaseException):
                     private_root.close_root(root)
             raise
+
+    def verify_config_artifact(self, config_bytes: bytes) -> None:
+        """Verify the locked state's canonical bootstrap artifact digest."""
+        if type(config_bytes) is not bytes:
+            _invalid()
+        digest = hashlib.sha256(config_bytes).hexdigest()
+        try:
+            rows = self._connection.execute(
+                "SELECT b.config_artifact_digest "
+                "FROM operation_bootstrap b "
+                "JOIN operations o ON o.projection_id=b.projection_id "
+                "AND o.operation_id=b.operation_id "
+                "WHERE b.projection_id=? AND o.command=? "
+                "AND o.state=? LIMIT 2",
+                (
+                    self._config.projection.id.value,
+                    BootstrapCommand.FACET_INIT.value,
+                    "completed",
+                ),
+            ).fetchall()
+        except sqlite3.Error:
+            _invalid(ErrorCode.DATABASE_UNAVAILABLE)
+        if len(rows) != 1:
+            _invalid(ErrorCode.MAINTENANCE_REQUIRED)
+        if rows[0][0] != digest:
+            _invalid(ErrorCode.REQUEST_CONFLICT)
 
     @property
     def state_dir(self) -> Path:
