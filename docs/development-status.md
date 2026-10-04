@@ -142,6 +142,19 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   it does not resolve source-path attestation, automatic production admission,
   live Gmail, recovery, deployment, or final Phase 1 gates.
 
+- The aggregate maintenance-view unit is integrated in PR #65 at main merge
+  `535e096` (implementation candidate `4835a42`; plan:
+  `implementation-plans/m4-cli-aggregate-views.md`). `facet backfill status
+  --json`, `facet queue list --json`, and `facet review list --json` reuse the
+  existing offline, read-only status snapshot and expose only progress, queue
+  counts/oldest runnable age, or categorized issue groups. Guarded subprocess
+  tests confirm no Gmail/OAuth import or network access, no writer lease or
+  mutation, and no account/path/message details in output. The candidate passed
+  61 CLI tests, 2531 full offline tests, Ruff/format/safety, independent
+  implementation review, and Python 3.12/3.13 plus no-publish image CI. Item
+  inspection, retry/approval, recovery, and repair commands remain open; this
+  is not complete maintenance CLI or a Phase 1 gate.
+
 - The bounded Dashboard/Compose HTTP unit is integrated on main `e2b9b17`
   after independent plan approval. `facet web` serves only the
   allowlisted aggregate routes (`/api/v1/status`, `/api/v1/progress`,
