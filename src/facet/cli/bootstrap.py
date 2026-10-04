@@ -1053,10 +1053,35 @@ def _rules_add_domain(options: object) -> tuple[dict, tuple[str, ...]]:
     return _rules_add(options, RuleKind.ALLOW_DOMAIN, options.domain)
 
 
+def _preview_summary(operation, payload) -> dict:
+    def timestamp(value):
+        return value.value.isoformat().replace("+00:00", "Z")
+
+    return {
+        "preview_id": operation.operation_id.value,
+        "window_start": timestamp(payload.window_start),
+        "window_end": timestamp(payload.window_end),
+        "discovery_cutoff": timestamp(payload.discovery_cutoff),
+        "ruleset_revision": payload.ruleset_revision.value,
+        "target_writes": 0,
+        "requires_explicit_start": True,
+        "disclosure": {
+            "scope": "source_thread",
+            "includes_available_non_draft_history": True,
+            "includes_attachments_participants_and_replies": True,
+            "continues_for_future_thread_messages": True,
+        },
+    }
+
+
 def _backfill_preview(options: object) -> tuple[dict, tuple[str, ...]]:
     from facet.contracts import Sha256Hex
     from facet.db.command_records import BackfillPreviewRequest
-    from facet.db.command_store import _find_backfill, preview_backfill
+    from facet.db.command_store import (
+        _find_backfill,
+        _find_backfill_by_id,
+        preview_backfill,
+    )
     from facet.runtime.state_owner import StateOwner
 
     try:
@@ -1092,7 +1117,7 @@ def _backfill_preview(options: object) -> tuple[dict, tuple[str, ...]]:
         if existing[0] is not None:
             if existing[0].command.value != "backfill_preview":
                 raise ConfigError(ErrorCode.REQUEST_CONFLICT)
-            return {"preview_id": existing[0].operation_id.value}, ()
+            return _preview_summary(existing[0], existing[1]), ()
         now = Timestamp(datetime.now(UTC))
         month = now.value.year * 12 + now.value.month - 7
         year, month_index = divmod(month, 12)
@@ -1120,7 +1145,13 @@ def _backfill_preview(options: object) -> tuple[dict, tuple[str, ...]]:
         )
         with owner.session.transaction() as uow:
             operation = preview_backfill(uow, config.projection.id, request)
-        return {"preview_id": operation.operation_id.value}, ()
+        with owner.session.transaction() as uow:
+            saved_operation, payload = _find_backfill_by_id(
+                uow, config.projection.id, operation.operation_id, operation
+            )
+        if saved_operation is None or payload is None:
+            raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
+        return _preview_summary(saved_operation, payload), ()
     finally:
         owner.close()
 
