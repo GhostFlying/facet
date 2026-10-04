@@ -193,6 +193,15 @@ def build_parser() -> _Parser:
     _common(add_rule)
     _mutations(add_rule)
     add_rule.add_argument("--sender", required=True)
+    add_domain = rule_action.add_parser(
+        "add-domain",
+        add_help=False,
+        allow_abbrev=False,
+        help="add one exact domain allow rule",
+    )
+    _common(add_domain)
+    _mutations(add_domain)
+    add_domain.add_argument("--domain", required=True)
     backfill = commands.add_parser(
         "backfill",
         add_help=False,
@@ -905,7 +914,9 @@ def _auth_authorize(options: object) -> tuple[dict, tuple[str, ...]]:
         owner.close()
 
 
-def _rules_add_sender(options: object) -> tuple[dict, tuple[str, ...]]:
+def _rules_add(
+    options: object, kind: RuleKind, value: str
+) -> tuple[dict, tuple[str, ...]]:
     if (
         not getattr(options, "yes", False)
         or getattr(options, "request_id", None) is None
@@ -925,7 +936,7 @@ def _rules_add_sender(options: object) -> tuple[dict, tuple[str, ...]]:
 
     try:
         request_id = LocalId(options.request_id)
-        normalized = normalize_rule(RuleKind.ALLOW_SENDER, options.sender)
+        normalized = normalize_rule(kind, value)
     except (TypeError, ValueError):
         raise ConfigError(ErrorCode.INVALID_INPUT) from None
     paths = select_paths(getattr(options, "state_dir", None), None)
@@ -943,6 +954,7 @@ def _rules_add_sender(options: object) -> tuple[dict, tuple[str, ...]]:
                 "request_nonce IN (?,?,?) LIMIT 1",
                 (config.projection.id.value, request_id.value, *auth_nonces),
             ).fetchone()
+            projection = _get(uow, config.projection.id, "projections", ())
             existing_rule = _get(
                 uow, config.projection.id, "rules", (("rule_id", rule_id),)
             )
@@ -967,12 +979,11 @@ def _rules_add_sender(options: object) -> tuple[dict, tuple[str, ...]]:
             if not members:
                 raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
             return {"ruleset_revision": members[0][0]}, ()
+        if projection is None:
+            raise ConfigError(ErrorCode.OWNER_UNAVAILABLE)
+        if projection.binding_state.value != "verified":
+            raise ConfigError(ErrorCode.BINDING_PENDING)
         with owner.session.transaction() as uow:
-            projection = _get(uow, config.projection.id, "projections", ())
-            if projection is None:
-                raise ConfigError(ErrorCode.OWNER_UNAVAILABLE)
-            if projection.binding_state.value != "verified":
-                raise ConfigError(ErrorCode.BINDING_PENDING)
             rule = RuleRow(
                 config.projection.id,
                 rule_id,
@@ -1032,6 +1043,14 @@ def _rules_add_sender(options: object) -> tuple[dict, tuple[str, ...]]:
         return {"ruleset_revision": snapshot.revision.value}, ()
     finally:
         owner.close()
+
+
+def _rules_add_sender(options: object) -> tuple[dict, tuple[str, ...]]:
+    return _rules_add(options, RuleKind.ALLOW_SENDER, options.sender)
+
+
+def _rules_add_domain(options: object) -> tuple[dict, tuple[str, ...]]:
+    return _rules_add(options, RuleKind.ALLOW_DOMAIN, options.domain)
 
 
 def _backfill_preview(options: object) -> tuple[dict, tuple[str, ...]]:
@@ -1348,10 +1367,14 @@ def main(argv: list[str] | None = None) -> int:
             data, warnings = _auth_authorize(options)
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
         if options.family == "rules":
-            if options.action != "add-sender":
+            if options.action == "add-sender":
+                command = "rules.add-sender"
+                data, warnings = _rules_add_sender(options)
+            elif options.action == "add-domain":
+                command = "rules.add-domain"
+                data, warnings = _rules_add_domain(options)
+            else:
                 raise _InputError()
-            command = "rules.add-sender"
-            data, warnings = _rules_add_sender(options)
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
         if options.family == "backfill":
             if options.action == "preview":
