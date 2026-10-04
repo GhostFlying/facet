@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Facet Dashboard</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0 auto; max-width: 56rem; padding: 1.5rem; }
+      section { border: 1px solid #8885; border-radius: .5rem; margin: 1rem 0; padding: 1rem; }
+      .value { font-size: 1.4rem; font-weight: 600; }
+      .muted { opacity: .7; }
+    </style>
+  </head>
+  <body>
+    <h1>Facet Dashboard</h1>
+    <p id="freshness" class="muted">Loading aggregate status…</p>
+    <section><h2>Sync</h2><p id="health" class="value">Unknown</p><p id="phase" class="muted">Phase unavailable</p></section>
+    <section><h2>Progress</h2><p id="progress" class="value">Counts unavailable</p></section>
+    <section><h2>Diagnostics</h2><p id="diagnostics" class="muted">Diagnostics unavailable</p></section>
+    <script>
+      const get = (id) => document.getElementById(id);
+      const load = async () => {
+        try {
+          const [statusResponse, progressResponse, diagnosticsResponse] = await Promise.all([
+            fetch('/api/v1/status', { cache: 'no-store' }),
+            fetch('/api/v1/progress', { cache: 'no-store' }),
+            fetch('/api/v1/diagnostics', { cache: 'no-store' })
+          ]);
+          const status = await statusResponse.json();
+          const progress = await progressResponse.json();
+          const diagnostics = await diagnosticsResponse.json();
+          get('freshness').textContent = `Snapshot: ${status.freshness}`;
+          get('health').textContent = status.data.health;
+          get('phase').textContent = status.data.phase || 'Phase unavailable';
+          const data = progress.data;
+          get('progress').textContent = data.confirmed_messages === null
+            ? 'Counts unavailable'
+            : `Confirmed messages: ${data.confirmed_messages}`;
+          get('diagnostics').textContent = `Database: ${diagnostics.data.db_readable}`;
+        } catch (_error) {
+          get('freshness').textContent = 'Snapshot unavailable';
+        }
+      };
+      load();
+      window.setInterval(load, 10000);
+    </script>
+  </body>
+</html>

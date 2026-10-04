@@ -1,0 +1,15 @@
+.git
+.venv
+.facet
+.facet*
+__pycache__
+.pytest_cache
+.ruff_cache
+tests
+docs
+backups
+data
+credentials
+*.db
+*.sqlite*
+*.env

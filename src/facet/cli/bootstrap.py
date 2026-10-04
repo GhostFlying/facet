@@ -191,6 +191,15 @@ def build_parser() -> _Parser:
     _mutations(start)
     start.add_argument("--preview-id", required=True)
     start.add_argument("--fake", action="store_true")
+    web = commands.add_parser(
+        "web",
+        add_help=False,
+        allow_abbrev=False,
+        help="serve the read-only aggregate dashboard",
+    )
+    _common(web)
+    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument("--port", type=int, default=8080)
     return parser
 
 
@@ -1128,6 +1137,14 @@ def main(argv: list[str] | None = None) -> int:
                 else _run_preflight(options)
             )
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
+        if options.family == "web":
+            command = "web"
+            if not 1 <= options.port <= 65535:
+                raise _InputError()
+            from facet.web.server import serve_dashboard
+
+            serve_dashboard(options.host, options.port)
+            return 0
         if options.family == "auth":
             if options.action != "authorize":
                 raise _InputError()

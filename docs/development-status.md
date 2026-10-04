@@ -24,7 +24,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1-06 authentication/initialization | Typed candidate seam integrated; full package open | PR #39 exact `3ba6465` merged at main `05a6044`; candidate discovery converts ID-only pages into redacted typed candidate/attention results, rejects malformed metadata, and defaults source authentication to unknown. Independent implementation review, focused 22, full 2443 offline tests, Python 3.12/3.13 CI, Ruff and safety passed. Real source-path attestation, initialization and G1 remain open |
 | M1 foundation as a whole | Incomplete | `facet init` and `run --once` preflight are now implemented locally, with request-keyed bootstrap replay and pending-binding refusal; full OAuth/profile ownership, status consumers, doctor/config apply and G1 remain open |
 | M2 automated projection core | Foreground synthetic vertical integrated | PR #45 merged at `0a928369c8a1ee4f0684f7e4605899fec42af021`; fixed-window discovery, H0→History pagination, typed candidate/admission bridge, action-label effects, serial projection/readback, pre-dispatch recovery, and durable attention/retry convergence are offline-tested. This does not claim CLI/OAuth, live Gmail, Dashboard, Compose, Actions or Phase 1 completion |
-| M3 continuous recovery and Dashboard alpha | Not implemented | History gap recovery, reconcile/audit, aggregate read-only Web UI and status diagnostics |
+| M3 continuous recovery and Dashboard alpha | HTTP boundary alpha implemented locally; aggregate consumer and recovery remain open | `facet web`, typed unavailable/unknown snapshots, fixed-output read-only routes, privacy tests, and Compose smoke fixture; no live counts, Gmail, or production deployment claim |
 | M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
 | M5 self-hosted delivery | Not implemented | One-command Compose, Actions GHCR image, Nginx and bilingual operations docs |
 | M6 real deployment and v0.1 | Not implemented | Backup/restore, live Gmail, selected host and 72-hour evidence |
@@ -59,6 +59,23 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
 而是从当前关键路径移除的工程方案。
 
 ## Latest product-first handoff (2026-10-04)
+
+- The current bounded Dashboard/Compose unit is implemented locally on main
+  base `27b2047` after independent plan approval. `facet web` serves only the
+  allowlisted aggregate routes (`/api/v1/status`, `/api/v1/progress`,
+  `/api/v1/issues`, `/api/v1/diagnostics`, `/healthz`, `/readyz`) through a
+  silent fixed-output HTTP handler. Until a runtime collector publishes a
+  snapshot, every aggregate response is explicitly `unavailable`/`unknown`;
+  GET does not call Gmail, DB, or provider I/O. The bundled page contains only
+  aggregate fields. Compose runs one non-root UID 10001 web process on
+  container `0.0.0.0:8080`, published only to host loopback, with a persistent
+  `/var/lib/facet` volume and read-only root filesystem. Seven focused web/
+  subprocess tests pass; full offline suite is 2508 passed. Docker Compose
+  config parses; image build smoke is currently blocked because the Docker
+  daemon cannot reach Docker Hub, so non-root container reachability is not
+  claimed. This is an HTTP/container boundary fixture, not a usable live sync
+  deployment or Dashboard completion. Plan: `implementation-plans/dashboard-
+  compose-alpha.md`.
 
 - The next bounded CLI slice is implemented locally on top of main: plan
   `docs/implementation-plans/m1-cli-bootstrap.md` was independently approved.
