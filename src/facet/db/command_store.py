@@ -207,7 +207,7 @@ def authorize_operation(owner, projection_id, role, request_nonce):
         _fail(ErrorCode.OWNER_UNAVAILABLE)
     existing = _owner_fetchall(
         owner,
-        "SELECT o.operation_id,o.state,a.expected_credential_revision,"
+        "SELECT o.operation_id,o.state,a.role,a.expected_credential_revision,"
         "a.expected_role_binding_revision,a.expected_policy_revision "
         "FROM operations o JOIN operation_auth a ON "
         "a.projection_id=o.projection_id AND a.operation_id=o.operation_id "
@@ -220,14 +220,33 @@ def authorize_operation(owner, projection_id, role, request_nonce):
     expected_policy = Revision(1)
     if existing:
         row = existing[0]
+        if row[2] != role.value:
+            _fail(ErrorCode.REQUEST_CONFLICT)
         if row[1] == OperationState.COMPLETED.value:
             return LocalId(row[0])
         if (
-            row[2] != binding.credential_revision.value
-            or row[3] != binding.binding_revision.value
-            or row[4] != expected_policy.value
+            row[3] != binding.credential_revision.value
+            or row[4] != binding.binding_revision.value
+            or row[5] != expected_policy.value
         ):
-            _fail(ErrorCode.REQUEST_CONFLICT)
+            recovery = _owner_fetchall(
+                owner,
+                "SELECT c.phase FROM credential_changes c "
+                "JOIN operation_auth a ON a.projection_id=c.projection_id "
+                "AND a.operation_id=c.operation_id WHERE c.projection_id=? "
+                "AND c.operation_id=? AND c.role=? LIMIT 2",
+                (projection_id.value, row[0], role.value),
+            )
+            if not (
+                row[1] == OperationState.ACCEPTED.value
+                and binding.state.value == "verified"
+                and binding.credential_revision.value == row[3] + 1
+                and binding.binding_revision.value == row[4]
+                and row[5] == expected_policy.value
+                and len(recovery) == 1
+                and recovery[0][0] in {"validated", "committed"}
+            ):
+                _fail(ErrorCode.REQUEST_CONFLICT)
         return LocalId(row[0])
     operation_id = LocalId(uuid4().hex)
     accepted = _owner_now()

@@ -78,10 +78,7 @@ def build_parser() -> _Parser:
         prog="facet",
         add_help=False,
         allow_abbrev=False,
-        description=(
-            "Facet private initialization and offline config reads. "
-            "Run currently performs preflight only; OAuth and sync wiring pending."
-        ),
+        description=("Facet private initialization and controlled Gmail projection."),
     )
     _common(parser)
     commands = parser.add_subparsers(dest="family", parser_class=_Parser)
@@ -129,7 +126,7 @@ def build_parser() -> _Parser:
         "run",
         add_help=False,
         allow_abbrev=False,
-        help="check foreground prerequisites; sync service wiring pending",
+        help="run one foreground sync cycle",
     )
     _common(run)
     run.add_argument("--once", action="store_true")
@@ -153,6 +150,9 @@ def build_parser() -> _Parser:
     authorize.add_argument(
         "--fake", action="store_true", help="use the offline synthetic provider"
     )
+    authorize.add_argument("--role", choices=("source", "target"))
+    authorize.add_argument("--oauth-client")
+    authorize.add_argument("--port", type=int, default=8080)
     rules = commands.add_parser(
         "rules", add_help=False, allow_abbrev=False, help="update admission rules"
     )
@@ -426,9 +426,164 @@ def _run_once_fake(options: object) -> tuple[dict, tuple[str, ...]]:
         owner.close()
 
 
+def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
+    if (
+        getattr(options, "role", None) not in {"source", "target"}
+        or getattr(options, "oauth_client", None) is None
+        or getattr(options, "fake", False)
+        or not getattr(options, "yes", False)
+        or getattr(options, "request_id", None) is None
+        or not sys.stdin.isatty()
+        or not sys.stdout.isatty()
+        or not sys.stderr.isatty()
+    ):
+        raise ConfigError(ErrorCode.CONFIRMATION_REQUIRED)
+    try:
+        role = Role(options.role)
+        request_nonce = LocalId(options.request_id)
+        port = int(options.port)
+    except (TypeError, ValueError):
+        raise ConfigError(ErrorCode.INVALID_INPUT) from None
+    if not 1024 <= port <= 65535:
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+    from facet.db import command_store
+    from facet.gmail.credential_models import policy_scopes
+    from facet.gmail.credentials import CredentialManager
+    from facet.gmail.oauth import GoogleOAuthAuthorizer, read_desktop_client
+    from facet.gmail.service_factory import GoogleGmailServiceFactory
+    from facet.private_paths import read_managed_config
+    from facet.runtime.foreground_runtime import _policy
+    from facet.runtime.state_owner import StateOwner
+
+    paths = select_paths(getattr(options, "state_dir", None), None)
+    raw = read_managed_config(paths)
+    config = load_config(raw)
+    owner = StateOwner.open(paths.root, config)
+    try:
+        owner.verify_config_artifact(raw)
+        with owner.session.transaction() as uow:
+            rule_collision = uow._execute(
+                "SELECT 1 FROM rules WHERE projection_id=? AND rule_id=? LIMIT 1",
+                (config.projection.id.value, request_nonce.value),
+            ).fetchone()
+        if rule_collision:
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        existing = False
+        with owner.session.transaction() as uow:
+            existing_rows = uow._execute(
+                "SELECT command,state FROM operations WHERE projection_id=? "
+                "AND request_namespace=? AND request_nonce=? LIMIT 2",
+                (
+                    config.projection.id.value,
+                    owner.owner_info.request_namespace.value,
+                    request_nonce.value,
+                ),
+            ).fetchall()
+        if any(command != "auth_authorize" for command, _state in existing_rows):
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        existing = bool(existing_rows)
+        with owner.session.transaction() as uow:
+            operation_id = command_store.authorize_operation(
+                uow, config.projection.id, role, request_nonce
+            )
+            row = uow._execute(
+                "SELECT state FROM operations WHERE projection_id=? "
+                "AND operation_id=? LIMIT 2",
+                (config.projection.id.value, operation_id.value),
+            ).fetchall()
+        if len(row) != 1:
+            raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
+        if row[0][0] == "completed":
+            return {"role": role.value, "binding_state": "verified"}, ()
+        if existing and owner.bindings()[role].state.value != "verified":
+            with owner.session.transaction() as uow:
+                changes = uow._execute(
+                    "SELECT phase FROM credential_changes WHERE "
+                    "projection_id=? AND operation_id=? AND role=? LIMIT 2",
+                    (
+                        config.projection.id.value,
+                        operation_id.value,
+                        role.value,
+                    ),
+                ).fetchall()
+            if changes:
+                raise ConfigError(ErrorCode.MAINTENANCE_REQUIRED)
+            raise ConfigError(ErrorCode.REQUEST_OUTCOME_UNKNOWN)
+        if owner.bindings()[role].state.value == "verified":
+            from facet.db.repositories import credentials as credential_rows
+
+            with owner.session.transaction() as uow:
+                changes = uow._execute(
+                    "SELECT change_id FROM credential_changes WHERE "
+                    "projection_id=? AND operation_id=? AND role=? LIMIT 2",
+                    (
+                        config.projection.id.value,
+                        operation_id.value,
+                        role.value,
+                    ),
+                ).fetchall()
+                change = (
+                    credential_rows.get_change(
+                        uow,
+                        config.projection.id,
+                        role,
+                        LocalId(changes[0][0]),
+                    )
+                    if len(changes) == 1
+                    else None
+                )
+            if change is None:
+                raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
+            if change.phase not in {"validated", "committed"}:
+                raise ConfigError(ErrorCode.MAINTENANCE_REQUIRED)
+            with owner.session.transaction() as uow:
+                if change.phase == "validated":
+                    credential_rows.commit_authorization(
+                        uow, config.projection.id, change
+                    )
+                command_store.complete_authorize_operation(
+                    uow, config.projection.id, operation_id
+                )
+            return {"role": role.value, "binding_state": "verified"}, ()
+        client = read_desktop_client(options.oauth_client)
+        oauth_result = GoogleOAuthAuthorizer().authorize(
+            role,
+            client,
+            policy_scopes(_policy(config, role), role),
+            port=port,
+        )
+        factory = GoogleGmailServiceFactory()
+
+        class OAuthProfileProbe:
+            def get_profile(self, probe_role, secret):
+                account = factory.profile_account(probe_role, secret)
+                from facet.gmail.credentials import ProfileEvidence
+
+                return ProfileEvidence(account, oauth_result.scopes)
+
+        CredentialManager(owner.state_dir, config, owner).authorize_role(
+            role,
+            oauth_result.secret,
+            OAuthProfileProbe(),
+            operation_id,
+        )
+        with owner.session.transaction() as uow:
+            command_store.complete_authorize_operation(
+                uow, config.projection.id, operation_id
+            )
+        return {"role": role.value, "binding_state": "verified"}, ()
+    finally:
+        owner.close()
+
+
 def _auth_authorize(options: object) -> tuple[dict, tuple[str, ...]]:
     if not getattr(options, "fake", False):
-        raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
+        return _auth_authorize_oauth(options)
+    if (
+        getattr(options, "oauth_client", None) is not None
+        or getattr(options, "role", None) is not None
+    ):
+        raise ConfigError(ErrorCode.INVALID_INPUT)
     if (
         not getattr(options, "yes", False)
         or getattr(options, "request_id", None) is None

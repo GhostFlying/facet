@@ -249,6 +249,43 @@ def test_authorize_publishes_both_role_bindings_from_profile_probe(
         owner.close()
 
 
+def test_authorize_role_publishes_selected_roles_without_early_readiness(
+    trusted_state_parent, monkeypatch
+):
+    config = initial_template("source@example.invalid", "target@example.invalid")
+    owner = StateOwner.create(
+        trusted_state_parent / "state", config, b"synthetic config"
+    )
+    monkeypatch.setattr(credentials_module, "_owner_now", lambda: FUTURE)
+    manager = CredentialManager(owner.state_dir, config, owner)
+    try:
+        source = manager.authorize_role(
+            Role.SOURCE, _future_secret("source-access"), Profiles()
+        )
+        assert source.role is Role.SOURCE
+        assert owner.bindings()[Role.SOURCE].state.value == "verified"
+        assert owner.bindings()[Role.TARGET].state.value == "verification_pending"
+        assert (
+            owner.session._connection.execute(
+                "SELECT binding_state FROM projections"
+            ).fetchone()[0]
+            == "verification_pending"
+        )
+        target = manager.authorize_role(
+            Role.TARGET, _future_secret("target-access"), Profiles()
+        )
+        assert target.role is Role.TARGET
+        assert all(row.state.value == "verified" for row in owner.bindings().values())
+        assert (
+            owner.session._connection.execute(
+                "SELECT binding_state FROM projections"
+            ).fetchone()[0]
+            == "verified"
+        )
+    finally:
+        owner.close()
+
+
 def test_refresh_serializes_and_commits_metadata_only(
     trusted_state_parent, monkeypatch
 ):
