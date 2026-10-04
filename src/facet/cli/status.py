@@ -14,7 +14,7 @@ from pathlib import Path
 
 from facet import __version__
 from facet.config import ConfigError, load_config
-from facet.contracts import ErrorCode, Role
+from facet.contracts import ErrorCode, ProjectionId, Role
 from facet.db.codecs import StorageFailure, timestamp_from_sql
 from facet.db.schema import _inspect
 from facet.private_paths import inspect_state_root, read_managed_config, select_paths
@@ -185,7 +185,7 @@ def _read_snapshot(connection: sqlite3.Connection, config) -> dict:
     ready_bindings = all(bindings[role][0] == "verified" for role in bindings)
     if restore_state != "normal":
         health, phase = "blocked", "maintenance"
-    elif paused:
+    elif paused or (epoch is not None and epoch[1] == "paused"):
         health, phase = "blocked", "paused"
     elif not ready_bindings or epoch is None:
         health, phase = "blocked", "initializing"
@@ -239,6 +239,13 @@ def _paths_and_config(options):
         config = load_config(raw)
     except (ConfigError, TypeError, ValueError):
         raise ConfigError(ErrorCode.INVALID_INPUT) from None
+    selector = getattr(options, "projection", None)
+    if selector is not None:
+        try:
+            if ProjectionId(selector) != config.projection.id:
+                raise ConfigError(ErrorCode.BINDING_MISMATCH)
+        except ValueError:
+            raise ConfigError(ErrorCode.INVALID_INPUT) from None
     return paths, raw, config
 
 

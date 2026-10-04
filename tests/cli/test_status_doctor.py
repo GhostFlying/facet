@@ -202,6 +202,81 @@ def test_status_reports_the_synthetic_projection_closure(trusted_root):
     assert data["queue"]["completed"] >= 1
 
 
+def test_status_reports_paused_epoch_as_blocked(trusted_root):
+    state = trusted_root / "state"
+    _init(trusted_root, state)
+
+    def invoke(*args):
+        result = _run(trusted_root, *args, "--state-dir", str(state))
+        assert result.returncode == 0, result.stderr + result.stdout
+        return json.loads(result.stdout)
+
+    invoke(
+        "auth",
+        "authorize",
+        "--fake",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000043",
+    )
+    invoke(
+        "rules",
+        "add-sender",
+        "--sender",
+        "sender@example.com",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000044",
+    )
+    preview = invoke(
+        "backfill",
+        "preview",
+        "--fake",
+        "--request-id",
+        "00000000000040008000000000000046",
+    )["data"]["preview_id"]
+    invoke(
+        "backfill",
+        "start",
+        "--fake",
+        "--preview-id",
+        preview,
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000045",
+    )
+    config = load_config(read_managed_config(select_paths(str(state), None)))
+    owner = StateOwner.open(state, config)
+    try:
+        with owner.session.transaction() as uow:
+            uow._execute(
+                "UPDATE epochs SET state='paused' WHERE projection_id=?",
+                (config.projection.id.value,),
+            )
+    finally:
+        owner.close()
+    result = _run(trusted_root, "status", "--state-dir", str(state))
+    assert result.returncode == 0
+    data = json.loads(result.stdout)["data"]
+    assert data["health"] == "blocked"
+    assert data["phase"] == "paused"
+
+
+def test_status_rejects_a_different_projection_selector(trusted_root):
+    state = trusted_root / "state"
+    _init(trusted_root, state)
+    result = _run(
+        trusted_root,
+        "status",
+        "--state-dir",
+        str(state),
+        "--projection",
+        "other-projection",
+    )
+    assert result.returncode == 3
+    assert json.loads(result.stdout)["code"] == "binding_mismatch"
+
+
 def test_doctor_live_is_explicitly_not_implemented(trusted_root):
     state = trusted_root / "state"
     _init(trusted_root, state)
