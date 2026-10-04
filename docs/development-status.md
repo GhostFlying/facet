@@ -582,7 +582,8 @@ remain outside these closure units.
 
 ## Production CLI sync-path wiring handoff (2026-10-04)
 
-The production command seam is implemented in the candidate working tree under
+The production command seam is integrated in PR #53 at merge
+`727e1d99c174019b0c432653e2e274b2f10743b7`; its implementation plan is under
 `docs/implementation-plans/production-cli-sync-path.md`. After both role
 bindings are verified, non-fake `backfill start` uses the Google Gmail service
 factory to obtain the source profile fence and persist H0/epoch. Non-fake
