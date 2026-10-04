@@ -232,6 +232,7 @@ def _init_command(options: object) -> tuple[dict, tuple[str, ...]]:
         raise ConfigError(ErrorCode.CONFIRMATION_REQUIRED)
     from facet.db.command_records import RequestId
     from facet.runtime.state_owner import StateOwner
+
     try:
         RequestId(request_id)
         config = initial_template(
