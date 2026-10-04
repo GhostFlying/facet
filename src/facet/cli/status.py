@@ -226,17 +226,23 @@ def _check_addresses(
     connection: sqlite3.Connection, config, projection_id: str
 ) -> None:
     rows = connection.execute(
-        "SELECT role,declared_address FROM bindings WHERE projection_id=?",
+        "SELECT role,declared_address,verified_address FROM bindings "
+        "WHERE projection_id=?",
         (projection_id,),
     ).fetchall()
     expected = {
         Role.SOURCE.value: config.projection.source_email,
         Role.TARGET.value: config.projection.target_email,
     }
-    if {role for role, _ in rows} != set(expected):
+    if {role for role, _, _ in rows} != set(expected):
         raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
-    for role, address in rows:
+    for role, address, verified_address in rows:
         if type(address) is not str or address.casefold() != expected[role].casefold():
+            raise StorageFailure(ErrorCode.BINDING_MISMATCH)
+        if verified_address is not None and (
+            type(verified_address) is not str
+            or verified_address.casefold() != expected[role].casefold()
+        ):
             raise StorageFailure(ErrorCode.BINDING_MISMATCH)
 
 
@@ -252,7 +258,7 @@ def _read_snapshot(
     ).fetchall()
     if len(projection) != 1:
         raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
-    _source_mode, _binding_state, restore_state, paused = projection[0]
+    source_mode, projection_binding_state, restore_state, paused = projection[0]
     binding_rows = connection.execute(
         "SELECT role,state,verified_at FROM bindings WHERE projection_id=?",
         (projection_id,),
@@ -297,6 +303,10 @@ def _read_snapshot(
     ready_bindings = all(
         state == BindingState.VERIFIED.value for state, _ in bindings.values()
     )
+    if source_mode != config.projection.source_mode.value:
+        raise StorageFailure(ErrorCode.BINDING_MISMATCH)
+    if (projection_binding_state == BindingState.VERIFIED.value) != ready_bindings:
+        raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
 
     if (
         restore_state != "normal"
@@ -519,8 +529,16 @@ def read_status(options, *, doctor: bool = False) -> StatusResult:
             else (
                 ErrorCode.MAINTENANCE_REQUIRED.value
                 if status_data["phase"]
-                in {PublicPhase.PAUSED.value, PublicPhase.MAINTENANCE.value}
-                else ErrorCode.CONSISTENCY_FAILURE.value
+                in {
+                    PublicPhase.INITIALIZING.value,
+                    PublicPhase.PAUSED.value,
+                    PublicPhase.MAINTENANCE.value,
+                }
+                else (
+                    data["issues"]["data"]["groups"][0]["code"]
+                    if data["issues"]["data"]["groups"]
+                    else ErrorCode.CONSISTENCY_FAILURE.value
+                )
             ),
         },
     ]

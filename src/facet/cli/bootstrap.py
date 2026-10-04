@@ -1255,6 +1255,7 @@ def _emit(
         ErrorCode.OWNER_UNAVAILABLE: 4,
         ErrorCode.OWNER_BUSY: 4,
         ErrorCode.MAINTENANCE_INCOMPLETE: 4,
+        ErrorCode.MAINTENANCE_REQUIRED: 4,
     }
     exit_code = exits.get(code, 7 if code else 0)
     result = {

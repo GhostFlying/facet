@@ -316,3 +316,63 @@ def test_doctor_retains_findings_with_typed_exit(trusted_root):
         "state": "attention",
         "code": "binding_pending",
     }
+
+
+def test_doctor_classifies_verified_bindings_before_backfill_as_maintenance(
+    trusted_root,
+):
+    state = trusted_root / "state"
+    _init(trusted_root, state)
+    result = _run(
+        trusted_root,
+        "auth",
+        "authorize",
+        "--fake",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000053",
+        "--state-dir",
+        str(state),
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+    result = _run(trusted_root, "doctor", "--state-dir", str(state))
+    assert result.returncode == 4, result.stdout + result.stderr
+    document = json.loads(result.stdout)
+    assert document["code"] == "maintenance_required"
+
+
+def test_status_rejects_mismatched_verified_address_without_disclosure(trusted_root):
+    state = trusted_root / "state"
+    _init(trusted_root, state)
+    result = _run(
+        trusted_root,
+        "auth",
+        "authorize",
+        "--fake",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000063",
+        "--state-dir",
+        str(state),
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+    config = load_config(read_managed_config(select_paths(str(state), None)))
+    owner = StateOwner.open(state, config)
+    try:
+        with owner.session.transaction() as uow:
+            uow._execute(
+                "UPDATE bindings SET verified_address=? WHERE projection_id=? "
+                "AND role=?",
+                (
+                    "wrong@synthetic.example",
+                    config.projection.id.value,
+                    "source",
+                ),
+            )
+    finally:
+        owner.close()
+    result = _run(trusted_root, "status", "--state-dir", str(state))
+    assert result.returncode == 3
+    document = json.loads(result.stdout)
+    assert document["code"] == "binding_mismatch"
+    assert "wrong@synthetic.example" not in result.stdout
