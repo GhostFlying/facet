@@ -13,7 +13,7 @@ from ..codecs import StorageFailure, timestamp_to_sql
 from ..models import WriteReceipt
 from .base import _get, _mutating
 
-__all__ = ("verify_bindings", "publish_refreshed_credential")
+__all__ = ("verify_bindings", "verify_profile", "publish_refreshed_credential")
 
 
 def _conflict(code: ErrorCode = ErrorCode.REQUEST_CONFLICT) -> None:
@@ -102,6 +102,65 @@ def verify_bindings(uow, projection_id: ProjectionId, verified):
         WriteReceipt("updated", projection_id, Revision(row.binding_revision.value))
         for row in refreshed.values()
     )
+
+
+@_mutating
+def verify_profile(uow, projection_id: ProjectionId, profile):
+    """Publish one independently consented role without faking readiness."""
+
+    from facet.gmail.credentials import VerifiedProfile
+
+    if type(profile) is not VerifiedProfile or profile.projection_id != projection_id:
+        _conflict(ErrorCode.INVALID_INPUT)
+    row = _get(uow, projection_id, "bindings", (("role", profile.role),))
+    if row is None:
+        _conflict(ErrorCode.CONSISTENCY_FAILURE)
+    if (
+        profile.binding_revision != row.binding_revision
+        or profile.account.value.casefold() != row.declared_address.value.casefold()
+        or profile.credential_revision.value < 1
+    ):
+        _conflict(ErrorCode.BINDING_MISMATCH)
+    if row.state is BindingState.VERIFIED:
+        if (
+            row.verified_address is None
+            or row.verified_address.value.casefold() != profile.account.value.casefold()
+            or row.credential_revision != profile.credential_revision
+        ):
+            _conflict(ErrorCode.BINDING_MISMATCH)
+    elif row.state is BindingState.VERIFICATION_PENDING:
+        uow._execute(
+            "UPDATE bindings SET verified_address=?,credential_revision=?,state=?,"
+            "verified_at=? WHERE projection_id=? AND role=? AND binding_revision=?",
+            (
+                profile.account.value,
+                profile.credential_revision.value,
+                BindingState.VERIFIED.value,
+                timestamp_to_sql(profile.verified_at),
+                projection_id.value,
+                profile.role.value,
+                row.binding_revision.value,
+            ),
+        )
+    else:
+        _conflict(ErrorCode.BINDING_PENDING)
+    refreshed = {
+        role: _get(uow, projection_id, "bindings", (("role", role),)) for role in Role
+    }
+    if all(
+        item is not None and item.state is BindingState.VERIFIED
+        for item in refreshed.values()
+    ):
+        addresses = tuple(item.verified_address for item in refreshed.values())
+        if any(address is None for address in addresses):
+            _conflict(ErrorCode.BINDING_PENDING)
+        if addresses[0].value.casefold() == addresses[1].value.casefold():
+            _conflict(ErrorCode.BINDING_MISMATCH)
+        uow._execute(
+            "UPDATE projections SET binding_state=? WHERE projection_id=?",
+            (BindingState.VERIFIED.value, projection_id.value),
+        )
+    return WriteReceipt("updated", projection_id, profile.binding_revision)
 
 
 @_mutating

@@ -493,6 +493,18 @@ class StateOwner:
         with self.session.transaction() as uow:
             return verify_bindings(uow, self.projection_id, verified)
 
+    def publish_verified_profile(self, profile):
+        """Publish one role's verified profile without marking readiness early."""
+
+        from facet.gmail.credentials import VerifiedProfile
+
+        if type(profile) is not VerifiedProfile:
+            _invalid(ErrorCode.INVALID_INPUT)
+        from facet.db.repositories.bindings import verify_profile
+
+        with self.session.transaction() as uow:
+            return verify_profile(uow, self.projection_id, profile)
+
     def close(self) -> None:
         if self._closed:
             return

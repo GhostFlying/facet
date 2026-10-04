@@ -562,6 +562,139 @@ class CredentialManager:
                 self._attention(row.role, row.change_id, error.code)
             raise
 
+    def authorize_role(
+        self, role, secret, reader, operation_id=None
+    ) -> VerifiedProfile:
+        """Authorize one explicitly selected role through the same durable path."""
+
+        if (
+            type(role) is not Role
+            or type(secret) is not ProviderSecret
+            or not hasattr(reader, "get_profile")
+            or (operation_id is not None and type(operation_id) is not LocalId)
+        ):
+            _fail(ErrorCode.INVALID_INPUT)
+        observed = _owner_now()
+        binding = self._owner.bindings().get(role)
+        if binding is None or binding.state is not BindingState.VERIFICATION_PENDING:
+            _fail(ErrorCode.BINDING_PENDING)
+        if secret.expires_at.value <= observed.value:
+            _fail(
+                ErrorCode.SOURCE_AUTH_REQUIRED
+                if role is Role.SOURCE
+                else ErrorCode.TARGET_AUTH_REQUIRED
+            )
+        try:
+            evidence = reader.get_profile(role, secret)
+        except StorageFailure:
+            raise
+        except Exception:
+            _fail(
+                ErrorCode.SOURCE_AUTH_REQUIRED
+                if role is Role.SOURCE
+                else ErrorCode.TARGET_AUTH_REQUIRED
+            )
+        if type(evidence) is not ProfileEvidence:
+            _fail(ErrorCode.INVALID_INPUT)
+        policy = _expected_policy(self._config, role)
+        expected_scopes = policy_scopes(policy, role)
+        configured = (
+            self._config.projection.source_email
+            if role is Role.SOURCE
+            else self._config.projection.target_email
+        )
+        if evidence.scopes != expected_scopes:
+            _fail(ErrorCode.SCOPE_REQUIRED)
+        if evidence.account.value.casefold() != configured.casefold():
+            _fail(ErrorCode.BINDING_MISMATCH)
+        change_id = LocalId(uuid4().hex)
+        profile = VerifiedProfile(
+            self._config.projection.id,
+            role,
+            evidence.account,
+            evidence.scopes,
+            binding.binding_revision,
+            Revision(1),
+            observed,
+        )
+        change = CredentialChangeRow(
+            self._config.projection.id,
+            self._owner.owner_info.state_instance_id,
+            change_id,
+            role,
+            "authorize",
+            "requesting",
+            Revision(0),
+            Revision(1),
+            binding.binding_revision,
+            Revision(1),
+            operation_id,
+            None,
+            None,
+            policy.value,
+            None,
+            None,
+            None,
+            None,
+            observed,
+            secret.expires_at,
+            observed,
+            observed,
+            None,
+        )
+        candidate = CredentialEnvelope(
+            1,
+            self._config.projection.id,
+            self._owner.owner_info.state_instance_id,
+            role,
+            binding.binding_revision,
+            Revision(1),
+            change_id,
+            evidence.account,
+            policy,
+            Revision(1),
+            GrantEvidence(
+                GrantEvidenceKind.AUTHORIZATION_EXPLICIT,
+                expected_scopes,
+                expected_scopes,
+                observed,
+                None,
+            ),
+            observed,
+            secret,
+        )
+        from facet.db.repositories import credentials as repository
+
+        with self._owner.session.transaction() as uow:
+            repository.begin_change(uow, self._config.projection.id, change)
+        try:
+            raw = encode_envelope(candidate)
+            validated = replace(
+                change,
+                phase="validated",
+                envelope_digest=Sha256Hex(hashlib.sha256(raw).hexdigest()),
+                grant_kind=candidate.grant.kind.value,
+                granted_scopes=",".join(
+                    sorted(scope.value for scope in candidate.grant.granted.value)
+                ),
+                grant_observed_at=candidate.grant.observed_at,
+                profile_verified_at=observed,
+                expires_at=candidate.secret.expires_at,
+                updated_at=observed,
+            )
+            with self._owner.session.transaction() as uow:
+                repository.mark_validated(uow, self._config.projection.id, validated)
+            _atomic_write(self._path(role), raw)
+            self._owner.publish_verified_profile(profile)
+            with self._owner.session.transaction() as uow:
+                repository.commit_authorization(
+                    uow, self._config.projection.id, validated
+                )
+            return profile
+        except StorageFailure as error:
+            self._attention(role, change_id, error.code)
+            raise
+
     def refresh(self, role: Role, exchange):
         """Single-flight one synthetic/provider-mediated refresh and publish it."""
 
