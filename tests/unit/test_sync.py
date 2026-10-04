@@ -23,6 +23,7 @@ from facet.db.codecs import PrivateAddress, StorageFailure
 from facet.gmail.source import (
     DiscoveryItem,
     DiscoveryPage,
+    HistoryLabel,
     HistoryMessage,
     HistoryPage,
     HistoryRecord,
@@ -55,10 +56,11 @@ class _Admission:
 
 
 class _Source:
-    def __init__(self, raw, *, discover=False, deleted=False):
+    def __init__(self, raw, *, discover=False, deleted=False, action=False):
         self.raw_bytes = raw
         self.discover_item = discover
         self.deleted = deleted
+        self.action = action
         self.discover_calls = 0
         self.history_calls = 0
 
@@ -84,6 +86,23 @@ class _Source:
                     (),
                     (HistoryMessage(ProviderId("m-deleted"), ProviderId("thread-1")),),
                     (),
+                    (),
+                ),
+            )
+        if self.action:
+            records = (
+                HistoryRecord(
+                    ProviderId("history-action"),
+                    (),
+                    (),
+                    (
+                        HistoryLabel(
+                            HistoryMessage(
+                                ProviderId("m-action"), ProviderId("thread-1")
+                            ),
+                            (ProviderId("label-action"),),
+                        ),
+                    ),
                     (),
                 ),
             )
@@ -119,6 +138,15 @@ class _Target:
 
     def readback(self, message_id):
         return TargetReadback(message_id, ProviderId("tt-1"), (), self.raw_bytes)
+
+
+class _RetryAction:
+    def __init__(self):
+        self.calls = 0
+
+    def process(self, *args, **kwargs):
+        self.calls += 1
+        raise StorageFailure(ErrorCode.SOURCE_AUTH_REQUIRED)
 
 
 def test_source_candidate_admission_keeps_authentication_typed():
@@ -260,5 +288,31 @@ def test_unsupported_history_event_becomes_durable_attention(
             assert owner._connection.execute(
                 "SELECT processing FROM source_events"
             ).fetchone() == ("needs_attention",)
+        finally:
+            owner.close()
+
+
+def test_retryable_history_effect_is_not_retried_in_same_cycle(
+    trusted_state_parent, monkeypatch
+):
+    with TemporaryDirectory(prefix="facet-sync-", dir=trusted_state_parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch)
+        source = _Source(b"unused", action=True)
+        action = _RetryAction()
+        try:
+            receipt = ForegroundSync(
+                owner,
+                source,
+                _Target(b"unused"),
+                _Admission(),
+                action_consumer=action,
+            ).run_once()
+            assert receipt.attention == 1
+            assert action.calls == 1
+            row = owner._connection.execute(
+                "SELECT state,next_attempt_at FROM sync_jobs WHERE kind='resolve_event'"
+            ).fetchone()
+            assert row[0] == "retry_wait"
+            assert row[1] > int(datetime.now(UTC).timestamp() * 1_000_000)
         finally:
             owner.close()
