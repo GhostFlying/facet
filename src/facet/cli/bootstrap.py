@@ -435,6 +435,7 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
         or getattr(options, "request_id", None) is None
         or not sys.stdin.isatty()
         or not sys.stdout.isatty()
+        or not sys.stderr.isatty()
     ):
         raise ConfigError(ErrorCode.CONFIRMATION_REQUIRED)
     try:
@@ -470,7 +471,7 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
         existing = False
         with owner.session.transaction() as uow:
             existing_rows = uow._execute(
-                "SELECT state FROM operations WHERE projection_id=? "
+                "SELECT command,state FROM operations WHERE projection_id=? "
                 "AND request_namespace=? AND request_nonce=? LIMIT 2",
                 (
                     config.projection.id.value,
@@ -487,6 +488,8 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
                 "AND operation_id=? LIMIT 2",
                 (config.projection.id.value, operation_id.value),
             ).fetchall()
+        if any(command != "auth_authorize" for command, _state in existing_rows):
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
         if len(row) != 1:
             raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
         if row[0][0] == "completed":

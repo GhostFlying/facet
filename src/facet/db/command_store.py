@@ -207,7 +207,7 @@ def authorize_operation(owner, projection_id, role, request_nonce):
         _fail(ErrorCode.OWNER_UNAVAILABLE)
     existing = _owner_fetchall(
         owner,
-        "SELECT o.operation_id,o.state,a.expected_credential_revision,"
+        "SELECT o.operation_id,o.state,a.role,a.expected_credential_revision,"
         "a.expected_role_binding_revision,a.expected_policy_revision "
         "FROM operations o JOIN operation_auth a ON "
         "a.projection_id=o.projection_id AND a.operation_id=o.operation_id "
@@ -220,12 +220,14 @@ def authorize_operation(owner, projection_id, role, request_nonce):
     expected_policy = Revision(1)
     if existing:
         row = existing[0]
+        if row[2] != role.value:
+            _fail(ErrorCode.REQUEST_CONFLICT)
         if row[1] == OperationState.COMPLETED.value:
             return LocalId(row[0])
         if (
-            row[2] != binding.credential_revision.value
-            or row[3] != binding.binding_revision.value
-            or row[4] != expected_policy.value
+            row[3] != binding.credential_revision.value
+            or row[4] != binding.binding_revision.value
+            or row[5] != expected_policy.value
         ):
             recovery = _owner_fetchall(
                 owner,
@@ -238,9 +240,9 @@ def authorize_operation(owner, projection_id, role, request_nonce):
             if not (
                 row[1] == OperationState.ACCEPTED.value
                 and binding.state.value == "verified"
-                and binding.credential_revision.value == row[2] + 1
-                and binding.binding_revision.value == row[3]
-                and row[4] == expected_policy.value
+                and binding.credential_revision.value == row[3] + 1
+                and binding.binding_revision.value == row[4]
+                and row[5] == expected_policy.value
                 and len(recovery) == 1
                 and recovery[0][0] in {"validated", "committed"}
             ):
