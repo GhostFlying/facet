@@ -109,7 +109,7 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   pending-binding publication, access-only service construction, and then
   invokes the existing `ForegroundSync` through one injectable factory seam.
   Synthetic evidence is `tests/integration/test_foreground_runtime.py` plus
-  the credential consumer/manager suites (27 focused tests); the Google
+  the credential consumer/manager suites (36 focused tests); the Google
   factory never receives refresh tokens and no provider payload is persisted.
   This is offline-tested only. The CLI still stops at its preflight until the
   production OAuth command and persisted-rule admission loader are delivered;
@@ -517,11 +517,37 @@ engineering integration and remaining gates are in the sections above.
 - The follow-up candidate adds typed factory failures, access-token-only
   construction tests, and missing/swapped/expired/mismatched credential tests
   with unchanged bindings and no sync service on failure. The focused runtime
-  and factory suite passes (10 tests); Ruff and format checks pass locally.
-  Full-suite completion, independent candidate review, and CI rerun remain
-  required before merge. No live Gmail or deployment action was used.
+  and factory suite passes (36 tests including credential consumers); the
+  complete offline suite passed 2490 tests, both CI lanes passed, and the
+  candidate merged as `bc3922a908458ba0e8db1d1573773bfd22fe6dbd`. No live
+  Gmail or deployment action was used.
 
-## Next authorized development unit
+## Current product closure
+
+The bounded unit in `implementation-plans/cli-sync-closure.md` is accepted at
+candidate `e2d38ef`. From a clean private state directory, the CLI can execute
+`init`, fake authorization/profile binding for both roles, exact sender rule
+creation, write-free backfill preview, explicit backfill start, and
+`run --once --fake`. The first run discovers one synthetic thread, inserts and
+reads back one message, and persists one mapping; a second process run produces
+zero new projections. The subprocess evidence is in
+`tests/cli/test_bootstrap.py`; the focused closure/credential/command-operation
+tests passed 67 cases and the complete offline suite passed 2495 tests.
+
+The candidate also validates request-key replay and cross-command conflicts,
+including atomic start activation and restart recovery. Rule replay currently
+uses deterministic rule identity rather than a separate operation row and
+payload digest; that is a documented P2 follow-up, not evidence for the full
+CLI contract.
+
+This is implemented and offline-tested, not live-Gmail-verified or Phase 1
+complete. Non-fake authorization still stops at `source_auth_required`, and
+the fake runner uses test-only source-path evidence. Real OAuth/profile
+attestation and controlled Gmail verification remain the next provider-bound
+gates. Dashboard, Compose, Actions, scheduling and unrelated maintenance
+commands remain outside this closure unit.
+
+## Historical next-unit note
 
 The next product-bearing unit is the smallest integration that can turn the
 pure M2 seam into a real discovery decision: release M1-06's verified

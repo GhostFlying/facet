@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from facet.config import Config
-from facet.contracts import Role, SourceMode
+from facet.contracts import LocalId, Revision, Role, RuleRef, SourceMode
 from facet.db.codecs import PrivateAddress
 from facet.gmail.credential_models import (
     AccountAddress,
@@ -15,6 +15,7 @@ from facet.gmail.credential_models import (
 from facet.gmail.credentials import CredentialManager, ProfileEvidence, ProfileReader
 from facet.gmail.service_factory import GmailServiceFactory
 from facet.gmail.source import SourceAdapter
+from facet.gmail.source_auth import SourceAuthProvider
 from facet.gmail.target import TargetAdapter
 from facet.sync import ForegroundSync, SyncCycleReceipt
 
@@ -45,6 +46,60 @@ class _ProfileProbe(ProfileReader):
         )
 
 
+def load_persisted_admission(owner, config):
+    """Load the sealed current ruleset into the existing policy evaluator."""
+
+    from facet.db.repositories.base import _get, _query
+    from facet.db.repositories.serialization import COLUMNS
+    from facet.projection.admission import AdmissionEvaluator, AdmissionRule
+    from facet.projection.rules import normalize_rule
+
+    with owner.session.transaction() as uow:
+        projection = _get(uow, owner.projection_id, "projections", ())
+        if projection is None:
+            raise ValueError("owner_unavailable")
+        rows = _query(
+            uow,
+            "SELECT "
+            + ",".join(COLUMNS["ruleset_members"])
+            + " FROM ruleset_members WHERE projection_id=? AND ruleset_revision=?",
+            (owner.projection_id.value, projection.ruleset_revision.value),
+        )
+        rules = []
+        for row in rows:
+            member = _get(
+                uow,
+                owner.projection_id,
+                "rules",
+                (("rule_id", LocalId(row[2])),),
+            )
+            revision = _get(
+                uow,
+                owner.projection_id,
+                "rule_revisions",
+                (("rule_id", LocalId(row[2])), ("revision", Revision(row[3]))),
+            )
+            if member is None or revision is None:
+                raise ValueError("consistency_failure")
+            rules.append(
+                AdmissionRule(
+                    RuleRef(member.rule_id, revision.revision),
+                    normalize_rule(member.kind, member.normalized_value.value),
+                    revision.effective_at,
+                    revision.enabled,
+                )
+            )
+        source = _get(uow, owner.projection_id, "bindings", (("role", Role.SOURCE),))
+        if source is None:
+            raise ValueError("binding_pending")
+        return AdmissionEvaluator(
+            tuple(rules),
+            source_account=PrivateAddress(config.projection.source_email),
+            binding_revision=source.binding_revision,
+            credential_revision=source.credential_revision,
+        )
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class ForegroundRuntime:
     owner: object
@@ -56,6 +111,7 @@ class ForegroundRuntime:
         admission,
         *,
         action_consumer=None,
+        source_auth_provider: SourceAuthProvider | None = None,
         max_jobs=1000,
         max_events=1000,
     ):
@@ -71,13 +127,16 @@ class ForegroundRuntime:
             source_account=PrivateAddress(self.config.projection.source_email),
             binding_revision=source_binding.binding_revision,
             credential_revision=source_binding.credential_revision,
+            auth_provider=source_auth_provider,
         )
         target = TargetAdapter(self.factory.service(Role.TARGET, target_snapshot))
         return ForegroundSync(
             self.owner,
             source,
             target,
-            admission,
+            load_persisted_admission(self.owner, self.config)
+            if admission is None
+            else admission,
             action_consumer=action_consumer,
         ).run_once(max_jobs=max_jobs, max_events=max_events)
 
@@ -86,9 +145,10 @@ def run_foreground_once(
     owner,
     config: Config,
     factory: GmailServiceFactory,
-    admission,
+    admission=None,
     *,
     action_consumer=None,
+    source_auth_provider: SourceAuthProvider | None = None,
     max_jobs=1000,
     max_events=1000,
 ) -> SyncCycleReceipt:
@@ -96,6 +156,7 @@ def run_foreground_once(
     return ForegroundRuntime(owner, config, factory).run_once(
         admission,
         action_consumer=action_consumer,
+        source_auth_provider=source_auth_provider,
         max_jobs=max_jobs,
         max_events=max_events,
     )

@@ -5,6 +5,7 @@ import sqlite3
 import struct
 from dataclasses import fields, replace
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from facet.contracts import (
     Count,
@@ -18,6 +19,7 @@ from facet.contracts import (
     PreviewPurpose,
     ProjectionId,
     Revision,
+    Role,
     Sha256Hex,
     Timestamp,
 )
@@ -184,6 +186,172 @@ def _backfill_digest(operation, payload):
     )
     encoded = b"".join(_digest_part(value) for value in values)
     return Sha256Hex(hashlib.sha256(encoded).hexdigest())
+
+
+def authorize_operation(owner, projection_id, role, request_nonce):
+    """Register one stable-keyed authorization operation before OAuth work."""
+
+    from .repositories.base import _get
+    from .transactions import UnitOfWork
+
+    if (
+        type(owner) is not UnitOfWork
+        or type(projection_id) is not ProjectionId
+        or type(role) is not Role
+        or type(request_nonce) is not LocalId
+    ):
+        _fail(ErrorCode.INVALID_INPUT)
+    projection = _get(owner, projection_id, "projections", ())
+    binding = _get(owner, projection_id, "bindings", (("role", role),))
+    if projection is None or binding is None:
+        _fail(ErrorCode.OWNER_UNAVAILABLE)
+    existing = _owner_fetchall(
+        owner,
+        "SELECT o.operation_id,o.state,a.expected_credential_revision,"
+        "a.expected_role_binding_revision,a.expected_policy_revision "
+        "FROM operations o JOIN operation_auth a ON "
+        "a.projection_id=o.projection_id AND a.operation_id=o.operation_id "
+        "WHERE o.projection_id=? AND o.request_namespace=? AND "
+        "o.request_nonce=? AND o.command='auth_authorize' LIMIT 2",
+        (projection_id.value, projection.request_namespace.value, request_nonce.value),
+    )
+    if len(existing) > 1:
+        _fail(ErrorCode.CONSISTENCY_FAILURE)
+    expected_policy = Revision(1)
+    if existing:
+        row = existing[0]
+        if row[1] == OperationState.COMPLETED.value:
+            return LocalId(row[0])
+        if (
+            row[2] != binding.credential_revision.value
+            or row[3] != binding.binding_revision.value
+            or row[4] != expected_policy.value
+        ):
+            _fail(ErrorCode.REQUEST_CONFLICT)
+        return LocalId(row[0])
+    operation_id = LocalId(uuid4().hex)
+    accepted = _owner_now()
+    digest = Sha256Hex(
+        hashlib.sha256(
+            b"facet-auth-v1\x00"
+            + projection_id.value.encode()
+            + b"\x00"
+            + role.value.encode()
+            + b"\x00"
+            + request_nonce.value.encode()
+        ).hexdigest()
+    )
+    operation = OperationRow(
+        projection_id,
+        operation_id,
+        projection.request_namespace,
+        request_nonce,
+        LocalCommandKind.AUTH_AUTHORIZE,
+        1,
+        1,
+        digest,
+        OperationState.ACCEPTED,
+        Revision(1),
+        accepted,
+        accepted,
+        None,
+        None,
+        False,
+        binding.binding_revision,
+        projection.config_revision,
+        None,
+        True,
+        False,
+    )
+    values = tuple(
+        _scalar(getattr(operation, field.name)) for field in fields(operation)
+    )
+    _owner_execute(
+        owner,
+        f"INSERT INTO operations({_OPERATION_COLUMNS}) "
+        f"VALUES({','.join('?' for _ in values)})",
+        values,
+    )
+    _owner_execute(
+        owner,
+        "INSERT INTO operation_auth(projection_id,operation_id,role,"
+        "expected_credential_revision,expected_role_binding_revision,"
+        "expected_policy_revision,supersedes_change_id) VALUES(?,?,?,?,?,?,?)",
+        (
+            projection_id.value,
+            operation_id.value,
+            role.value,
+            binding.credential_revision.value,
+            binding.binding_revision.value,
+            expected_policy.value,
+            None,
+        ),
+    )
+    return operation_id
+
+
+def complete_authorize_operation(owner, projection_id, operation_id):
+    """Record the durable effect of a completed authorization probe."""
+
+    from .transactions import UnitOfWork
+
+    if (
+        type(owner) is not UnitOfWork
+        or type(projection_id) is not ProjectionId
+        or type(operation_id) is not LocalId
+    ):
+        _fail(ErrorCode.INVALID_INPUT)
+    rows = _owner_fetchall(
+        owner,
+        "SELECT command,state,revision FROM operations "
+        "WHERE projection_id=? AND operation_id=? LIMIT 2",
+        (projection_id.value, operation_id.value),
+    )
+    if len(rows) != 1:
+        _fail(ErrorCode.REQUEST_CONFLICT)
+    command, state, revision = rows[0]
+    if command != LocalCommandKind.AUTH_AUTHORIZE.value:
+        _fail(ErrorCode.REQUEST_CONFLICT)
+    if state == OperationState.COMPLETED.value:
+        return
+    if state != OperationState.ACCEPTED.value:
+        _fail(ErrorCode.REQUEST_CONFLICT)
+    completed = _owner_now()
+    cursor = _owner_execute(
+        owner,
+        "UPDATE operations SET state=?,revision=?,updated_at=?,completed_at=?,"
+        "effect_completed=1 WHERE projection_id=? AND operation_id=? AND state=?",
+        (
+            OperationState.COMPLETED.value,
+            revision + 1,
+            _scalar(completed),
+            _scalar(completed),
+            projection_id.value,
+            operation_id.value,
+            OperationState.ACCEPTED.value,
+        ),
+    )
+    if cursor.rowcount != 1:
+        _fail(ErrorCode.REQUEST_CONFLICT)
+
+
+def resume_projection(owner, projection_id):
+    """Resume a started projection through the single writer boundary."""
+
+    from .repositories.base import _get
+    from .transactions import UnitOfWork
+
+    if type(owner) is not UnitOfWork or type(projection_id) is not ProjectionId:
+        _fail(ErrorCode.INVALID_INPUT)
+    projection = _get(owner, projection_id, "projections", ())
+    if projection is None:
+        _fail(ErrorCode.OWNER_UNAVAILABLE)
+    if projection.daemon_paused:
+        _owner_execute(
+            owner,
+            "UPDATE projections SET daemon_paused=0 WHERE projection_id=?",
+            (projection_id.value,),
+        )
 
 
 def _insert_bootstrap(connection, projection_id, commands):
@@ -399,7 +567,7 @@ def preview_backfill(owner, projection_id, request):
             _fail(ErrorCode.REQUEST_CONFLICT)
         return old_operation
     observed_at = _owner_now()
-    if request.accepted_at != observed_at:
+    if abs((request.accepted_at.value - observed_at.value).total_seconds()) > 5:
         _fail(ErrorCode.PREVIEW_INVALID)
     if request.expires_at.value > observed_at.value + timedelta(minutes=15):
         _fail(ErrorCode.PREVIEW_INVALID)
@@ -499,7 +667,7 @@ def start_backfill(owner, projection_id, request):
             _fail(ErrorCode.REQUEST_CONFLICT)
         return old_operation, existing_epoch
     observed_at = _owner_now()
-    if request.accepted_at != observed_at:
+    if abs((request.accepted_at.value - observed_at.value).total_seconds()) > 5:
         _fail(ErrorCode.PREVIEW_INVALID)
     projection, binding_revision, _, invalidation_revision = _backfill_guards(
         owner, projection_id
@@ -603,6 +771,11 @@ def start_backfill(owner, projection_id, request):
         Revision(0),
     )
     epochs.start_epoch(owner, projection_id, epoch, (partition,))
+    _owner_execute(
+        owner,
+        "UPDATE projections SET daemon_paused=0 WHERE projection_id=?",
+        (projection_id.value,),
+    )
     return operation, epoch
 
 

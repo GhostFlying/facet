@@ -1,8 +1,10 @@
 import hashlib
 import json
 import os
+import sqlite3
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -291,6 +293,136 @@ def test_module_entry_and_no_subprocess_import_runtime(tmp_path):
     _, env = setup(tmp_path)
     result = run(tmp_path, env, "--version", module=True)
     assert result.returncode == 0 and result.stdout == "0.1.0\n"
+
+
+def test_fake_cli_sync_closure_survives_restart_without_duplicate_insert(tmp_path):
+    """Exercise the user-visible production command path, not DB seeding."""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    trusted_root = Path(
+        tempfile.mkdtemp(prefix="facet-cli-", dir=f"/run/user/{os.geteuid()}")
+    )
+    state = trusted_root / "state"
+    prefix = [str(Path(sys.executable).parent / "facet")]
+
+    def invoke(*arguments):
+        result = subprocess.run(
+            prefix + ["--state-dir", str(state), "--json", *arguments],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        assert result.returncode == 0, result.stderr + result.stdout
+        assert result.stderr == ""
+        document = json.loads(result.stdout)
+        assert document["status"] == "completed"
+        return document
+
+    invoke(
+        "init",
+        "--source",
+        "source@example.com",
+        "--target",
+        "target@example.com",
+        "--yes",
+        "--request-id",
+        "rq1_00000000000040008000000000000031_00000000000040008000000000000032",
+    )
+    auth_request = "00000000000040008000000000000033"
+    invoke(
+        "auth",
+        "authorize",
+        "--fake",
+        "--yes",
+        "--request-id",
+        auth_request,
+    )
+    invoke("auth", "authorize", "--fake", "--yes", "--request-id", auth_request)
+    rule_request = "00000000000040008000000000000034"
+    invoke(
+        "rules",
+        "add-sender",
+        "--sender",
+        "sender@example.com",
+        "--yes",
+        "--request-id",
+        rule_request,
+    )
+    invoke(
+        "rules",
+        "add-sender",
+        "--sender",
+        "sender@example.com",
+        "--yes",
+        "--request-id",
+        rule_request,
+    )
+    preview_request = "00000000000040008000000000000036"
+    preview = invoke(
+        "backfill",
+        "preview",
+        "--fake",
+        "--request-id",
+        preview_request,
+    )["data"]["preview_id"]
+    assert (
+        invoke(
+            "backfill",
+            "preview",
+            "--fake",
+            "--request-id",
+            preview_request,
+        )["data"]["preview_id"]
+        == preview
+    )
+    start_request = "00000000000040008000000000000035"
+    invoke(
+        "backfill",
+        "start",
+        "--fake",
+        "--preview-id",
+        preview,
+        "--yes",
+        "--request-id",
+        start_request,
+    )
+    assert (
+        invoke(
+            "backfill",
+            "start",
+            "--fake",
+            "--preview-id",
+            preview,
+            "--yes",
+            "--request-id",
+            start_request,
+        )["data"]["epoch_id"]
+        == invoke(
+            "backfill",
+            "start",
+            "--fake",
+            "--preview-id",
+            preview,
+            "--yes",
+            "--request-id",
+            start_request,
+        )["data"]["epoch_id"]
+    )
+    first = invoke("run", "--once", "--fake")
+    second = invoke("run", "--once", "--fake")
+    assert first["data"]["projected"] == 1
+    assert second["data"]["projected"] == 0
+
+    with sqlite3.connect(state / "facet.db") as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM message_mappings"
+        ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM insert_attempts WHERE state='verified'"
+        ).fetchone() == (1,)
 
 
 def test_invalid_enum_error_does_not_expose_original_value(tmp_path):

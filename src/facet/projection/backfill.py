@@ -95,10 +95,16 @@ class BackfillProducer:
         from facet.db import command_store
 
         profile = self._source.profile()
+        fence_recorded_at = _now()
         fenced = replace(
             request,
             fence_history_id=profile.history_id,
-            fence_recorded_at=_now(),
+            fence_recorded_at=fence_recorded_at,
+            accepted_at=(
+                request.accepted_at
+                if request.accepted_at.value >= fence_recorded_at.value
+                else fence_recorded_at
+            ),
         )
         with owner.transaction() as uow:
             return command_store.start_backfill(uow, projection_id, fenced)
