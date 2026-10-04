@@ -161,6 +161,52 @@ def test_status_does_not_take_writer_lock_and_private_flag_does_not_expand_outpu
     assert _without_times(plain_data) == _without_times(private_data)
 
 
+def test_aggregate_maintenance_views_reuse_offline_status_snapshot(trusted_root):
+    state = trusted_root / "state"
+    _init(trusted_root, state)
+    before = _files(state)
+
+    commands = (
+        ("backfill", "status"),
+        ("queue", "list"),
+        ("review", "list"),
+    )
+    outputs = []
+    for command in commands:
+        result = _run(
+            trusted_root,
+            *command,
+            "--state-dir",
+            str(state),
+            guard=True,
+        )
+        assert result.returncode == 0, result.stderr + result.stdout
+        outputs.append(json.loads(result.stdout))
+
+    backfill, queue, review = outputs
+    assert backfill["command"] == "backfill.status"
+    assert backfill["data"]["data"]["jobs"]["completed"] == 0
+    assert queue["command"] == "queue.list"
+    assert set(queue["data"]) == {
+        "jobs",
+        "oldest_runnable_job_age_seconds",
+        "sampled_at",
+        "freshness",
+        "age_seconds",
+        "scope",
+    }
+    assert queue["data"]["jobs"] == backfill["data"]["data"]["jobs"]
+    assert review["command"] == "review.list"
+    assert review["data"]["data"]["groups"] == []
+    output = "".join(json.dumps(value, sort_keys=True) for value in outputs)
+    assert "source@synthetic.example" not in output
+    assert "target@synthetic.example" not in output
+    assert "facet.db" not in output
+    after = _files(state)
+    for name, digest in before.items():
+        assert after.get(name) == digest
+
+
 def test_status_reports_the_synthetic_projection_closure(trusted_root):
     state = trusted_root / "state"
     _init(trusted_root, state)
