@@ -2,7 +2,7 @@ services:
   facet:
     build: .
     image: facet:local
-    command: ["web", "--host", "0.0.0.0", "--port", "8080"]
+    command: ["run", "--state-dir", "/var/lib/facet", "--host", "0.0.0.0", "--port", "8080"]
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

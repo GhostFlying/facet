@@ -18,4 +18,4 @@ USER 10001:10001
 EXPOSE 8080
 VOLUME ["/var/lib/facet"]
 ENTRYPOINT ["facet"]
-CMD ["web", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["run", "--state-dir", "/var/lib/facet", "--host", "0.0.0.0", "--port", "8080"]
