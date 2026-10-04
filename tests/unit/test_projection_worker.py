@@ -113,7 +113,7 @@ def _payload(raw):
     }
 
 
-def _ready_owner(root, controller, monkeypatch):
+def _ready_owner(root, controller, monkeypatch, *, seed=True):
     config = initial_template("source@example.invalid", "target@example.invalid")
     owner = StateOwner.create(root / "state", config, b"synthetic-config")
     from test_m2_foundation_consumers import Profiles, write_credentials
@@ -226,7 +226,8 @@ def _ready_owner(root, controller, monkeypatch):
             NOW,
         ),
     )
-    producer.discover(owner.session, projection, epoch.epoch_id)
+    if seed:
+        producer.discover(owner.session, projection, epoch.epoch_id)
     return owner
 
 

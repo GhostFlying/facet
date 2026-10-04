@@ -24,6 +24,7 @@ from facet.contracts import (
     Visibility,
 )
 from facet.db.codecs import PrivateAddress
+from facet.projection.actions import ActionMessageFact, PrivateActionLabelMap
 from facet.projection.admission import DiscoveryCandidate
 from facet.projection.authenticity import VerifiedSourceEvidence, assess_evidence
 from facet.projection.rules import RuleInputError, normalize_sender
@@ -358,6 +359,29 @@ class SourceAdapter:
             )
         return CandidatePage(tuple(results), listed.next_page_token)
 
+    def candidate(self, item: DiscoveryItem) -> CandidateResult:
+        """Fetch and authenticate one already-enumerated discovery item.
+
+        Enumeration and candidate metadata are deliberately separate calls so
+        the foreground producer can perform provider work outside its SQLite
+        transaction while retaining the source binding owned by this adapter.
+        """
+        if type(item) is not DiscoveryItem:
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+        if (
+            type(self._source_account) is not PrivateAddress
+            or type(self._binding_revision) is not Revision
+            or type(self._credential_revision) is not Revision
+        ):
+            raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
+        return self._candidate_result(
+            item,
+            self._source_account,
+            self._binding_revision,
+            self._credential_revision,
+            self._auth_provider,
+        )
+
     def _candidate_result(
         self,
         item: DiscoveryItem,
@@ -526,6 +550,54 @@ class SourceAdapter:
             return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
         except (ValueError, TypeError):
             raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
+
+    def action_label_map(self) -> PrivateActionLabelMap:
+        """Resolve the three fixed action labels without persisting names."""
+        value = execute(self._service.users().labels().list(userId="me"), self.role)
+        found = {}
+        for label in value.get("labels", ()):
+            if not isinstance(label, dict):
+                raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+            name, identifier = label.get("name"), label.get("id")
+            if type(name) is not str or type(identifier) is not str:
+                raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+            if name in {"AI/AddSender", "AI/AddDomain", "AI/BlackList"}:
+                if name in found:
+                    raise ProviderFailure(ErrorCode.CONSISTENCY_FAILURE, self.role)
+                found[name] = _id(identifier)
+        if set(found) != {"AI/AddSender", "AI/AddDomain", "AI/BlackList"}:
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+        return PrivateActionLabelMap(
+            found["AI/AddSender"], found["AI/AddDomain"], found["AI/BlackList"]
+        )
+
+    def get_thread_facts(self, source_thread_id: ProviderId):
+        """Return redacted sender/timestamp facts for action-label effects."""
+        metadata = self.thread_metadata(source_thread_id)
+        facts = []
+        for message in metadata.messages:
+            values = tuple(
+                value for name, value in message.headers if name.casefold() == "from"
+            )
+            if len(values) != 1:
+                raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+            addresses = tuple(getaddresses([values[0]]))
+            if len(addresses) != 1 or not addresses[0][1]:
+                raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+            try:
+                sender = PrivateAddress(addresses[0][1])
+            except (TypeError, ValueError):
+                raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
+            facts.append(
+                ActionMessageFact(
+                    message.message_id,
+                    metadata.thread_id,
+                    sender,
+                    Timestamp(message.internal_date),
+                    "DRAFT" in message.labels,
+                )
+            )
+        return tuple(facts)
 
 
 GmailSource = SourceAdapter

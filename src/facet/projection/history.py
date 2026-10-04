@@ -76,6 +76,7 @@ def _typed_events(
     history_id: ProviderId,
     records,
     observed: Timestamp,
+    origin_epoch_id: LocalId | None = None,
 ):
     """Normalize only Gmail typed history facts; generic ``messages`` is ignored."""
     selected = {}
@@ -152,7 +153,7 @@ def _typed_events(
             None,
             Count(0),
             None,
-            None,
+            origin_epoch_id,
             JobSubjectResolveEvent("resolve_event", row.event.key),
         )
         for row in rows
@@ -253,7 +254,7 @@ class HistoryProducer:
             # page row rather than allocate a second local fact.
             now = poll.started_at
             rows, jobs = _typed_events(
-                projection_id, page.history_id, page.records, now
+                projection_id, page.history_id, page.records, now, poll.origin_epoch_id
             )
             digest = _digest(tuple(row.event.key for row in rows))
             page_row = HistoryPageRow(

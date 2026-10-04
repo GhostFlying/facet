@@ -23,7 +23,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1-05 public status/privacy | Early pure/logging library integrated; full consumer gate open | PR #16 actually merged exact `f209fbe`, independent review and candidate/main CI passed with 488 offline tests; actual DB/auth/runtime/HTTP/DOM/Compose consumers still pending |
 | M1-06 authentication/initialization | Typed candidate seam integrated; full package open | PR #39 exact `3ba6465` merged at main `05a6044`; candidate discovery converts ID-only pages into redacted typed candidate/attention results, rejects malformed metadata, and defaults source authentication to unknown. Independent implementation review, focused 22, full 2443 offline tests, Python 3.12/3.13 CI, Ruff and safety passed. Real source-path attestation, initialization and G1 remain open |
 | M1 foundation as a whole | Incomplete | Full persistence, process/view/credential ownership, init/doctor/config apply, authenticated bindings and real status consumers remain; G1 has not passed |
-| M2 automated projection core | Pure admission/rules, typed candidate preparation, and durable action-label effects integrated; milestone incomplete | PR #36 and PR #39 remain the integrated preparation seams. PR #41 is merged at main `fbb9fc8`; its action consumer composes the fixed action-label producer with SQLite action/rule/thread/resolve-job effects, including AddSender/AddDomain/BlackList, draft/attention routing, retryable source failure retention, and restart replay. Independent implementation review and Python 3.12/3.13 CI passed. A real source-path producer, Backfill/History wiring, projection worker, fidelity, intent/recovery and restart remain open |
+| M2 automated projection core | Foreground synthetic vertical candidate under implementation review; milestone incomplete | PR #45 candidate adds the bounded composition in `src/facet/sync.py`: fixed-window discovery continuation, H0→History pagination, `messagesAdded` resolution, action-label bridge, serial projection worker, target readback/mapping, pre-dispatch claim recovery, and retained DRAINING authorization epoch. Revision 1 additionally gates paused/unverified owners, bridges typed Gmail candidates to pure admission, and durably converges unsupported/retryable History work. The revised plan is independently approved; the prior exact candidate had 39 focused/2473 full offline passes and its implementation review found no P0/P1 code defect. This follow-up adds runner-level due-retry evidence; exact new-SHA review/CI/merge remain open. Live source-path authenticity, production OAuth/CLI command journaling, post-backfill live Gmail evidence, Dashboard, Compose and Actions remain open |
 | M3 continuous recovery and Dashboard alpha | Not implemented | History gap recovery, reconcile/audit, aggregate read-only Web UI and status diagnostics |
 | M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
 | M5 self-hosted delivery | Not implemented | One-command Compose, Actions GHCR image, Nginx and bilingual operations docs |
@@ -59,6 +59,35 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
 而是从当前关键路径移除的工程方案。
 
 ## Latest product-first handoff (2026-10-04)
+
+- PR #45's first candidate was held by implementation review for three concrete
+  gaps: readiness was checked too late, the production candidate/admission seam
+  was not connected, and unsupported History jobs stayed queued. Revision 1 of
+  `m2-foreground-sync-cli.md` narrows the repair to those gaps. The current
+  unmerged candidate adds a preflight before any provider call, a
+  `SourceCandidateAdmission` adapter over `SourceAdapter.candidate`, and
+  durable `needs_attention` versus due-only `retry_wait` handling. The prior
+  exact candidate had 39 focused and 2473 full offline tests; this follow-up
+  adds a runner-level due-retry test. It remains synthetic/offline evidence
+  only until the new exact review, full CI and merge.
+
+- The first product-shaped foreground composition is now implemented locally
+  (candidate not yet merged): `ForegroundSync.run_once` reopens an initialized
+  owner, resumes pre-dispatch claims safely, completes fixed-window discovery,
+  creates/resumes the initial H0 History poll, persists typed events before the
+  cursor, resolves tracked `messagesAdded` events, consumes readonly action
+  labels through the typed source bridge, and drains the serial projection
+  worker to target readback and mapping. The initial epoch remains `DRAINING`
+  as the explicit live authorization epoch for subsequent checkpoint action
+  effects. No daemon/IPC/runtime-bootstrap layer or disk raw spool was added.
+- Plan `docs/implementation-plans/m2-foreground-sync-cli.md` was independently
+  approved after revisions covering outside-transaction candidate/auth facts,
+  aggregate `epoch_partitions.state=needs_attention` for unknown admission,
+  H0 poll creation, message-added resolution, restart claim boundaries, and
+  the retained live authorization epoch. Synthetic vertical evidence is
+  `tests/unit/test_sync.py`; the focused set passed 38 tests and the exact
+  offline suite passed 2469 tests. This is implemented/offline-tested only;
+  it is not live Gmail, CLI-complete, deployment, or Phase 1 acceptance.
 
 - M1-04 credential binding is integrated through PR #35 recovery head and the
   separately reviewed explicit-scope follow-up PR #37. Main contains

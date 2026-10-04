@@ -1,6 +1,7 @@
 """Synthetic end-to-end evidence for the readonly action effect consumer."""
 
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 from test_db_actions import prepare_epoch
@@ -209,4 +210,6 @@ def test_source_auth_failure_retains_resolve_job_for_retry(state):
     assert result.receipt is None and result.attention is ErrorCode.SOURCE_AUTH_REQUIRED
     with session.transaction() as uow:
         assert reads.get_event(uow, P, row.event_id).processing.value == "pending"
-        assert reads.get_job(uow, P, lid(1076)).state.value == "retry_wait"
+        retry = reads.get_job(uow, P, lid(1076))
+        assert retry.state.value == "retry_wait"
+        assert retry.next_attempt_at.value > datetime.now(UTC)

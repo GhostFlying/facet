@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from facet.contracts import (
     Count,
+    ErrorCode,
     Generation,
     JobKind,
     JobState,
@@ -27,6 +28,7 @@ from facet.contracts.records import (
     ThreadGenerationGuardTracked,
     ThreadGenerationGuardUntracked,
 )
+from facet.db.codecs import StorageFailure
 from facet.db.keys import job_key
 from facet.db.models import (
     EpochPartitionRow,
@@ -45,12 +47,15 @@ class DiscoveryDecision:
 
     admit: bool
     rule: RuleRef | None = None
+    attention: ErrorCode | None = None
 
     def __post_init__(self):
         if (
             type(self.admit) is not bool
             or (self.admit and type(self.rule) is not RuleRef)
             or (not self.admit and self.rule is not None)
+            or (self.admit and self.attention is not None)
+            or (self.attention is not None and type(self.attention) is not ErrorCode)
         ):
             raise ValueError("invalid_input")
 
@@ -106,6 +111,10 @@ class BackfillProducer:
             )
             if epoch is None or partition is None:
                 raise ValueError("invalid_input")
+            if partition.progress.state is PartitionState.NEEDS_ATTENTION:
+                raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+            if partition.progress.state is PartitionState.COMPLETE:
+                return partition.progress.observed_items.value
         token = partition.progress.page_token
         observed = partition.progress.observed_items.value
         pages = 0
@@ -114,6 +123,11 @@ class BackfillProducer:
                 window_start=epoch.window_start.value,
                 window_end=epoch.window_end.value,
                 page_token=token,
+            )
+            # Candidate metadata/authentication is provider work and must not
+            # execute while the SQLite writer transaction is open.
+            decisions = tuple(
+                (item, self._admission.evaluate(item, epoch)) for item in response.items
             )
             now = _now()
             jobs = []
@@ -129,12 +143,44 @@ class BackfillProducer:
                 )
                 if current is None:
                     raise ValueError("invalid_input")
-                for item in response.items:
-                    decision = self._admission.evaluate(item, epoch)
+                for item, decision in decisions:
                     if (
                         not isinstance(decision, DiscoveryDecision)
                         or not decision.admit
                     ):
+                        if (
+                            isinstance(decision, DiscoveryDecision)
+                            and decision.attention is not None
+                        ):
+                            # The schema intentionally stores discovery
+                            # attention as an aggregate partition fact.  It
+                            # preserves restart visibility without copying a
+                            # candidate address or provider payload into SQL.
+                            next_progress = PartitionProgress(
+                                current.progress.partition,
+                                PartitionState.NEEDS_ATTENTION,
+                                Count(current.progress.completed_pages.value + 1),
+                                Count(
+                                    current.progress.observed_items.value
+                                    + len(response.items)
+                                ),
+                                response.next_page_token,
+                                None,
+                            )
+                            epochs.advance_partition(
+                                uow,
+                                projection_id,
+                                EpochPartitionRow(
+                                    projection_id,
+                                    epoch_id,
+                                    current.partition_key,
+                                    next_progress,
+                                    Revision(current.revision.value + 1),
+                                ),
+                                (),
+                                RevisionGuard(current.revision),
+                            )
+                            return observed + len(response.items)
                         continue
                     existing = _get(
                         uow,
@@ -142,7 +188,10 @@ class BackfillProducer:
                         "tracked_threads",
                         (("source_thread_id", item.thread_id),),
                     )
-                    if existing is not None and existing.active:
+                    # A stopped generation is a durable user decision.  A
+                    # later scan must not revive it merely because the same
+                    # thread still matches the discovery window.
+                    if existing is not None:
                         continue
                     generation = Generation(
                         1 if existing is None else existing.generation.value + 1
