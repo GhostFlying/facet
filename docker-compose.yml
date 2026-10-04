@@ -1,0 +1,20 @@
+services:
+  facet:
+    build: .
+    image: facet:local
+    command: ["web", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - facet-state:/var/lib/facet
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  facet-state:
