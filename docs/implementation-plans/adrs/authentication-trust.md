@@ -1,12 +1,17 @@
 # Authentication trust boundary (M1-06)
 
-Status: design input for the typed source-candidate seam; it is not evidence
-that real Gmail automatic admission is enabled.
+Status: implemented source-provider contract; live Gmail evidence is still
+required before the Phase 1 trust gate can be closed.
 
 Facet admits a new thread only when a producer-owned source-path attestation is
 bound to the verified source account and exact message, has matching binding
 and credential revisions, is fresh, and reports trusted source authentication
-with aligned From. A default Gmail metadata read has no such attestation.
+with aligned From. A default Gmail metadata read has no such attestation. The
+reviewed production provider may issue this evidence only after cryptographic
+DKIM verification over the exact in-memory Gmail raw message and the
+`auth-alignment-relaxed-v1` rule: IDNA/PSL-normalized From and signing domains
+must be exactly or registrable-domain equal. Public suffixes, IP literals,
+malformed domains and dot-boundary lookalikes are rejected.
 
 The following are observations only and never trusted evidence by themselves:
 
@@ -19,7 +24,10 @@ The following are observations only and never trusted evidence by themselves:
 
 Duplicate/conflicting results, forwarding/ARC ambiguity, malformed or multiple
 From addresses, stale/future evidence, account/message/lineage mismatch and
-unknown provider state are `unknown`/attention. The policy version is the
-sealed `auth-v1` value consumed by M2; expiry is exclusive. Any future real
-accept branch must identify the provider path and its independently reviewed
-evidence source before changing this ADR or enabling automatic admission.
+unknown provider state are `unknown`/attention. ARC headers, `Resent-From`,
+`Resent-Sender`, malformed/conflicting DKIM signatures and DNS/provider
+failure are never positive evidence, even when another signature verifies.
+The policy version is the sealed `auth-v1` value consumed by M2; expiry is
+exclusive. Raw message bytes remain memory-only and are discarded at the
+adapter boundary. Live Gmail evidence is still required to close the trust
+gate.

@@ -7,6 +7,7 @@ def test_production_run_dispatches_reviewed_factory_without_exposing_provider_da
     monkeypatch,
 ):
     factory = object()
+    auth_provider = object()
     seen = {}
 
     class Factory:
@@ -31,6 +32,12 @@ def test_production_run_dispatches_reviewed_factory_without_exposing_provider_da
     monkeypatch.setattr(
         "facet.gmail.service_factory.GoogleGmailServiceFactory", Factory
     )
+
+    class AuthProvider:
+        def __new__(cls):
+            return auth_provider
+
+    monkeypatch.setattr("facet.gmail.source_auth.DkimSourceAuthProvider", AuthProvider)
     monkeypatch.setattr("facet.runtime.foreground_runtime.run_foreground_once", run)
 
     owner = object()
@@ -49,5 +56,5 @@ def test_production_run_dispatches_reviewed_factory_without_exposing_provider_da
         "owner": owner,
         "config": config,
         "factory": factory,
-        "kwargs": {},
+        "kwargs": {"source_auth_provider": auth_provider},
     }

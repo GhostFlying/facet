@@ -1,25 +1,54 @@
-"""Closed source-path attestation seam for the Gmail candidate adapter.
+"""Source-path attestation providers for the Gmail candidate adapter.
 
-The Gmail metadata adapter is deliberately not an authentication parser.  A
-separate, owner-controlled producer may attest to a source-path result, while
-the default implementation remains unknown.  The synthetic implementation is
-only useful for offline tests and cannot manufacture evidence from headers or
+The metadata adapter never treats provider response headers as authentication
+evidence.  Production uses the cryptographic DKIM provider below, which
+verifies the exact raw message fetched for a Gmail message ID.  Unknown and
+synthetic providers remain available for fail-closed seams and offline tests;
+the synthetic implementation cannot manufacture evidence from headers or
 provider response data.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
+from email import message_from_bytes
+from email.message import Message
+from email.policy import default
+from email.utils import getaddresses
 from typing import Protocol
 
-from facet.contracts import PolicyVersion, ProviderId, Revision, Timestamp
+import dkim
+
+from facet.contracts import PolicyVersion, ProviderId, Revision, Role, Timestamp
 from facet.db.codecs import PrivateAddress
 from facet.projection.authenticity import (
+    FromAlignment,
+    SourcePathStatus,
     VerifiedSourceEvidence,
+    _issuer_for_provider,
     assess_evidence,
 )
+from facet.projection.rules import CanonicalSender, normalize_sender
+from facet.projection.suffixes import normalize_domain
 
 _AUTH_POLICY = PolicyVersion("auth-v1")
+
+
+class _SilentLogger:
+    """Prevent third-party verifier diagnostics from crossing our boundary."""
+
+    def isEnabledFor(self, _level):
+        return False
+
+    def debug(self, *_args, **_kwargs):
+        return None
+
+    def error(self, *_args, **_kwargs):
+        return None
+
+
+_SILENT_LOGGER = _SilentLogger()
 
 
 class SourceAuthProvider(Protocol):
@@ -33,6 +62,8 @@ class SourceAuthProvider(Protocol):
         observed_at: Timestamp,
         binding_revision: Revision,
         credential_revision: Revision,
+        expected_sender: CanonicalSender | None = None,
+        raw: bytes | None = None,
     ) -> VerifiedSourceEvidence | None:
         """Return evidence for this exact message, or unknown (``None``)."""
 
@@ -49,6 +80,8 @@ class UnknownSourceAuthProvider:
         observed_at: Timestamp,
         binding_revision: Revision,
         credential_revision: Revision,
+        expected_sender: CanonicalSender | None = None,
+        raw: bytes | None = None,
     ) -> None:
         if (
             type(source_account) is not PrivateAddress
@@ -89,6 +122,8 @@ class SyntheticSourceAuthProvider:
         observed_at: Timestamp,
         binding_revision: Revision,
         credential_revision: Revision,
+        expected_sender: CanonicalSender | None = None,
+        raw: bytes | None = None,
     ) -> VerifiedSourceEvidence | None:
         if (
             type(source_account) is not PrivateAddress
@@ -115,8 +150,129 @@ class SyntheticSourceAuthProvider:
     __str__ = __repr__
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class DkimSourceAuthProvider:
+    """Cryptographically verify one Gmail message's sender authentication.
+
+    The provider accepts only a raw message fetched for the exact Gmail
+    message ID.  It does not consume provider authentication headers as
+    evidence.  DNS and parse failures intentionally collapse to unknown.
+    """
+
+    dnsfunc: object = dkim.get_txt
+    timeout: int = 5
+    max_raw_bytes: int = 25 * 1024 * 1024
+
+    # SourceAdapter uses this to avoid fetching raw content for the safe
+    # unknown/synthetic providers.
+    requires_raw = True
+
+    def __post_init__(self) -> None:
+        if (
+            not callable(self.dnsfunc)
+            or type(self.timeout) is not int
+            or not 1 <= self.timeout <= 30
+            or type(self.max_raw_bytes) is not int
+            or not 1 <= self.max_raw_bytes <= 50 * 1024 * 1024
+        ):
+            raise ValueError("invalid_input")
+
+    def attest(
+        self,
+        *,
+        source_account: PrivateAddress,
+        message_id: ProviderId,
+        observed_at: Timestamp,
+        binding_revision: Revision,
+        credential_revision: Revision,
+        expected_sender: CanonicalSender | None = None,
+        raw: bytes | None = None,
+    ) -> VerifiedSourceEvidence | None:
+        if (
+            type(source_account) is not PrivateAddress
+            or type(message_id) is not ProviderId
+            or type(observed_at) is not Timestamp
+            or type(binding_revision) is not Revision
+            or type(credential_revision) is not Revision
+            or type(expected_sender) is not CanonicalSender
+            or type(raw) is not bytes
+            or not raw
+            or len(raw) > self.max_raw_bytes
+        ):
+            return None
+        try:
+            from_sender, signing_domains = self._verified_domains(raw)
+        except Exception:
+            # The exception may contain provider/raw data.  It must not cross
+            # the provider boundary or enter logs/diagnostics.
+            return None
+        if from_sender != expected_sender:
+            return None
+        aligned = {
+            domain
+            for domain in signing_domains
+            if domain == from_sender.domain
+            or domain.registrable == from_sender.domain.registrable
+        }
+        if len(aligned) != 1:
+            return None
+        return _issuer_for_provider().issue(
+            source_role=Role.SOURCE,
+            source_account=source_account,
+            source_message_id=message_id,
+            source_path=SourcePathStatus.TRUSTED,
+            from_alignment=FromAlignment.ALIGNED,
+            binding_revision=binding_revision,
+            credential_revision=credential_revision,
+            observed_at=observed_at,
+            expires_at=Timestamp(observed_at.value + timedelta(hours=1)),
+            policy_version=_AUTH_POLICY,
+        )
+
+    def _verified_domains(self, raw: bytes):
+        message: Message = message_from_bytes(raw, policy=default)
+        names = {name.casefold() for name in message}
+        if names & {
+            "arc-seal",
+            "arc-message-signature",
+            "arc-authentication-results",
+            "resent-from",
+            "resent-sender",
+        }:
+            # A valid signature may survive forwarding.  Without an explicit
+            # original-delivery attestation, forwarding/ARC is ambiguous.
+            raise ValueError("forwarding_ambiguous")
+        from_values = message.get_all("From", [])
+        addresses = getaddresses(from_values)
+        if len(addresses) != 1 or not addresses[0][1]:
+            raise ValueError("from_ambiguous")
+        from_sender = normalize_sender(addresses[0][1])
+
+        verifier = dkim.DKIM(raw, logger=_SILENT_LOGGER, timeout=self.timeout)
+        signatures = [
+            value
+            for name, value in verifier.headers
+            if name.lower() == b"dkim-signature"
+        ]
+        if not signatures:
+            return from_sender, ()
+        signing_domains = []
+        for index, signature in enumerate(signatures):
+            try:
+                tags = dkim.parse_tag_value(signature)
+                signing_domain = normalize_domain(tags[b"d"].decode("ascii"))
+                valid = verifier.verify(index, dnsfunc=self.dnsfunc)
+            except (UnicodeError, KeyError, TypeError, ValueError, OSError):
+                raise ValueError("signature_invalid") from None
+            if not valid:
+                raise ValueError("signature_invalid")
+            signing_domains.append(signing_domain)
+        return from_sender, tuple(signing_domains)
+
+
 __all__ = (
     "SourceAuthProvider",
+    "DkimSourceAuthProvider",
     "SyntheticSourceAuthProvider",
     "UnknownSourceAuthProvider",
 )

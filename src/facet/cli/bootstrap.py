@@ -474,12 +474,14 @@ def _run_once_production(owner, config) -> tuple[dict, tuple[str, ...]]:
     """Dispatch one real-provider cycle through the reviewed runtime seam."""
 
     from facet.gmail.service_factory import GoogleGmailServiceFactory
+    from facet.gmail.source_auth import DkimSourceAuthProvider
     from facet.runtime.foreground_runtime import run_foreground_once
 
     receipt = run_foreground_once(
         owner,
         config,
         GoogleGmailServiceFactory(),
+        source_auth_provider=DkimSourceAuthProvider(),
     )
     return {
         "discovered": receipt.discovered,
@@ -525,6 +527,7 @@ def _run_foreground_service(options: object) -> tuple[dict, tuple[str, ...]]:
     """Own one sync loop and one read-only Dashboard in the current process."""
 
     from facet.gmail.service_factory import GoogleGmailServiceFactory
+    from facet.gmail.source_auth import DkimSourceAuthProvider
     from facet.runtime.dashboard import LiveSnapshotProvider
     from facet.runtime.foreground_runtime import run_foreground_once
     from facet.runtime.state_owner import StateOwner
@@ -582,7 +585,12 @@ def _run_foreground_service(options: object) -> tuple[dict, tuple[str, ...]]:
                 continue
             error_code = None
             try:
-                run_foreground_once(owner, config, GoogleGmailServiceFactory())
+                run_foreground_once(
+                    owner,
+                    config,
+                    GoogleGmailServiceFactory(),
+                    source_auth_provider=DkimSourceAuthProvider(),
+                )
             except KeyboardInterrupt:
                 break
             except Exception as error:

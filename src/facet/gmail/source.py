@@ -450,12 +450,23 @@ class SourceAdapter:
         observed_at = Timestamp(datetime.now(UTC))
         evidence = None
         try:
+            raw = (
+                self.raw(
+                    item.message_id,
+                    thread_id=item.thread_id,
+                    max_bytes=getattr(provider, "max_raw_bytes", None),
+                )
+                if getattr(provider, "requires_raw", False)
+                else None
+            )
             proposed = provider.attest(
                 source_account=account,
                 message_id=item.message_id,
                 observed_at=observed_at,
                 binding_revision=binding,
                 credential_revision=credential,
+                expected_sender=sender,
+                raw=raw,
             )
         except ProviderFailure:
             return CandidateResult(
@@ -546,17 +557,45 @@ class SourceAdapter:
         except (KeyError, TypeError, ValueError):
             raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
 
-    def raw(self, message_id: ProviderId) -> bytes:
+    def raw(
+        self,
+        message_id: ProviderId,
+        *,
+        thread_id: ProviderId | None = None,
+        max_bytes: int | None = None,
+    ) -> bytes:
+        if (
+            type(message_id) is not ProviderId
+            or type(thread_id) not in {ProviderId, type(None)}
+            or type(max_bytes) not in {int, type(None)}
+            or (max_bytes is not None and max_bytes < 1)
+        ):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
         value = execute(
             self._service.users()
             .messages()
             .get(userId="me", id=message_id.value, format="raw"),
             self.role,
         )
-        encoded = value.get("raw", "")
         try:
-            return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
-        except (ValueError, TypeError):
+            if not isinstance(value, dict):
+                raise ValueError
+            if _id(value["id"]) != message_id or (
+                thread_id is not None and _id(value["threadId"]) != thread_id
+            ):
+                raise ValueError
+            encoded = value["raw"]
+            if not isinstance(encoded, str):
+                raise ValueError
+            if max_bytes is not None:
+                max_encoded = ((max_bytes + 2) // 3) * 4
+                if len(encoded) > max_encoded:
+                    raise ValueError
+            decoded = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+            if max_bytes is not None and len(decoded) > max_bytes:
+                raise ValueError
+            return decoded
+        except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
             raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
 
     def action_label_map(self) -> PrivateActionLabelMap | None:

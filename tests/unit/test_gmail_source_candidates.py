@@ -1,3 +1,4 @@
+import base64
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -148,6 +149,141 @@ def test_producer_attestation_is_bound_to_candidate(gmail_controller):
 
     assert page.items[0].candidate is not None, page.items[0].attention.reason
     assert page.items[0].candidate.evidence == evidence
+
+
+def test_raw_attestation_provider_receives_only_exact_candidate_bytes(
+    gmail_controller,
+):
+    class RawProvider:
+        requires_raw = True
+
+        def attest(self, **kwargs):
+            assert kwargs["raw"] == b"synthetic-auth-raw"
+            assert kwargs["expected_sender"].value == "sender@example.com"
+            return None
+
+    gmail_controller.script(
+        "source",
+        "messages.list",
+        _list_args(),
+        {"messages": [{"id": "m-1", "threadId": "t-1"}]},
+    )
+    gmail_controller.script(
+        "source",
+        "messages.get",
+        {"userId": "me", "id": "m-1", "format": "metadata"},
+        _metadata(headers=({"name": "From", "value": "sender@example.com"},)),
+    )
+    gmail_controller.script(
+        "source",
+        "messages.get",
+        {"userId": "me", "id": "m-1", "format": "raw"},
+        {
+            "id": "m-1",
+            "threadId": "t-1",
+            "labelIds": [],
+            "internalDate": "1767225600000",
+            "payload": {"headers": []},
+            "raw": base64.urlsafe_b64encode(b"synthetic-auth-raw").decode(),
+        },
+    )
+
+    page = _adapter(gmail_controller, auth_provider=RawProvider()).discover_candidates(
+        window_start=datetime(2026, 1, 1, tzinfo=UTC),
+        window_end=datetime(2026, 7, 1, tzinfo=UTC),
+    )
+
+    assert page.items[0].candidate is not None
+    assert page.items[0].candidate.evidence is None
+
+
+@pytest.mark.parametrize(
+    ("raw_id", "raw_thread"),
+    [("m-other", "t-1"), ("m-1", "t-other")],
+)
+def test_raw_attestation_rejects_misbound_message_or_thread(
+    gmail_controller, raw_id, raw_thread
+):
+    class RawProvider:
+        requires_raw = True
+
+        def attest(self, **_kwargs):
+            raise AssertionError("misbound raw must not reach attestation")
+
+    gmail_controller.script(
+        "source",
+        "messages.list",
+        _list_args(),
+        {"messages": [{"id": "m-1", "threadId": "t-1"}]},
+    )
+    gmail_controller.script(
+        "source",
+        "messages.get",
+        {"userId": "me", "id": "m-1", "format": "metadata"},
+        _metadata(headers=({"name": "From", "value": "sender@example.com"},)),
+    )
+    gmail_controller.script(
+        "source",
+        "messages.get",
+        {"userId": "me", "id": "m-1", "format": "raw"},
+        {
+            "id": raw_id,
+            "threadId": raw_thread,
+            "raw": base64.urlsafe_b64encode(b"misbound").decode(),
+        },
+    )
+
+    page = _adapter(gmail_controller, auth_provider=RawProvider()).discover_candidates(
+        window_start=datetime(2026, 1, 1, tzinfo=UTC),
+        window_end=datetime(2026, 7, 1, tzinfo=UTC),
+    )
+
+    assert page.items[0].attention is not None
+    assert page.items[0].attention.reason is CandidateAttentionReason.PROVIDER_FAILURE
+
+
+def test_raw_attestation_enforces_bound_before_provider_receives_bytes(
+    gmail_controller,
+):
+    class BoundedProvider:
+        requires_raw = True
+        max_raw_bytes = 4
+
+        def attest(self, **_kwargs):
+            raise AssertionError("oversized raw must not reach attestation")
+
+    gmail_controller.script(
+        "source",
+        "messages.list",
+        _list_args(),
+        {"messages": [{"id": "m-1", "threadId": "t-1"}]},
+    )
+    gmail_controller.script(
+        "source",
+        "messages.get",
+        {"userId": "me", "id": "m-1", "format": "metadata"},
+        _metadata(headers=({"name": "From", "value": "sender@example.com"},)),
+    )
+    gmail_controller.script(
+        "source",
+        "messages.get",
+        {"userId": "me", "id": "m-1", "format": "raw"},
+        {
+            "id": "m-1",
+            "threadId": "t-1",
+            "raw": base64.urlsafe_b64encode(b"12345").decode(),
+        },
+    )
+
+    page = _adapter(
+        gmail_controller, auth_provider=BoundedProvider()
+    ).discover_candidates(
+        window_start=datetime(2026, 1, 1, tzinfo=UTC),
+        window_end=datetime(2026, 7, 1, tzinfo=UTC),
+    )
+
+    assert page.items[0].attention is not None
+    assert page.items[0].attention.reason is CandidateAttentionReason.PROVIDER_FAILURE
 
 
 @pytest.mark.parametrize(
