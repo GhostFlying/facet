@@ -1,10 +1,12 @@
 # Production CLI sync-path wiring
 
-Status: implementation plan for the next product-bearing unit. The base is the
-current `origin/main` candidate inspected before implementation. This unit does
-not authorize a live Gmail run; it only makes the already authorized CLI path
-capable of using the verified credential/service seams when the operator runs
-it.
+Status: implemented by PR #53 and superseded for source admission by PR #71.
+The original unit was reviewed against its pre-implementation `origin/main`
+base and did not authorize a live Gmail run. Its historical acceptance and
+the default-unknown statements below describe that CLI-wiring unit; the current
+production source-auth provider is documented in
+`m1-06-real-source-attestation.md` and is now explicitly composed by the
+production runner. No live Gmail operation is authorized by either unit.
 
 ## User-observable delivery
 
