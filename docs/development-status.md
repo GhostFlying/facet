@@ -24,7 +24,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1-06 authentication/initialization | Typed candidate seam integrated; full package open | PR #39 exact `3ba6465` merged at main `05a6044`; candidate discovery converts ID-only pages into redacted typed candidate/attention results, rejects malformed metadata, and defaults source authentication to unknown. Independent implementation review, focused 22, full 2443 offline tests, Python 3.12/3.13 CI, Ruff and safety passed. Real source-path attestation, initialization and G1 remain open |
 | M1 foundation as a whole | Incomplete | `facet init`, production OAuth/profile ownership, and the non-fake `run --once`/`backfill start` dispatch seams are integrated; real source-path attestation, full maintenance CLI and G1 remain open |
 | M2 automated projection core | Foreground synthetic vertical integrated | PR #45 merged at `0a928369c8a1ee4f0684f7e4605899fec42af021`; fixed-window discovery, H0→History pagination, typed candidate/admission bridge, action-label effects, serial projection/readback, pre-dispatch recovery, and durable attention/retry convergence are offline-tested. This does not claim CLI/OAuth, live Gmail, Dashboard, Compose, Actions or Phase 1 completion |
-| M3 continuous recovery and Dashboard alpha | Foreground aggregate consumer integrated; recovery remains open | PR #55 merged at main `e2b9b17`; one-process `facet run` publishes live aggregate snapshots and gates Gmail on verified bindings plus explicit backfill start; no live-account claim |
+| M3 continuous recovery and Dashboard alpha | Foreground aggregate and action-label consumers integrated; recovery remains open | PR #55 and PR #57 merged at main `5b6097f`; one-process `facet run` publishes aggregate snapshots, gates Gmail on verified bindings plus explicit backfill start, and composes readonly action-label effects; no live-account claim |
 | M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
 | M5 self-hosted delivery | Immutable image workflow integrated and first image published | Main `1a42938`; PR multi-arch no-publish build and main publish passed; public GHCR SHA tag, digest, anonymous pull, amd64/arm64 manifest and UID 10001 smoke verified; host deployment/Nginx remain open |
 | M6 real deployment and v0.1 | Not implemented | Backup/restore, live Gmail, selected host and 72-hour evidence |
@@ -89,14 +89,16 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   plus the remaining source-path admission and recovery boundaries. A real
   Gmail run still requires explicit live-account/test-scope authorization; no
   such operation was performed by PR #55.
-- The action-label runtime candidate is implemented locally at exact
-  `d94e4bc715484c7b5fbeaa9fab13318f821defa3`. When all three fixed source
+- PR #57 is integrated at main `5b6097f3f0a6e0ab2a0bf55157a9e9f7518bf5a8`.
+  When all three fixed source
   labels exist, the verified production runtime composes the existing durable
   `ActionEffectConsumer`; missing labels leave ordinary sync running and keep
   label work explicit attention. Duplicate labels and provider failures remain
   typed failures. The independent implementation review approved the exact
-  candidate; focused adapter/runtime/action tests passed 25 and the full local
-  offline suite passed 2519. Candidate CI and merge are still pending.
+  candidate `d94e4bc715484c7b5fbeaa9fab13318f821defa3`; focused
+  adapter/runtime/action tests passed 25 and the full local offline suite
+  passed 2519. Candidate CI passed before merge; this still does not prove a
+  live Gmail action event or source-path attestation.
 
 - The bounded Dashboard/Compose HTTP unit is integrated on main `e2b9b17`
   after independent plan approval. `facet web` serves only the
