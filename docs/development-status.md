@@ -75,6 +75,20 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   fake transport that exercises production command composition, followed by a
   separately authorized controlled Gmail run.
 
+- PR #73 is integrated at main `8c241c8d62c92426815664a9957cdfadbd2bec36`.
+  The clean CLI subprocess path now uses the real `DkimSourceAuthProvider`
+  against a deterministic signed fake raw message and public DNS key; the fake
+  runner no longer constructs synthetic `VerifiedSourceEvidence`. Its positive
+  path completed init, fake role authorization, sender rule, write-free
+  preview, explicit start, discovery, DKIM admission, insert/readback,
+  durable mapping, and a second-process zero-duplicate run. A command/runtime
+  negative path mutated only the in-memory fake raw after those commands and
+  recorded `needs_attention` with zero insert attempts and mappings. The exact
+  candidate passed 2546 offline tests, independent implementation review,
+  Python 3.12/3.13 CI, no-publish image build, Ruff/format/lock/safety checks.
+  This is implemented and offline-verified; it is not live-Gmail-verified and
+  does not close G1 or Phase 1.
+
 - The next product-shaped candidate composes the existing foreground sync owner
   and aggregate Dashboard in one supported process. `facet run` without
   `--once` validates managed configuration, retains one SQLite writer owner,

@@ -1,6 +1,8 @@
 # Fake production-path attestation closure
 
-Status: plan for implementation; base `origin/main` is
+Status: implemented and accepted at main merge
+`8c241c8d62c92426815664a9957cdfadbd2bec36`; implementation candidate was
+`f1fdffb700b563b48ce3e26f0a9e97b136d1a350` on base
 `d916b9e54a71e25a4bb4fac8f25d1e5a4261310c`.
 
 ## Purpose and user-visible delivery
