@@ -16,7 +16,8 @@ existing runtime can be connected without making GET perform provider I/O.
 - `src/facet/web/server.py`: a single-threaded-owner HTTP server and immutable
   per-request `SnapshotProvider` interface. The provider reads only an
   in-memory or already-cached snapshot; GET never triggers provider, Gmail,
-  DB, or filesystem I/O. The default provider returns explicit
+  DB, or filesystem I/O. The immutable static page is loaded once while the
+  server starts, before requests are served. The default provider returns explicit
   unavailable/unknown envelopes. Snapshot objects are replaced atomically by
   the eventual runtime owner; the HTTP handler never mutates them and never
   runs sync work.

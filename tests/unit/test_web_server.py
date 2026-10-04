@@ -7,7 +7,9 @@ import subprocess
 import sys
 import time
 from http.client import RemoteDisconnected
+from pathlib import Path
 from threading import Thread
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -72,7 +74,10 @@ def test_mutating_methods_are_rejected_without_provider_access(dashboard_server)
 
 
 def test_static_page_is_aggregate_only(dashboard_server):
-    with urlopen(dashboard_server + "/", timeout=2) as response:
+    with (
+        patch.object(Path, "read_bytes", side_effect=AssertionError("request I/O")),
+        urlopen(dashboard_server + "/", timeout=2) as response,
+    ):
         body = response.read().decode("utf-8").lower()
     assert "facet dashboard" in body
     for forbidden in ("subject", "attachment", "access_token", "refresh_token"):

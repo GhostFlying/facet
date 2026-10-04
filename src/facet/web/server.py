@@ -148,6 +148,10 @@ class _Handler(BaseHTTPRequestHandler):
     def provider(self) -> SnapshotProvider:
         return self.server.provider  # type: ignore[attr-defined]
 
+    @property
+    def static_body(self) -> bytes:
+        return self.server.static_body  # type: ignore[attr-defined]
+
     def _write_bytes(self, code: int, content_type: str, body: bytes) -> None:
         self.send_response(code)
         self.send_header("Content-Type", content_type)
@@ -196,12 +200,9 @@ class _Handler(BaseHTTPRequestHandler):
             )
             return
         if path == "/":
-            try:
-                body = (_STATIC_ROOT / "index.html").read_bytes()
-            except OSError:
-                self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
-                return
-            self._write_bytes(HTTPStatus.OK, "text/html; charset=utf-8", body)
+            self._write_bytes(
+                HTTPStatus.OK, "text/html; charset=utf-8", self.static_body
+            )
             return
         family = _ROUTES.get(path)
         if family is None:
@@ -231,6 +232,7 @@ class DashboardServer(HTTPServer):
 
     def __init__(self, address, provider: SnapshotProvider | None = None):
         self.provider = provider or UnavailableSnapshotProvider()
+        self.static_body = (_STATIC_ROOT / "index.html").read_bytes()
         super().__init__(address, _Handler)
 
     def handle_error(self, _request, _client_address) -> None:
