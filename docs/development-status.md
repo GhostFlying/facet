@@ -22,7 +22,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1-04 OAuth/binding | Early pure values/codec/client parser integrated; full package open | PR #18 actually merged exact `ff77e63`; 120 OP/608 full tests, independent source/head review, wheel and candidate/main 3.12/3.13 CI passed; actual OAuth/profile/files/publication remain |
 | M1-05 public status/privacy | Early pure/logging library integrated; full consumer gate open | PR #16 actually merged exact `f209fbe`, independent review and candidate/main CI passed with 488 offline tests; actual DB/auth/runtime/HTTP/DOM/Compose consumers still pending |
 | M1-06 authentication/initialization | Typed candidate seam integrated; full package open | PR #39 exact `3ba6465` merged at main `05a6044`; candidate discovery converts ID-only pages into redacted typed candidate/attention results, rejects malformed metadata, and defaults source authentication to unknown. Independent implementation review, focused 22, full 2443 offline tests, Python 3.12/3.13 CI, Ruff and safety passed. Real source-path attestation, initialization and G1 remain open |
-| M1 foundation as a whole | Incomplete | `facet init` and `run --once` preflight are now implemented locally, with request-keyed bootstrap replay and pending-binding refusal; full OAuth/profile ownership, status consumers, doctor/config apply and G1 remain open |
+| M1 foundation as a whole | Incomplete | `facet init`, production OAuth/profile ownership, and the non-fake `run --once`/`backfill start` dispatch seams are integrated; real source-path attestation, full maintenance CLI and G1 remain open |
 | M2 automated projection core | Foreground synthetic vertical integrated | PR #45 merged at `0a928369c8a1ee4f0684f7e4605899fec42af021`; fixed-window discovery, H0→History pagination, typed candidate/admission bridge, action-label effects, serial projection/readback, pre-dispatch recovery, and durable attention/retry convergence are offline-tested. This does not claim CLI/OAuth, live Gmail, Dashboard, Compose, Actions or Phase 1 completion |
 | M3 continuous recovery and Dashboard alpha | HTTP boundary alpha integrated; aggregate consumer and recovery remain open | Main `89774c7`; `facet web`, typed unavailable/unknown snapshots, fixed-output read-only routes, privacy tests, and Compose smoke fixture; no live counts or Gmail claim |
 | M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
@@ -541,8 +541,8 @@ engineering integration and remaining gates are in the sections above.
   issues: the CLI was not actually dispatching the library seam, and invalid
   Google factory paths constructed an untyped `StorageFailure`. The revised
   plan now explicitly names this unit library runtime composition; `facet run
-  --once` remains preflight-only until production OAuth and persisted-rule
-  admission are delivered.
+  --once` now dispatches the reviewed production runtime after local binding
+  checks, while the default unknown-auth provider remains fail-closed.
 - The follow-up candidate adds typed factory failures, access-token-only
   construction tests, and missing/swapped/expired/mismatched credential tests
   with unchanged bindings and no sync service on failure. The focused runtime
@@ -579,6 +579,24 @@ is claimed. The fake runner still uses test-only source-path evidence; real
 source-path attestation and controlled Gmail verification remain provider-bound
 gates. Dashboard, Compose, Actions, scheduling and remaining maintenance commands
 remain outside these closure units.
+
+## Production CLI sync-path wiring handoff (2026-10-04)
+
+The production command seam is implemented in the candidate working tree under
+`docs/implementation-plans/production-cli-sync-path.md`. After both role
+bindings are verified, non-fake `backfill start` uses the Google Gmail service
+factory to obtain the source profile fence and persist H0/epoch. Non-fake
+`run --once` verifies both profiles/scopes, loads the persisted ruleset, and
+dispatches `ForegroundSync` through the reviewed production composition. The
+receipt exposes aggregate counts only.
+
+The default source-auth provider is still `UnknownSourceAuthProvider`, so an
+unknown candidate cannot be admitted or inserted into target. No Gmail network
+call, OAuth exchange, target write, deployment, or release was performed by
+this unit. Focused CLI/runtime tests and the complete offline suite (2511
+tests) passed, as did Ruff/format and repository safety. This is
+implemented/offline-verified only; a separately verified source-Gmail-path
+attestation and controlled live Gmail run remain external gates.
 
 ## Historical next-unit note
 
