@@ -263,6 +263,14 @@ def build_parser() -> _Parser:
         help="show aggregate queue counts",
     )
     _common(queue_list)
+    queue_show = queue_action.add_parser(
+        "show",
+        add_help=False,
+        allow_abbrev=False,
+        help="show one queued job's private metadata",
+    )
+    _common(queue_show)
+    queue_show.add_argument("--job-id", required=True)
     review = commands.add_parser(
         "review",
         add_help=False,
@@ -1482,6 +1490,12 @@ def main(argv: list[str] | None = None) -> int:
                 raise _InputError()
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
         if options.family == "queue":
+            if options.action == "show":
+                command = "queue.show"
+                from facet.cli.queue_views import read_queue_job
+
+                data = read_queue_job(options)
+                return _emit(command, data=data, json_mode=json_mode)
             if options.action != "list":
                 raise _InputError()
             command = "queue.list"
