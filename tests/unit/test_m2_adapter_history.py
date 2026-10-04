@@ -150,6 +150,11 @@ class _DiscoverySource:
         )
 
 
+class _MismatchedProfileSource(_DiscoverySource):
+    def profile(self):
+        raise ProviderFailure(ErrorCode.BINDING_MISMATCH, Role.SOURCE)
+
+
 @dataclass
 class _TrustedAdmission(AdmissionEvaluator):
     rule_id: object
@@ -244,6 +249,14 @@ def test_backfill_producer_uses_verified_owner_and_durable_expansion_job(
                 NOW,
                 NOW,
             )
+            with pytest.raises(ProviderFailure) as mismatch:
+                BackfillProducer(
+                    _MismatchedProfileSource(), _TrustedAdmission(rule.rule_id)
+                ).start(owner.session, projection, start_request)
+            assert mismatch.value.code is ErrorCode.BINDING_MISMATCH
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM epochs"
+            ).fetchone() == (0,)
             _, epoch = producer.start(owner.session, projection, start_request)
             assert epoch.fence_history_id == ProviderId("h0")
             assert producer.discover(owner.session, projection, epoch.epoch_id) == 1

@@ -342,6 +342,8 @@ def _init_command(options: object) -> tuple[dict, tuple[str, ...]]:
 
 
 def _run_preflight(options: object) -> tuple[dict, tuple[str, ...]]:
+    """Run one production foreground cycle after local readiness checks."""
+
     from facet.runtime.state_owner import StateOwner
 
     paths = select_paths(
@@ -368,9 +370,29 @@ def _run_preflight(options: object) -> tuple[dict, tuple[str, ...]]:
             for binding in bindings.values()
         ):
             raise ConfigError(ErrorCode.BINDING_PENDING)
-        raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
+        return _run_once_production(owner, config)
     finally:
         owner.close()
+
+
+def _run_once_production(owner, config) -> tuple[dict, tuple[str, ...]]:
+    """Dispatch one real-provider cycle through the reviewed runtime seam."""
+
+    from facet.gmail.service_factory import GoogleGmailServiceFactory
+    from facet.runtime.foreground_runtime import run_foreground_once
+
+    receipt = run_foreground_once(
+        owner,
+        config,
+        GoogleGmailServiceFactory(),
+    )
+    return {
+        "discovered": receipt.discovered,
+        "history_pages": receipt.history_pages,
+        "resolved_events": receipt.resolved_events,
+        "projected": receipt.projected.verified,
+        "attention": receipt.attention,
+    }, ()
 
 
 def _run_once_fake(options: object) -> tuple[dict, tuple[str, ...]]:
@@ -944,13 +966,13 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
         resume_projection,
     )
     from facet.gmail.credentials import CredentialManager
+    from facet.gmail.service_factory import GoogleGmailServiceFactory
     from facet.gmail.source import SourceAdapter
     from facet.gmail.synthetic import SyntheticGmailServiceFactory
     from facet.projection.backfill import BackfillProducer
     from facet.runtime.state_owner import StateOwner
 
-    if not getattr(options, "fake", False):
-        raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
+    fake = getattr(options, "fake", False)
     try:
         preview_id = LocalId(options.preview_id)
         request_nonce = LocalId(options.request_id)
@@ -1003,24 +1025,33 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
             if epoch_id is None:
                 raise ConfigError(ErrorCode.MAINTENANCE_REQUIRED)
             return {"epoch_id": epoch_id}, ()
-        manager = CredentialManager(owner.state_dir, config, owner)
-        snapshot = manager.snapshot(Role.SOURCE)
-        if not snapshot.access_token.value.startswith("facet-synthetic-"):
-            raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
-        binding = owner.bindings()[Role.SOURCE]
-        source = SourceAdapter(
-            SyntheticGmailServiceFactory(
-                config.projection.source_email, config.projection.target_email
-            ).service(Role.SOURCE, snapshot),
-            source_account=PrivateAddress(config.projection.source_email),
-            binding_revision=binding.binding_revision,
-            credential_revision=binding.credential_revision,
-        )
         with owner.session.transaction() as uow:
             existing = _find_backfill_by_id(uow, config.projection.id, preview_id)
         if existing[0] is None:
             raise ConfigError(ErrorCode.PREVIEW_INVALID)
         preview, payload = existing
+        if any(
+            binding is None or binding.state.value != "verified"
+            for binding in owner.bindings().values()
+        ):
+            raise ConfigError(ErrorCode.BINDING_PENDING)
+        manager = CredentialManager(owner.state_dir, config, owner)
+        snapshot = manager.snapshot(Role.SOURCE)
+        binding = owner.bindings()[Role.SOURCE]
+        if fake:
+            if not snapshot.access_token.value.startswith("facet-synthetic-"):
+                raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
+            factory = SyntheticGmailServiceFactory(
+                config.projection.source_email, config.projection.target_email
+            )
+        else:
+            factory = GoogleGmailServiceFactory()
+        source = SourceAdapter(
+            factory.service(Role.SOURCE, snapshot),
+            source_account=PrivateAddress(config.projection.source_email),
+            binding_revision=binding.binding_revision,
+            credential_revision=binding.credential_revision,
+        )
         start = BackfillStartRequest(
             LocalId(uuid4().hex),
             request_nonce,
