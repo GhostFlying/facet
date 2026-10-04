@@ -130,6 +130,18 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   rule control only; it does not resolve source-path attestation, automatic
   production admission, live Gmail, recovery, or final Phase 1 gates.
 
+- The explainable backfill-preview unit is integrated in PR #63 at main merge
+  `440b0de` (implementation candidate `3d62c21`; plan:
+  `implementation-plans/m2-cli-preview-explainability.md`). Preview JSON now
+  reconstructs its persisted fixed window, discovery cutoff, ruleset revision,
+  explicit-start requirement, thread-wide disclosure semantics, and
+  `target_writes: 0`; replay returns the same scope. The candidate passed 52
+  CLI/status tests, 46 backfill/epoch/sync tests, 2530 full offline tests,
+  Ruff/format/safety, wheel help smoke, independent review, and Python
+  3.12/3.13 plus no-publish image CI. This closes preview explainability only;
+  it does not resolve source-path attestation, automatic production admission,
+  live Gmail, recovery, deployment, or final Phase 1 gates.
+
 - The bounded Dashboard/Compose HTTP unit is integrated on main `e2b9b17`
   after independent plan approval. `facet web` serves only the
   allowlisted aggregate routes (`/api/v1/status`, `/api/v1/progress`,
