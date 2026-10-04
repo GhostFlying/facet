@@ -286,6 +286,40 @@ def build_parser() -> _Parser:
         help="show categorized attention groups",
     )
     _common(review_list)
+    recovery = commands.add_parser(
+        "recovery",
+        add_help=False,
+        allow_abbrev=False,
+        help="inspect uncertain insert outcomes without retrying them",
+    )
+    _common(recovery)
+    recovery_action = recovery.add_subparsers(dest="action", parser_class=_Parser)
+    recovery_list = recovery_action.add_parser(
+        "list",
+        add_help=False,
+        allow_abbrev=False,
+        help="show aggregate recovery state",
+    )
+    _common(recovery_list)
+    recovery_show = recovery_action.add_parser(
+        "show",
+        add_help=False,
+        allow_abbrev=False,
+        help="show one recovery job and its insert attempt",
+    )
+    _common(recovery_show)
+    recovery_show.add_argument("--job", required=True)
+    recovery_check = recovery_action.add_parser(
+        "check",
+        add_help=False,
+        allow_abbrev=False,
+        help="check target evidence without inserting",
+    )
+    _common(recovery_check)
+    recovery_check.add_argument("--job", required=True)
+    recovery_check.add_argument(
+        "--fake", action="store_true", help="use the offline synthetic Gmail transport"
+    )
     web = commands.add_parser(
         "web",
         add_help=False,
@@ -1323,6 +1357,155 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
         owner.close()
 
 
+def _recovery_check(options: object) -> tuple[dict, tuple[str, ...]]:
+    """Gather target evidence for an unknown insert without any write effect."""
+
+    if not getattr(options, "private_metadata", False):
+        raise ConfigError(ErrorCode.SCOPE_REQUIRED)
+    try:
+        job_id = LocalId(options.job)
+    except (TypeError, ValueError):
+        raise ConfigError(ErrorCode.INVALID_INPUT) from None
+    from facet.db.codecs import PrivateAddress
+    from facet.db.repositories.base import _get
+    from facet.gmail.credentials import CredentialManager
+    from facet.gmail.retry import ProviderFailure
+    from facet.gmail.service_factory import GoogleGmailServiceFactory
+    from facet.gmail.source import SourceAdapter
+    from facet.gmail.synthetic import SyntheticGmailServiceFactory
+    from facet.gmail.target import TargetAdapter
+    from facet.projection.fidelity import inspect
+    from facet.runtime.state_owner import StateOwner
+
+    paths = select_paths(getattr(options, "state_dir", None), None)
+    raw = read_managed_config(paths)
+    config = load_config(raw)
+    owner = StateOwner.open(paths.root, config)
+    try:
+        owner.verify_config_artifact(raw)
+        with owner.session.transaction() as uow:
+            job = _get(uow, config.projection.id, "sync_jobs", (("job_id", job_id),))
+            if job is None or job.kind.value != "recover_insert":
+                raise ConfigError(ErrorCode.INVALID_INPUT)
+            attempt = _get(
+                uow,
+                config.projection.id,
+                "insert_attempts",
+                (("attempt_id", job.subject.attempt_id),),
+            )
+            original = (
+                None
+                if attempt is None
+                else _get(
+                    uow,
+                    config.projection.id,
+                    "sync_jobs",
+                    (("job_id", attempt.job_id),),
+                )
+            )
+        if (
+            attempt is None
+            or original is None
+            or original.kind.value != "project_message"
+        ):
+            raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
+        if attempt.state.value != "pending_recovery":
+            return {
+                "job_id": job.job_id.value,
+                "attempt_id": attempt.attempt_id.value,
+                "result": "not_eligible",
+                "attempt_state": attempt.state.value,
+                "retry_authorized": False,
+                "target_writes": 0,
+                "insert_invocations": 0,
+                "sqlite_mutated": False,
+            }, ()
+        if attempt.rfc_message_id is None:
+            return {
+                "job_id": job.job_id.value,
+                "attempt_id": attempt.attempt_id.value,
+                "result": "attention",
+                "reason": "missing_rfc_message_id",
+                "retry_authorized": False,
+                "target_writes": 0,
+                "insert_invocations": 0,
+                "sqlite_mutated": False,
+            }, ()
+
+        manager = CredentialManager(owner.state_dir, config, owner)
+        source_snapshot = manager.snapshot(Role.SOURCE)
+        target_snapshot = manager.snapshot(Role.TARGET)
+        source_binding = owner.bindings()[Role.SOURCE]
+        if getattr(options, "fake", False):
+            if not source_snapshot.access_token.value.startswith("facet-synthetic-"):
+                raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
+            factory = SyntheticGmailServiceFactory(
+                config.projection.source_email, config.projection.target_email
+            )
+        else:
+            factory = GoogleGmailServiceFactory()
+        source = SourceAdapter(
+            factory.service(Role.SOURCE, source_snapshot),
+            source_account=PrivateAddress(config.projection.source_email),
+            binding_revision=source_binding.binding_revision,
+            credential_revision=source_binding.credential_revision,
+        )
+        target = TargetAdapter(factory.service(Role.TARGET, target_snapshot))
+        candidate_ids = target.find_by_rfc_message_id(attempt.rfc_message_id)
+        base = {
+            "job_id": job.job_id.value,
+            "attempt_id": attempt.attempt_id.value,
+            "candidate_count": len(candidate_ids),
+            "retry_authorized": False,
+            "target_writes": 0,
+            "insert_invocations": 0,
+            "sqlite_mutated": False,
+        }
+        if not candidate_ids:
+            return {**base, "result": "not_found"}, ()
+        if len(candidate_ids) != 1:
+            return {**base, "result": "duplicate_candidates"}, ()
+        source_raw = source.raw(
+            attempt.source_message_id,
+            thread_id=attempt.source_thread_id,
+            max_bytes=35_000_000,
+        )
+        source_facts = inspect(source_raw)
+        del source_raw
+        if source_facts.raw_digest != attempt.raw_digest:
+            return {**base, "result": "attention", "reason": "source_changed"}, ()
+        readback = target.readback(candidate_ids[0])
+        target_message_id = readback.message_id
+        target_thread_id = readback.thread_id
+        labels = readback.labels
+        target_facts = inspect(readback.raw)
+        del readback
+        if target_message_id != candidate_ids[0] or (
+            attempt.requested_target_thread_id is not None
+            and target_thread_id != attempt.requested_target_thread_id
+        ):
+            return {**base, "result": "attention", "reason": "attribution_unknown"}, ()
+        if (
+            source_facts.semantic_version != target_facts.semantic_version
+            or source_facts.semantic_digest != target_facts.semantic_digest
+            or any(label in {"SPAM", "TRASH"} for label in labels)
+        ):
+            return {**base, "result": "attention", "reason": "fidelity_mismatch"}, ()
+        return {
+            **base,
+            "result": "unique_match",
+            "fidelity_verified": True,
+            "target_message_id": target_message_id.value,
+            "target_thread_id": target_thread_id.value,
+        }, ()
+    except ProviderFailure as error:
+        raise ConfigError(error.code) from None
+    except (KeyError, TypeError, ValueError):
+        raise ConfigError(ErrorCode.CONSISTENCY_FAILURE) from None
+    finally:
+        owner.close()
+
+
 def _check_arguments(argv: list[str]) -> None:
     selectors = {"--config", "--state-dir", "--projection", "--timeout"}
     seen = set()
@@ -1516,6 +1699,22 @@ def main(argv: list[str] | None = None) -> int:
                 data=result.data["issues"],
                 json_mode=json_mode,
             )
+        if options.family == "recovery":
+            from facet.cli.recovery_views import read_recovery_job, read_recovery_list
+
+            if options.action == "list":
+                command = "recovery.list"
+                data = read_recovery_list(options)
+                return _emit(command, data=data, json_mode=json_mode)
+            if options.action == "show":
+                command = "recovery.show"
+                data = read_recovery_job(options)
+                return _emit(command, data=data, json_mode=json_mode)
+            if options.action == "check":
+                command = "recovery.check"
+                data, warnings = _recovery_check(options)
+                return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
+            raise _InputError()
         if options.family != "config" or options.action is None:
             raise _InputError()
         command = f"config.{options.action}"

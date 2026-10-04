@@ -1,6 +1,7 @@
 # M4 recovery inspection and check
 
-Status: proposed. Base candidate: `origin/main` at `adaea8a42af49e5d2788673a45ac7dd324de0741`.
+Status: implementation in progress after independent plan approval. Base candidate:
+`origin/main` at `adaea8a42af49e5d2788673a45ac7dd324de0741`.
 
 ## User-observable delivery
 

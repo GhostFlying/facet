@@ -538,6 +538,160 @@ def test_fake_cli_tampered_raw_stops_before_target_insert(tmp_path, monkeypatch)
         ).fetchone() == (0,)
 
 
+def test_recovery_check_uses_target_evidence_without_second_insert(
+    tmp_path, monkeypatch, capsys
+):
+    """The CLI recovery check searches/readbacks a real unknown-attempt path."""
+    from facet.gmail.retry import ProviderFailure
+    from facet.gmail.synthetic import SyntheticGmailServiceFactory
+    from facet.gmail.target import TargetAdapter
+
+    shared = SyntheticGmailServiceFactory("source@example.com", "target@example.com")
+    lose_response = True
+    original_insert = TargetAdapter.insert
+
+    def insert_then_lose(self, raw, *, thread_id=None, date_header=True):
+        nonlocal lose_response
+        result = original_insert(
+            self, raw, thread_id=thread_id, date_header=date_header
+        )
+        if lose_response:
+            lose_response = False
+            raise ProviderFailure(ErrorCode.NETWORK_UNAVAILABLE, Role.TARGET)
+        return result
+
+    monkeypatch.setattr(TargetAdapter, "insert", insert_then_lose)
+    monkeypatch.setattr(
+        "facet.gmail.synthetic.SyntheticGmailServiceFactory",
+        lambda _source, _target: shared,
+    )
+    state = (
+        Path(
+            tempfile.mkdtemp(
+                prefix="facet-cli-recovery-", dir=f"/run/user/{os.geteuid()}"
+            )
+        )
+        / "state"
+    )
+
+    def invoke(*arguments, private=False):
+        args = ["--state-dir", str(state), "--json", *arguments]
+        if private:
+            args.insert(3, "--private-metadata")
+        assert bootstrap.main(args) == 0
+        document = json.loads(capsys.readouterr().out)
+        assert document["status"] == "completed"
+        return document
+
+    invoke(
+        "init",
+        "--source",
+        "source@example.com",
+        "--target",
+        "target@example.com",
+        "--yes",
+        "--request-id",
+        "rq1_00000000000040008000000000000091_00000000000040008000000000000092",
+    )
+    invoke(
+        "auth",
+        "authorize",
+        "--fake",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000093",
+    )
+    invoke(
+        "rules",
+        "add-sender",
+        "--sender",
+        "sender@example.com",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000094",
+    )
+    preview = invoke(
+        "backfill",
+        "preview",
+        "--fake",
+        "--request-id",
+        "00000000000040008000000000000095",
+    )["data"]["preview_id"]
+    invoke(
+        "backfill",
+        "start",
+        "--fake",
+        "--preview-id",
+        preview,
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000096",
+    )
+    receipt = invoke("run", "--once", "--fake")
+    assert receipt["data"]["projected"] == 0
+    with sqlite3.connect(state / "facet.db") as connection:
+        recovery_job = connection.execute(
+            "SELECT job_id FROM sync_jobs WHERE kind='recover_insert'"
+        ).fetchone()[0]
+        before = connection.execute(
+            "SELECT state,revision,recovery_checks FROM insert_attempts"
+        ).fetchone()
+        assert connection.execute(
+            "SELECT COUNT(*) FROM message_mappings"
+        ).fetchone() == (0,)
+
+    listing = invoke("recovery", "list")
+    assert listing["data"]["unknown_insert_attempts"] == 1
+    shown = invoke("recovery", "show", "--job", recovery_job, private=True)
+    assert shown["data"]["attempt"]["state"] == "pending_recovery"
+    assert shown["data"]["job"]["kind"] == "recover_insert"
+    checked = invoke(
+        "recovery",
+        "check",
+        "--job",
+        recovery_job,
+        "--fake",
+        private=True,
+    )
+    assert checked["data"]["result"] == "unique_match", checked
+    assert checked["data"]["retry_authorized"] is False
+    assert checked["data"]["insert_invocations"] == 0
+    assert checked["data"]["target_writes"] == 0
+    with sqlite3.connect(state / "facet.db") as connection:
+        assert (
+            connection.execute(
+                "SELECT state,revision,recovery_checks FROM insert_attempts"
+            ).fetchone()
+            == before
+        )
+        assert connection.execute(
+            "SELECT COUNT(*) FROM message_mappings"
+        ).fetchone() == (0,)
+    target_service = shared._services[Role.TARGET]
+    target_service._inserted["target-message-2"] = dict(
+        target_service._inserted["target-message-1"]
+    )
+    duplicate = invoke(
+        "recovery",
+        "check",
+        "--job",
+        recovery_job,
+        "--fake",
+        private=True,
+    )
+    assert duplicate["data"]["result"] == "duplicate_candidates"
+    target_service._inserted.clear()
+    missing = invoke(
+        "recovery",
+        "check",
+        "--job",
+        recovery_job,
+        "--fake",
+        private=True,
+    )
+    assert missing["data"]["result"] == "not_found"
+
+
 def test_domain_rule_cli_publishes_and_replays_existing_ruleset_path(tmp_path):
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")

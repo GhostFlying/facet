@@ -173,6 +173,11 @@ Recovery retry 先 preview 当前 job、budget、generation 和仍可能重复�
 已批准的 scope/风险决定；`--acknowledge-duplicate-risk` 不能使本来禁止的 ADR 分支
 变为允许。候选 Spam/Trash 不是正常可见；任何命令都不清理重复。
 
+当前已接入的恢复检查单元只实现 `recovery list/show/check` 的证据读取：`show` 通过
+typed `recover_insert` job lineage 读取私有 metadata，`check` 按 RFC Message-ID 搜索
+target 并做 readback/fidelity 比较。它不 insert、不写 SQLite、不授权 retry；recovery
+preview/retry、gap 恢复、repair 与 backup/restore 仍是后续门槛。
+
 Unknown History gap 通过 `recovery gap preview/approve` 显式选择 UTC range，approve
 引用同 gap/范围 preview、稳定请求键与确认。执行仍先持久 H1/fence，遵守 rule
 effective_at 和 stopped generation；不 reset cursor、默认披露全历史、认领当前 labels
