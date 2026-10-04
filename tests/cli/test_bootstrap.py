@@ -361,23 +361,37 @@ def test_fake_cli_sync_closure_survives_restart_without_duplicate_insert(tmp_pat
         rule_request,
     )
     preview_request = "00000000000040008000000000000036"
-    preview = invoke(
+    preview_document = invoke(
         "backfill",
         "preview",
         "--fake",
         "--request-id",
         preview_request,
-    )["data"]["preview_id"]
-    assert (
-        invoke(
-            "backfill",
-            "preview",
-            "--fake",
-            "--request-id",
-            preview_request,
-        )["data"]["preview_id"]
-        == preview
     )
+    preview = preview_document["data"]["preview_id"]
+    assert preview_document["data"]["target_writes"] == 0
+    assert preview_document["data"]["requires_explicit_start"] is True
+    assert preview_document["data"]["disclosure"] == {
+        "scope": "source_thread",
+        "includes_available_non_draft_history": True,
+        "includes_attachments_participants_and_replies": True,
+        "continues_for_future_thread_messages": True,
+    }
+    replayed_preview = invoke(
+        "backfill",
+        "preview",
+        "--fake",
+        "--request-id",
+        preview_request,
+    )
+    assert replayed_preview["data"] == preview_document["data"]
+    with sqlite3.connect(state / "facet.db") as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM insert_attempts"
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM message_mappings"
+        ).fetchone() == (0,)
     start_request = "00000000000040008000000000000035"
     invoke(
         "backfill",
