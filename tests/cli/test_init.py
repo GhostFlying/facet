@@ -8,6 +8,9 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
+from facet.config import dump_config, initial_template
+from facet.runtime.state_owner import StateOwner
+
 ROOT = Path(__file__).resolve().parents[2]
 REQUEST = "rq1_123e4567e89b42d3a456426614174000_123e4567e89b42d3a456426614174001"
 
@@ -181,6 +184,30 @@ def test_init_requires_exact_request_key_and_rejects_external_config(trusted_roo
     )
     assert result.returncode == 2
     assert json.loads(result.stdout)["code"] == "invalid_input"
+
+
+def test_init_replay_refuses_active_owner(trusted_root):
+    state = trusted_root / "state"
+    config = initial_template("source@synthetic.example", "target@synthetic.example")
+    owner = StateOwner.create(state, config, dump_config(config), request_id=REQUEST)
+    try:
+        result = _run(
+            trusted_root,
+            "init",
+            "--state-dir",
+            str(state),
+            "--source",
+            "source@synthetic.example",
+            "--target",
+            "target@synthetic.example",
+            "--request-id",
+            REQUEST,
+            "--yes",
+        )
+        assert result.returncode == 4
+        assert json.loads(result.stdout)["code"] == "owner_busy"
+    finally:
+        owner.close()
     result = _run(
         trusted_root,
         "init",
