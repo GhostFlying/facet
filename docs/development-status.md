@@ -506,6 +506,21 @@ engineering integration and remaining gates are in the sections above.
 - Runtime credentials/evidence are ignored local files. No live Gmail writes are
   part of this bootstrap, and no experimental state is adopted as production data.
 
+## M2 runtime composition handoff (2026-10-04)
+
+- The exact-SHA review of the first runtime candidate found and blocked two
+  issues: the CLI was not actually dispatching the library seam, and invalid
+  Google factory paths constructed an untyped `StorageFailure`. The revised
+  plan now explicitly names this unit library runtime composition; `facet run
+  --once` remains preflight-only until production OAuth and persisted-rule
+  admission are delivered.
+- The follow-up candidate adds typed factory failures, access-token-only
+  construction tests, and missing/swapped/expired/mismatched credential tests
+  with unchanged bindings and no sync service on failure. The focused runtime
+  and factory suite passes (10 tests); Ruff and format checks pass locally.
+  Full-suite completion, independent candidate review, and CI rerun remain
+  required before merge. No live Gmail or deployment action was used.
+
 ## Next authorized development unit
 
 The next product-bearing unit is the smallest integration that can turn the

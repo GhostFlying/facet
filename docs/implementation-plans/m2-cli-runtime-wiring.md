@@ -1,6 +1,6 @@
-# M2 CLI runtime wiring
+# M2 runtime composition (CLI handoff boundary)
 
-Date: 2026-10-04. Status: independently approved; implementation in progress.
+Date: 2026-10-04. Status: revised scope independently approved; candidate under review.
 
 ## Goal
 
@@ -9,7 +9,8 @@ target adapters, admission policy, and `ForegroundSync` into one small runtime
 composition seam. The first proof is a synthetic/fake end-to-end `run_once`;
 the same seam must be able to construct Google Gmail services from verified
 credential snapshots without adding a daemon, IPC protocol, scheduler, raw
-spool, or a second writer.
+spool, or a second writer. This unit intentionally stops at the library
+boundary: it is not an executable production CLI sync command.
 
 ## Scope
 
@@ -31,9 +32,10 @@ spool, or a second writer.
   assert discovery, History, projection, target insert/readback and durable
   mapping all occur through the production composition seam, with raw content
   absent from DB/output.
-- Keep CLI output aggregate-only. `facet run --once` may call this seam only
-  after credentials exist; missing/expired credentials remain typed auth
-  blockers. OAuth authorization and token-file creation are a later unit.
+- Keep CLI output aggregate-only. `facet run --once` remains preflight-only in
+  this unit because production OAuth authorization and persisted-rule admission
+  are not yet available. A later unit must add the CLI dispatch and subprocess
+  boundary tests; this plan does not claim that handoff is complete.
 
 ## Non-goals and stop gates
 
@@ -55,8 +57,8 @@ spool, or a second writer.
 - `src/facet/gmail/credentials.py`: reject expired credential envelopes before
   profile calls or binding publication; preserve the existing typed auth code.
 - `src/facet/runtime/foreground_runtime.py`: composition and aggregate receipt.
-- `src/facet/cli/bootstrap.py`: only the `run --once` dispatch handoff and
-  fixed error mapping; no Gmail-specific orchestration in the CLI parser.
+- `src/facet/cli/bootstrap.py`: explicitly out of scope for this unit; no CLI
+  dispatch is added while OAuth and rule admission are absent.
 - `tests/integration/test_foreground_runtime.py` and focused unit tests.
 - `docs/development-status.md`: one handoff after acceptance.
 
@@ -78,6 +80,12 @@ spool, or a second writer.
    directly constructing adapters. Focused tests, complete offline suite,
    Ruff, wheel/import smoke and safety
    pass on the exact candidate; no live Gmail or deployment action occurs.
+6. Invalid factory inputs and malformed provider profile payloads return typed
+   `StorageFailure` values. Direct tests prove failed profile verification does
+   not expose or retain a provider service.
+7. Runtime tests cover expired/missing/swapped credential failures before
+   profile publication and service construction. The deferred CLI boundary is
+   documented rather than implied by this unit's name.
 
 ## Review and integration gates
 

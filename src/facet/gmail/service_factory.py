@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from facet.contracts import Role
+from facet.contracts import ErrorCode, Role
 from facet.db.codecs import StorageFailure
 
-from .credential_models import AccessSnapshot, AccountAddress, ProviderSecret
+from .credential_models import (
+    AccessSnapshot,
+    AccountAddress,
+    CredentialCodecError,
+    ProviderSecret,
+)
 from .retry import execute
 
 __all__ = ("GmailServiceFactory", "GoogleGmailServiceFactory")
@@ -28,21 +33,21 @@ class GoogleGmailServiceFactory:
 
     def profile_account(self, role: Role, secret: ProviderSecret) -> AccountAddress:
         if type(role) is not Role or type(secret) is not ProviderSecret:
-            raise StorageFailure()
+            raise StorageFailure(ErrorCode.INVALID_INPUT)
         service = self._build(role, secret.access_token.value)
         try:
             value = execute(service.users().getProfile(userId="me"), role)
             return AccountAddress(value["emailAddress"])
         except StorageFailure:
             raise
-        except (KeyError, TypeError, ValueError):
-            raise StorageFailure() from None
+        except (CredentialCodecError, KeyError, TypeError, ValueError):
+            raise StorageFailure(ErrorCode.INVALID_INPUT) from None
 
     def service(self, role: Role, snapshot: AccessSnapshot):
         if type(role) is not Role or type(snapshot) is not AccessSnapshot:
-            raise StorageFailure()
+            raise StorageFailure(ErrorCode.INVALID_INPUT)
         if snapshot.role is not role:
-            raise StorageFailure()
+            raise StorageFailure(ErrorCode.BINDING_MISMATCH)
         return self._build(role, snapshot.access_token.value)
 
     @staticmethod

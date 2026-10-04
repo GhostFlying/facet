@@ -4,6 +4,7 @@ import os
 import stat
 import sys
 from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -11,10 +12,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "unit"))
 
+from test_credential_manager import FUTURE, _manager
 from test_m2_foundation_consumers import write_credentials
 from test_projection_worker import _raw, _ready_owner
 
-from facet.contracts import LocalId, Revision, Role
+from facet.contracts import ErrorCode, LocalId, Revision, Role, Timestamp
+from facet.db.codecs import StorageFailure
 from facet.gmail.credential_codec import encode_envelope
 from facet.gmail.credential_models import AccountAddress
 from facet.projection.backfill import DiscoveryDecision
@@ -55,6 +58,63 @@ class _Admission:
                 LocalId("00000000000040008000000000000384"), Revision(1)
             ),
         )
+
+
+@pytest.mark.parametrize("mode", ["missing", "swapped", "expired", "mismatched"])
+def test_runtime_rejects_credential_lineage_before_provider_services(
+    trusted_state_parent, monkeypatch, mode
+):
+    owner, _, _, source, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+        before = owner.bindings()
+        root = Path(owner.state_dir) / "credentials"
+        source_path = root / "source.json"
+        target_path = root / "target.json"
+        if mode == "missing":
+            source_path.unlink()
+        elif mode == "swapped":
+            source_bytes = source_path.read_bytes()
+            target_bytes = target_path.read_bytes()
+            source_path.write_bytes(target_bytes)
+            target_path.write_bytes(source_bytes)
+        elif mode == "expired":
+            source_path.write_bytes(
+                encode_envelope(
+                    replace(
+                        source,
+                        secret=replace(
+                            source.secret,
+                            expires_at=Timestamp(FUTURE.value - timedelta(seconds=1)),
+                        ),
+                    )
+                )
+            )
+        factory = _Factory(None)
+        if mode == "mismatched":
+            original_profile = factory.profile_account
+
+            def mismatched_profile(role, secret):
+                account = original_profile(role, secret)
+                return (
+                    AccountAddress("wrong@example.invalid")
+                    if role is Role.TARGET
+                    else account
+                )
+
+            monkeypatch.setattr(factory, "profile_account", mismatched_profile)
+        with pytest.raises(StorageFailure) as caught:
+            run_foreground_once(owner, owner.config, factory, _Admission())
+        assert caught.value.code in {
+            ErrorCode.SOURCE_AUTH_REQUIRED,
+            ErrorCode.BINDING_MISMATCH,
+        }
+        assert [role for role, _ in factory.profiles] == (
+            [Role.SOURCE, Role.TARGET] if mode == "mismatched" else []
+        )
+        assert factory.services == []
+        assert owner.bindings() == before
+    finally:
+        owner.close()
 
 
 @pytest.fixture
