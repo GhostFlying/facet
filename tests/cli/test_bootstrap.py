@@ -425,6 +425,130 @@ def test_fake_cli_sync_closure_survives_restart_without_duplicate_insert(tmp_pat
         ).fetchone() == (1,)
 
 
+def test_domain_rule_cli_publishes_and_replays_existing_ruleset_path(tmp_path):
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    state = (
+        Path(
+            tempfile.mkdtemp(
+                prefix="facet-domain-rule-", dir=f"/run/user/{os.geteuid()}"
+            )
+        )
+        / "state"
+    )
+
+    def invoke(*arguments):
+        result = run(tmp_path, env, "--state-dir", str(state), *arguments, "--json")
+        assert result.returncode == 0, result.stderr + result.stdout
+        assert result.stderr == ""
+        return json.loads(result.stdout)
+
+    invoke(
+        "init",
+        "--source",
+        "source@example.com",
+        "--target",
+        "target@example.com",
+        "--yes",
+        "--request-id",
+        "rq1_00000000000040008000000000000071_00000000000040008000000000000072",
+    )
+    invoke(
+        "auth",
+        "authorize",
+        "--fake",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000073",
+    )
+    first = invoke(
+        "rules",
+        "add-domain",
+        "--domain",
+        "example.net",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000074",
+    )
+    second = invoke(
+        "rules",
+        "add-domain",
+        "--domain",
+        "example.net",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000074",
+    )
+    assert first["data"] == second["data"]
+    with sqlite3.connect(state / "facet.db") as connection:
+        assert connection.execute(
+            "SELECT kind,normalized_value FROM rules WHERE projection_id=?",
+            ("gmail-default",),
+        ).fetchone() == ("allow_domain", "example.net")
+
+    invalid = run(
+        tmp_path,
+        env,
+        "--state-dir",
+        str(state),
+        "rules",
+        "add-domain",
+        "--domain",
+        "com",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000075",
+        "--json",
+    )
+    assert invalid.returncode == 2
+    assert json.loads(invalid.stdout)["code"] == "invalid_input"
+
+
+def test_domain_rule_cli_refuses_pending_bindings(tmp_path):
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    state = (
+        Path(
+            tempfile.mkdtemp(
+                prefix="facet-domain-rule-", dir=f"/run/user/{os.geteuid()}"
+            )
+        )
+        / "state"
+    )
+    result = run(
+        tmp_path,
+        env,
+        "--state-dir",
+        str(state),
+        "init",
+        "--source",
+        "source@example.com",
+        "--target",
+        "target@example.com",
+        "--yes",
+        "--request-id",
+        "rq1_00000000000040008000000000000081_00000000000040008000000000000082",
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+    result = run(
+        tmp_path,
+        env,
+        "--state-dir",
+        str(state),
+        "rules",
+        "add-domain",
+        "--domain",
+        "example.net",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000083",
+        "--json",
+    )
+    assert result.returncode == 3
+    assert json.loads(result.stdout)["code"] == "binding_pending"
+
+
 def test_invalid_enum_error_does_not_expose_original_value(tmp_path):
     config, env = setup(tmp_path)
     config.write_bytes(
