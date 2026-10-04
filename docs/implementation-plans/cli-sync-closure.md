@@ -1,6 +1,6 @@
 # CLI sync closure
 
-Date: 2026-10-04. Status: implementation candidate in focused verification.
+Date: 2026-10-04. Status: synthetic closure accepted at candidate `e2d38ef`.
 
 ## User-observable next delivery
 
@@ -19,15 +19,10 @@ insert.
   adapters, `BackfillProducer` preview/start/discovery primitives,
   `ForegroundSync`, durable jobs/events/H0/intent/mapping repositories, and the
   reviewed runtime composition seam.
-- Missing on the product path: a production OAuth/binding CLI command with an
-  injectable fake authorization transport; persisted rule loading into a real
-  `AdmissionEvaluator`; CLI commands for preview/start; `run --once` dispatch
-  that constructs the verified runtime; source discovery candidate production
-  including real source-path attestation; and a subprocess restart test that
-  drives all of those commands rather than seeding readiness in the database.
-- The current `run --once` is intentionally preflight-only. The runtime seam
-  has no CLI consumer yet. This is the immediate integration gap, not a reason
-  to add another abstraction layer.
+- Missing for the live product path: real OAuth/profile binding, verified
+  source-Gmail-path attestation, and the provider-bound admission path. The
+  synthetic CLI consumer and subprocess restart path are now implemented and
+  tested; they do not provide live Gmail evidence.
 
 ## Convergence and de-scoping
 
@@ -45,8 +40,8 @@ concrete current-path failure proves otherwise.
 
 ## Acceptance and authority boundary
 
-The candidate must pass focused tests, the complete offline suite, CI, privacy
-scan, and a subprocess E2E using only fake OAuth/Gmail transport. The fake may
+The candidate passed focused tests, the complete offline suite, repository
+safety, and a subprocess E2E using only fake OAuth/Gmail transport. The fake may
 replace provider interactions but may not write credentials, verified bindings,
 rules, epochs, or readiness directly to SQLite. Real Gmail account selection,
 scope changes, live writes/repair, deployment, and release remain separately
@@ -58,13 +53,15 @@ This is a minimal revision to the next execution-plan ordering, not a new Phase
 
 ## Candidate evidence and remaining gap
 
-The current candidate implements the fake-only authorization command, exact
-sender rule command, write-free preview, explicit start, persisted ruleset
-loading, and `run --once --fake` runtime dispatch. A clean subprocess path has
-passed init → authorize → rule → preview → start → run twice: the first run
-discovered one synthetic thread, completed one insert/readback and one durable
-mapping; the second run projected zero new messages. The same behavior is
-covered by `tests/cli/test_bootstrap.py` without database readiness seeding.
+Candidate `e2d38ef` implements the fake-only authorization command, exact sender
+rule command, write-free preview, explicit start, persisted ruleset loading,
+and `run --once --fake` runtime dispatch. A clean subprocess path passed init →
+authorize → rule → preview → start → run twice: the first run discovered one
+synthetic thread, completed one insert/readback and one durable mapping; the
+second run projected zero new messages. `tests/cli/test_bootstrap.py` covers
+this without database readiness seeding. The focused closure/credential/
+command-operation tests passed 67 cases, and the complete offline suite passed
+2495 tests.
 
 This does not close live automatic admission. The non-fake authorization path
 still returns `source_auth_required`, and the fake runner uses test-only source
@@ -73,7 +70,7 @@ attestation remain the next external/provider-bound implementation gap.
 
 ### Minimal candidate revision after implementation review
 
-Before acceptance, all four mutating CLI steps must honor the existing stable
+The candidate also verifies that all four mutating CLI steps honor the existing stable
 request-key contract on replay: authorization returns the already verified
 result, rule insertion returns the original ruleset revision, preview returns
 the original preview, and start returns the original epoch while preserving
@@ -81,3 +78,10 @@ the original fence. The fix is limited to typed request lookup/replay and a
 small owner-scoped resume helper; it does not add a generic command framework
 or change the product path. Raw SQL remains behind that fixed internal helper,
 and no provider or live-account authority is added.
+
+The rule command currently uses deterministic rule identity for safe replay and
+cross-command conflict detection, but does not yet persist a separate rule
+operation row containing command category, payload digest, and status. This is a
+documented P2 follow-up: it does not block this synthetic sync closure, but the
+full CLI contract and final Phase 1 acceptance must not be claimed until it is
+resolved.

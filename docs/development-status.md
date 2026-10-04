@@ -524,14 +524,21 @@ engineering integration and remaining gates are in the sections above.
 
 ## Current product closure
 
-The bounded unit in `implementation-plans/cli-sync-closure.md` now has an
-offline-tested candidate. From a clean private state directory, the CLI can
-execute `init`, fake authorization/profile binding for both roles, exact sender
-rule creation, write-free backfill preview, explicit backfill start, and
+The bounded unit in `implementation-plans/cli-sync-closure.md` is accepted at
+candidate `e2d38ef`. From a clean private state directory, the CLI can execute
+`init`, fake authorization/profile binding for both roles, exact sender rule
+creation, write-free backfill preview, explicit backfill start, and
 `run --once --fake`. The first run discovers one synthetic thread, inserts and
 reads back one message, and persists one mapping; a second process run produces
 zero new projections. The subprocess evidence is in
-`tests/cli/test_bootstrap.py`; the complete offline suite is 2495 passed.
+`tests/cli/test_bootstrap.py`; the focused closure/credential/command-operation
+tests passed 67 cases and the complete offline suite passed 2495 tests.
+
+The candidate also validates request-key replay and cross-command conflicts,
+including atomic start activation and restart recovery. Rule replay currently
+uses deterministic rule identity rather than a separate operation row and
+payload digest; that is a documented P2 follow-up, not evidence for the full
+CLI contract.
 
 This is implemented and offline-tested, not live-Gmail-verified or Phase 1
 complete. Non-fake authorization still stops at `source_auth_required`, and
