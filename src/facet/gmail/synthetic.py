@@ -9,7 +9,6 @@ from facet.contracts import Role
 
 from .credential_models import AccountAddress, ProviderSecret
 
-
 _SYNTHETIC_PUBLIC_KEY = base64.b64decode(
     "MIGJAoGBALX2wl5pVUuagVvXrWCnjlANv8ngaInMYNn9gbsEsQmUdxea4W7MkPUi9C3baE9w1mRnisoW2f96LnqHrahD2OcJ41DAhttJlmV4wfWzPK24c330Is2EbDNcScuAEAR3xHhsw0LplEFTNpjX8XRtsN4YSYVzjBw392kFGzISxTbXAgMBAAE="
 )
