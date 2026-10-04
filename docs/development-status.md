@@ -155,6 +155,18 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   inspection, retry/approval, recovery, and repair commands remain open; this
   is not complete maintenance CLI or a Phase 1 gate.
 
+- The persisted-rule inspection unit is integrated in PR #67 at main merge
+  `21c17d7` (implementation candidate `5613113`; plan:
+  `implementation-plans/m1-cli-rule-views.md`). `facet rules list --json`
+  reports only the sealed current ruleset revision and rule count. `facet rules
+  show --rule-id <id> --private-metadata --json` reads one current rule's
+  private value, revision, effective time, origin, and policy metadata; public
+  show is rejected and missing/foreign selectors do not disclose existence.
+  The read path is offline and SQLite read-only, with no Gmail/OAuth import or
+  writer lease. The candidate passed 62 CLI tests, independent implementation
+  review, Python 3.12/3.13 CI, and no-publish image build. Rule deletion,
+  blacklist mutation, and item-level review/recovery operations remain open.
+
 - The bounded Dashboard/Compose HTTP unit is integrated on main `e2b9b17`
   after independent plan approval. `facet web` serves only the
   allowlisted aggregate routes (`/api/v1/status`, `/api/v1/progress`,
