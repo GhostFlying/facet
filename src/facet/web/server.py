@@ -223,6 +223,8 @@ class _Handler(BaseHTTPRequestHandler):
     do_PATCH = do_HEAD
     do_DELETE = do_HEAD
     do_OPTIONS = do_HEAD
+    do_TRACE = do_HEAD
+    do_CONNECT = do_HEAD
 
 
 class DashboardServer(HTTPServer):

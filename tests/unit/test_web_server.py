@@ -6,7 +6,6 @@ import socket
 import subprocess
 import sys
 import time
-from http.client import RemoteDisconnected
 from pathlib import Path
 from threading import Thread
 from unittest.mock import patch
@@ -66,11 +65,12 @@ def test_unknown_paths_and_queries_are_fixed_and_do_not_echo(dashboard_server):
 
 
 def test_mutating_methods_are_rejected_without_provider_access(dashboard_server):
-    request = Request(dashboard_server + "/api/v1/status", method="POST")
-    with pytest.raises(HTTPError) as error:
-        urlopen(request, timeout=2)
-    assert error.value.code == 405
-    assert json.load(error.value) == {"error": "method_not_allowed"}
+    for method in ("POST", "TRACE", "CONNECT"):
+        request = Request(dashboard_server + "/api/v1/status", method=method)
+        with pytest.raises(HTTPError) as error:
+            urlopen(request, timeout=2)
+        assert error.value.code == 405
+        assert json.load(error.value) == {"error": "method_not_allowed"}
 
 
 def test_static_page_is_aggregate_only(dashboard_server):
@@ -121,8 +121,8 @@ def test_server_closes_cleanly_without_stderr(capsys):
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        with pytest.raises((HTTPError, RemoteDisconnected)):
-            request = Request(f"http://127.0.0.1:{server.server_port}/", method="TRACE")
+        request = Request(f"http://127.0.0.1:{server.server_port}/", method="OPTIONS")
+        with pytest.raises(HTTPError):
             urlopen(request, timeout=2)
     finally:
         server.shutdown()
