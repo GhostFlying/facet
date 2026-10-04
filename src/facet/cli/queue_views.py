@@ -25,12 +25,12 @@ def _time(value: int | None) -> str | None:
 def read_queue_job(options) -> dict:
     """Read one job's allowlisted private metadata without taking the writer lock."""
 
-    if not getattr(options, "private_metadata", False):
-        raise ConfigError(ErrorCode.SCOPE_REQUIRED)
     try:
         job_id = LocalId(options.job_id)
     except (TypeError, ValueError):
         raise ConfigError(ErrorCode.INVALID_INPUT) from None
+    if not getattr(options, "private_metadata", False):
+        raise ConfigError(ErrorCode.SCOPE_REQUIRED)
 
     paths, raw, config = _paths_and_config(options)
     connection = None

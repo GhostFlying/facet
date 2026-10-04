@@ -371,6 +371,18 @@ def test_queue_show_is_private_read_only_job_metadata(trusted_root):
     )
     assert public.returncode == 3
     assert json.loads(public.stdout)["code"] == "scope_required"
+    public_malformed = _run(
+        trusted_root,
+        "queue",
+        "show",
+        "--job-id",
+        "not-a-uuid",
+        "--state-dir",
+        str(state),
+        guard=True,
+    )
+    assert public_malformed.returncode == 2
+    assert json.loads(public_malformed.stdout)["code"] == "invalid_input"
     private = _run(
         trusted_root,
         "queue",
