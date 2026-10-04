@@ -623,16 +623,8 @@ def _run_foreground_service(options: object) -> tuple[dict, tuple[str, ...]]:
 
 
 def _run_once_fake(options: object) -> tuple[dict, tuple[str, ...]]:
-    from facet.contracts import PolicyVersion, ProviderId
-    from facet.db.codecs import PrivateAddress
     from facet.gmail.credentials import CredentialManager
-    from facet.gmail.source_auth import SyntheticSourceAuthProvider
     from facet.gmail.synthetic import SyntheticGmailServiceFactory
-    from facet.projection.authenticity import (
-        FromAlignment,
-        SourcePathStatus,
-        _issuer_for_tests,
-    )
     from facet.runtime.foreground_runtime import run_foreground_once
     from facet.runtime.state_owner import StateOwner
 
@@ -653,25 +645,14 @@ def _run_once_fake(options: object) -> tuple[dict, tuple[str, ...]]:
             for snapshot in snapshots.values()
         ):
             raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
-        evidence = _issuer_for_tests().issue(
-            source_role=Role.SOURCE,
-            source_account=PrivateAddress(config.projection.source_email),
-            source_message_id=ProviderId("source-message"),
-            source_path=SourcePathStatus.TRUSTED,
-            from_alignment=FromAlignment.ALIGNED,
-            binding_revision=owner.bindings()[Role.SOURCE].binding_revision,
-            credential_revision=owner.bindings()[Role.SOURCE].credential_revision,
-            observed_at=Timestamp(datetime.now(UTC) - timedelta(minutes=1)),
-            expires_at=Timestamp(datetime.now(UTC) + timedelta(hours=1)),
-            policy_version=PolicyVersion("auth-v1"),
+        factory = SyntheticGmailServiceFactory(
+            config.projection.source_email, config.projection.target_email
         )
         receipt = run_foreground_once(
             owner,
             config,
-            SyntheticGmailServiceFactory(
-                config.projection.source_email, config.projection.target_email
-            ),
-            source_auth_provider=SyntheticSourceAuthProvider(evidence),
+            factory,
+            source_auth_provider=factory.source_auth_provider(),
         )
         return {
             "discovered": receipt.discovered,
