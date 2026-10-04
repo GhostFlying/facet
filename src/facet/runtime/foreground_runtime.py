@@ -17,6 +17,7 @@ from facet.gmail.service_factory import GmailServiceFactory
 from facet.gmail.source import SourceAdapter
 from facet.gmail.source_auth import SourceAuthProvider
 from facet.gmail.target import TargetAdapter
+from facet.projection.action_consumer import ActionEffectConsumer
 from facet.sync import ForegroundSync, SyncCycleReceipt
 
 __all__ = ("ForegroundRuntime", "run_foreground_once")
@@ -100,6 +101,21 @@ def load_persisted_admission(owner, config):
         )
 
 
+def _action_consumer(source: SourceAdapter, config: Config):
+    labels = source.action_label_map()
+    if labels is None:
+        return None
+    own_addresses = tuple(
+        PrivateAddress(address) for address in config.projection.own_addresses
+    )
+    return ActionEffectConsumer(
+        labels,
+        source,
+        own_addresses,
+        config.projection.source_email,
+    )
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class ForegroundRuntime:
     owner: object
@@ -137,7 +153,11 @@ class ForegroundRuntime:
             load_persisted_admission(self.owner, self.config)
             if admission is None
             else admission,
-            action_consumer=action_consumer,
+            action_consumer=(
+                action_consumer
+                if action_consumer is not None
+                else _action_consumer(source, self.config)
+            ),
         ).run_once(max_jobs=max_jobs, max_events=max_events)
 
 

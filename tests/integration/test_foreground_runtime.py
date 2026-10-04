@@ -16,10 +16,12 @@ from test_credential_manager import FUTURE, _manager
 from test_m2_foundation_consumers import write_credentials
 from test_projection_worker import _raw, _ready_owner
 
+import facet.runtime.foreground_runtime as foreground_runtime
 from facet.contracts import ErrorCode, LocalId, Revision, Role, Timestamp
 from facet.db.codecs import StorageFailure
 from facet.gmail.credential_codec import encode_envelope
 from facet.gmail.credential_models import AccountAddress
+from facet.projection.actions import PrivateActionLabelMap
 from facet.projection.backfill import DiscoveryDecision
 from facet.runtime.foreground_runtime import run_foreground_once
 
@@ -144,6 +146,28 @@ def test_runtime_composes_profiles_services_and_projection(
 ):
     owner = _ready_owner(Path(trusted_state_parent), object(), monkeypatch, seed=False)
     try:
+        gmail_controller.labels(
+            "source",
+            [
+                {"id": "add-sender", "name": "AI/AddSender", "type": "user"},
+                {"id": "add-domain", "name": "AI/AddDomain", "type": "user"},
+                {"id": "blacklist", "name": "AI/BlackList", "type": "user"},
+            ],
+        )
+        captured = {}
+
+        class SpyActionConsumer:
+            def __init__(self, labels, source, own_addresses, source_primary):
+                captured.update(
+                    labels=labels,
+                    source=source,
+                    own_addresses=own_addresses,
+                    source_primary=source_primary,
+                )
+
+        monkeypatch.setattr(
+            foreground_runtime, "ActionEffectConsumer", SpyActionConsumer
+        )
         source, target = write_credentials(owner)
         # _ready_owner advances the synthetic binding revision to exercise the
         # production worker. Keep the credential files on that same lineage.
@@ -196,6 +220,9 @@ def test_runtime_composes_profiles_services_and_projection(
         assert receipt.projected.verified == 1
         assert [role for role, _ in factory.profiles] == [Role.SOURCE, Role.TARGET]
         assert [role for role, _ in factory.services] == [Role.SOURCE, Role.TARGET]
+        assert isinstance(captured["labels"], PrivateActionLabelMap)
+        assert captured["own_addresses"][0].value == "source@example.invalid"
+        assert captured["source_primary"] == "source@example.invalid"
         assert owner.session._connection.execute(
             "SELECT COUNT(*) FROM message_mappings"
         ).fetchone() == (1,)

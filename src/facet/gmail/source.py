@@ -559,8 +559,13 @@ class SourceAdapter:
         except (ValueError, TypeError):
             raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
 
-    def action_label_map(self) -> PrivateActionLabelMap:
-        """Resolve the three fixed action labels without persisting names."""
+    def action_label_map(self) -> PrivateActionLabelMap | None:
+        """Resolve fixed action labels without persisting names.
+
+        Missing fixed labels are a normal opt-in state: ordinary sync can
+        continue, while any matching history work remains explicit attention.
+        Duplicate fixed labels and provider failures stay hard typed errors.
+        """
         value = execute(self._service.users().labels().list(userId="me"), self.role)
         found = {}
         for label in value.get("labels", ()):
@@ -574,7 +579,7 @@ class SourceAdapter:
                     raise ProviderFailure(ErrorCode.CONSISTENCY_FAILURE, self.role)
                 found[name] = _id(identifier)
         if set(found) != {"AI/AddSender", "AI/AddDomain", "AI/BlackList"}:
-            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+            return None
         return PrivateActionLabelMap(
             found["AI/AddSender"], found["AI/AddDomain"], found["AI/BlackList"]
         )

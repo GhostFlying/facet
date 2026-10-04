@@ -89,6 +89,14 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   plus the remaining source-path admission and recovery boundaries. A real
   Gmail run still requires explicit live-account/test-scope authorization; no
   such operation was performed by PR #55.
+- The action-label runtime candidate is implemented locally at exact
+  `d94e4bc715484c7b5fbeaa9fab13318f821defa3`. When all three fixed source
+  labels exist, the verified production runtime composes the existing durable
+  `ActionEffectConsumer`; missing labels leave ordinary sync running and keep
+  label work explicit attention. Duplicate labels and provider failures remain
+  typed failures. The independent implementation review approved the exact
+  candidate; focused adapter/runtime/action tests passed 25 and the full local
+  offline suite passed 2519. Candidate CI and merge are still pending.
 
 - The bounded Dashboard/Compose HTTP unit is integrated on main `e2b9b17`
   after independent plan approval. `facet web` serves only the
