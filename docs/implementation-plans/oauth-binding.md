@@ -1,6 +1,7 @@
 # Production OAuth binding command
 
-Date: 2026-10-04. Status: plan for independent review. Base: `f7cbe8f`.
+Date: 2026-10-04. Status: implementation accepted at candidate `723c9cf`.
+Base: `f7cbe8f`.
 
 ## Goal
 
@@ -64,3 +65,15 @@ without retaining refresh material, if its callback behavior requires a new
 external service, or if source-path attestation would need to be inferred from
 message headers. Those are separate decisions, not reasons to weaken the
 binding/privacy contract.
+
+## Candidate evidence
+
+Candidate `723c9cf` implements explicit role-specific production OAuth binding,
+TTY-only authorization URL output, a silent loopback callback with a 300-second
+deadline, actual-grant scope propagation, owner-only/no-follow client reads,
+single-role credential publication without early readiness, and stable request
+key recovery/conflict behavior. Independent implementation review approved the
+exact candidate. Focused OAuth/credential/bootstrap/command-operation tests
+passed 73 cases; the complete offline suite passed 2501 tests. No live OAuth or
+Gmail operation was performed. Real source-path attestation, live account
+verification, and the remaining Phase 1 gates are still open.

@@ -541,11 +541,15 @@ payload digest; that is a documented P2 follow-up, not evidence for the full
 CLI contract.
 
 This is implemented and offline-tested, not live-Gmail-verified or Phase 1
-complete. Non-fake authorization still stops at `source_auth_required`, and
-the fake runner uses test-only source-path evidence. Real OAuth/profile
-attestation and controlled Gmail verification remain the next provider-bound
-gates. Dashboard, Compose, Actions, scheduling and unrelated maintenance
-commands remain outside this closure unit.
+complete. The follow-up OAuth binding unit at candidate `723c9cf` adds the
+production role-specific loopback authorization path with TTY-only URL output,
+actual-grant scopes, profile/account verification, and durable role publication.
+The candidate received independent approval; its focused tests passed 73 cases
+and the complete offline suite passed 2501 tests. No live OAuth/Gmail evidence
+is claimed. The fake runner still uses test-only source-path evidence; real
+source-path attestation and controlled Gmail verification remain provider-bound
+gates. Dashboard, Compose, Actions, scheduling and remaining maintenance commands
+remain outside these closure units.
 
 ## Historical next-unit note
 
