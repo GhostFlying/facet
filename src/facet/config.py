@@ -276,6 +276,58 @@ def initial_template(
     )
 
 
+def dump_config(config: Config) -> bytes:
+    """Serialize the closed configuration schema to deterministic YAML bytes."""
+    if type(config) is not Config:
+        raise ConfigError()
+    document = {
+        "projection": {
+            "id": config.projection.id.value,
+            "source_email": config.projection.source_email,
+            "target_email": config.projection.target_email,
+            "source_mode": config.projection.source_mode.value,
+            "own_addresses": list(config.projection.own_addresses),
+        },
+        "sync": {
+            "poll_interval_seconds": config.sync.poll_interval_seconds,
+            "backfill_lookback_months": config.sync.backfill_lookback_months,
+            "thread_concurrency": config.sync.thread_concurrency,
+            "source_reconcile_interval_hours": (
+                config.sync.source_reconcile_interval_hours
+            ),
+            "target_audit_interval_hours": config.sync.target_audit_interval_hours,
+        },
+        "rules": {
+            "allow_domains": list(config.rules.allow_domains),
+            "allow_senders": list(config.rules.allow_senders),
+            "blacklist_senders": list(config.rules.blacklist_senders),
+            "authenticity": config.rules.authenticity,
+        },
+        "target": {
+            "inbox": config.target.inbox,
+            "projected_label": config.target.projected_label,
+        },
+        "web": {
+            "enabled": config.web.enabled,
+            "host": config.web.host,
+            "port": config.web.port,
+            "refresh_interval_seconds": config.web.refresh_interval_seconds,
+        },
+    }
+    try:
+        raw = yaml.safe_dump(
+            document,
+            allow_unicode=False,
+            default_flow_style=False,
+            sort_keys=False,
+        ).encode("utf-8")
+    except (UnicodeError, TypeError, yaml.YAMLError):
+        raise ConfigError() from None
+    if len(raw) > MAX_CONFIG_BYTES or load_config(raw) != config:
+        raise ConfigError()
+    return raw
+
+
 def config_warnings(config: Config) -> tuple[str, ...]:
     warnings = ["binding_verification_pending", "managed_state_check_pending"]
     if (

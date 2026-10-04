@@ -22,8 +22,8 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1-04 OAuth/binding | Early pure values/codec/client parser integrated; full package open | PR #18 actually merged exact `ff77e63`; 120 OP/608 full tests, independent source/head review, wheel and candidate/main 3.12/3.13 CI passed; actual OAuth/profile/files/publication remain |
 | M1-05 public status/privacy | Early pure/logging library integrated; full consumer gate open | PR #16 actually merged exact `f209fbe`, independent review and candidate/main CI passed with 488 offline tests; actual DB/auth/runtime/HTTP/DOM/Compose consumers still pending |
 | M1-06 authentication/initialization | Typed candidate seam integrated; full package open | PR #39 exact `3ba6465` merged at main `05a6044`; candidate discovery converts ID-only pages into redacted typed candidate/attention results, rejects malformed metadata, and defaults source authentication to unknown. Independent implementation review, focused 22, full 2443 offline tests, Python 3.12/3.13 CI, Ruff and safety passed. Real source-path attestation, initialization and G1 remain open |
-| M1 foundation as a whole | Incomplete | Full persistence, process/view/credential ownership, init/doctor/config apply, authenticated bindings and real status consumers remain; G1 has not passed |
-| M2 automated projection core | Foreground synthetic vertical candidate under implementation review; milestone incomplete | PR #45 candidate adds the bounded composition in `src/facet/sync.py`: fixed-window discovery continuation, H0→History pagination, `messagesAdded` resolution, action-label bridge, serial projection worker, target readback/mapping, pre-dispatch claim recovery, and retained DRAINING authorization epoch. Revision 1 additionally gates paused/unverified owners, bridges typed Gmail candidates to pure admission, and durably converges unsupported/retryable History work. The revised plan is independently approved; the prior exact candidate had 39 focused/2473 full offline passes and its implementation review found no P0/P1 code defect. This follow-up adds runner-level due-retry evidence; exact new-SHA review/CI/merge remain open. Live source-path authenticity, production OAuth/CLI command journaling, post-backfill live Gmail evidence, Dashboard, Compose and Actions remain open |
+| M1 foundation as a whole | Incomplete | `facet init` and `run --once` preflight are now implemented locally, with request-keyed bootstrap replay and pending-binding refusal; full OAuth/profile ownership, status consumers, doctor/config apply and G1 remain open |
+| M2 automated projection core | Foreground synthetic vertical integrated | PR #45 merged at `0a928369c8a1ee4f0684f7e4605899fec42af021`; fixed-window discovery, H0→History pagination, typed candidate/admission bridge, action-label effects, serial projection/readback, pre-dispatch recovery, and durable attention/retry convergence are offline-tested. This does not claim CLI/OAuth, live Gmail, Dashboard, Compose, Actions or Phase 1 completion |
 | M3 continuous recovery and Dashboard alpha | Not implemented | History gap recovery, reconcile/audit, aggregate read-only Web UI and status diagnostics |
 | M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
 | M5 self-hosted delivery | Not implemented | One-command Compose, Actions GHCR image, Nginx and bilingual operations docs |
@@ -59,6 +59,18 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
 而是从当前关键路径移除的工程方案。
 
 ## Latest product-first handoff (2026-10-04)
+
+- The next bounded CLI slice is implemented locally on top of main: plan
+  `docs/implementation-plans/m1-cli-bootstrap.md` was independently approved.
+  `facet init` now serializes the closed config schema, creates private SQLite
+  state with the caller's exact request namespace/nonce, atomically publishes
+  `config.yaml`, and can replay a completed or incomplete bootstrap without a
+  second database. `facet run --once` opens managed state and stops at
+  `binding_pending` before any Gmail/provider construction. Focused subprocess
+  evidence is `tests/cli/test_init.py` (4) plus the retained CLI suite (38);
+  exact candidate review/full CI are still pending. The bootstrap slice uses
+  explicit request IDs only; the complete G1 TTY journal/generation protocol,
+  OAuth/profile verification and a real Gmail service factory remain open.
 
 - PR #45's first candidate was held by implementation review for three concrete
   gaps: readiness was checked too late, the production candidate/admission seam
