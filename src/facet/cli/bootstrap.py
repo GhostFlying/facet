@@ -5,16 +5,20 @@ import hashlib
 import json
 import math
 import os
+import signal
 import stat
 import sys
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Event, Thread
 from uuid import UUID, uuid4
 
 from facet import __version__
 from facet.config import ConfigError, dump_config, initial_template, load_config
 from facet.contracts import (
+    BindingState,
+    EpochState,
     ErrorCode,
     LocalId,
     PolicyVersion,
@@ -126,11 +130,14 @@ def build_parser() -> _Parser:
         "run",
         add_help=False,
         allow_abbrev=False,
-        help="run one foreground sync cycle",
+        help="run the foreground sync owner",
     )
     _common(run)
     run.add_argument("--once", action="store_true")
     run.add_argument("--fake", action="store_true", help="use offline synthetic Gmail")
+    run.add_argument("--host", default="127.0.0.1")
+    run.add_argument("--port", type=int, default=8080)
+    run.add_argument("--interval", type=float, default=5.0)
     auth = commands.add_parser(
         "auth",
         add_help=False,
@@ -393,6 +400,130 @@ def _run_once_production(owner, config) -> tuple[dict, tuple[str, ...]]:
         "projected": receipt.projected.verified,
         "attention": receipt.attention,
     }, ()
+
+
+def _foreground_gate(owner) -> tuple[bool, ErrorCode | None]:
+    """Check durable readiness without constructing or calling a Gmail client."""
+
+    bindings = owner.bindings()
+    if any(
+        binding is None or binding.state is not BindingState.VERIFIED
+        for binding in bindings.values()
+    ):
+        return False, ErrorCode.BINDING_PENDING
+    with owner.session.transaction() as uow:
+        row = uow._execute(
+            "SELECT state FROM epochs WHERE projection_id=? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (owner.projection_id.value,),
+        ).fetchone()
+    if row is None:
+        return False, None
+    try:
+        state = EpochState(row[0])
+    except ValueError:
+        raise ConfigError(ErrorCode.CONSISTENCY_FAILURE) from None
+    if state not in {
+        EpochState.PREPARED,
+        EpochState.SCANNING,
+        EpochState.CATCHING_UP,
+        EpochState.DRAINING,
+    }:
+        return False, ErrorCode.MAINTENANCE_REQUIRED
+    return True, None
+
+
+def _run_foreground_service(options: object) -> tuple[dict, tuple[str, ...]]:
+    """Own one sync loop and one read-only Dashboard in the current process."""
+
+    from facet.gmail.service_factory import GoogleGmailServiceFactory
+    from facet.runtime.dashboard import LiveSnapshotProvider
+    from facet.runtime.foreground_runtime import run_foreground_once
+    from facet.runtime.state_owner import StateOwner
+    from facet.web.server import DashboardServer
+
+    if getattr(options, "fake", False):
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+    try:
+        interval = float(options.interval)
+    except (TypeError, ValueError):
+        raise ConfigError(ErrorCode.INVALID_INPUT) from None
+    if not math.isfinite(interval) or interval <= 0 or interval > 86400:
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+    if not 1 <= options.port <= 65535 or not isinstance(options.host, str):
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+    paths = select_paths(
+        getattr(options, "state_dir", None), getattr(options, "config_path", None)
+    )
+    if getattr(options, "config_path", None) is not None:
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+    raw = read_managed_config(paths)
+    config = load_config(raw)
+    owner = StateOwner.open(paths.root, config)
+    provider = LiveSnapshotProvider()
+    stop = Event()
+    server = None
+    server_thread = None
+    started = False
+    previous_sigterm = None
+    try:
+        owner.verify_config_artifact(raw)
+        server = DashboardServer((options.host, options.port), provider)
+        server_thread = Thread(target=server.serve_forever, daemon=True)
+        previous_sigterm = signal.signal(signal.SIGTERM, lambda *_: stop.set())
+        server_thread.start()
+        started = True
+        while not stop.is_set():
+            try:
+                ready, gate_error = _foreground_gate(owner)
+            except Exception:
+                provider.invalidate()
+                stop.wait(interval)
+                continue
+            if not ready:
+                try:
+                    provider.publish_from_owner(
+                        owner,
+                        config,
+                        error_code=gate_error,
+                        cycle_verified=False,
+                    )
+                except Exception:
+                    provider.invalidate()
+                stop.wait(interval)
+                continue
+            error_code = None
+            try:
+                run_foreground_once(owner, config, GoogleGmailServiceFactory())
+            except KeyboardInterrupt:
+                break
+            except Exception as error:
+                error_code = getattr(error, "code", ErrorCode.PERSISTENCE_FAILURE)
+                if type(error_code) is not ErrorCode:
+                    error_code = ErrorCode.PERSISTENCE_FAILURE
+            try:
+                provider.publish_from_owner(
+                    owner,
+                    config,
+                    error_code=error_code,
+                    cycle_verified=error_code is None,
+                )
+            except Exception:
+                provider.invalidate()
+            stop.wait(interval)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop.set()
+        if previous_sigterm is not None:
+            signal.signal(signal.SIGTERM, previous_sigterm)
+        if started and server is not None and server_thread is not None:
+            server.shutdown()
+            server_thread.join(timeout=2)
+        if server is not None:
+            server.server_close()
+        owner.close()
+    return {"stopped": True}, ()
 
 
 def _run_once_fake(options: object) -> tuple[dict, tuple[str, ...]]:
@@ -1160,13 +1291,14 @@ def main(argv: list[str] | None = None) -> int:
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
         if options.family == "run":
             command = "run"
-            if not getattr(options, "once", False):
-                raise _InputError()
-            data, warnings = (
-                _run_once_fake(options)
-                if getattr(options, "fake", False)
-                else _run_preflight(options)
-            )
+            if getattr(options, "once", False):
+                data, warnings = (
+                    _run_once_fake(options)
+                    if getattr(options, "fake", False)
+                    else _run_preflight(options)
+                )
+            else:
+                data, warnings = _run_foreground_service(options)
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
         if options.family == "web":
             command = "web"

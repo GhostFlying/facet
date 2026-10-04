@@ -1,6 +1,6 @@
 # Facet development status
 
-Updated: 2026-10-04 (PRC; historical UTC receipts retain their original dates)
+Updated: 2026-10-05 (PRC; historical UTC receipts retain their original dates)
 
 This is the durable handoff for autonomous development. Update it with evidence
 at the end of each coherent implementation unit. Do not store account addresses,
@@ -59,6 +59,37 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
 而是从当前关键路径移除的工程方案。
 
 ## Latest product-first handoff (2026-10-04)
+
+## Current candidate handoff (2026-10-05)
+
+- The next product-shaped candidate composes the existing foreground sync owner
+  and aggregate Dashboard in one supported process. `facet run` without
+  `--once` validates managed configuration, retains one SQLite writer owner,
+  runs the existing foreground cycle, and publishes only allowlisted in-memory
+  snapshots to the fixed read-only HTTP routes. `Dockerfile` and Compose now
+  use this foreground entrypoint with the persistent `/var/lib/facet` state
+  volume; `facet run --once` and `facet web` remain separate commands.
+- The candidate handles listener startup failure and SIGINT/SIGTERM with owner
+  cleanup. Snapshot freshness uses a monotonic clock; failed collection
+  invalidates readiness, and unknown discovery totals/rates remain null. The
+  Dashboard reports lifetime confirmed mappings separately from current-epoch
+  discovery and surfaces durable discovered/completed thread-job counts and
+  partition-level attention without exposing message details, rules, addresses,
+  IDs, or provider payloads. Scanned-thread count remains explicitly unknown
+  when the DB has no safe aggregate for rejected candidates.
+- The candidate now gates every provider cycle on DB-only verified bindings and
+  an active, explicitly-started epoch. Before that gate passes, it publishes a
+  blocked/unknown aggregate snapshot and does not construct or call Gmail.
+- Candidate evidence so far: the Dashboard/foreground/runtime/fake-restart
+  focused set passes 15 tests; full offline regression is running against the
+  corrected candidate. This is a local candidate pending implementation review,
+  CI, and merge; it is not evidence of live Gmail projection, automatic
+  trusted admission, action-label production wiring, or Phase 1 completion.
+- The immediate next acceptance is a clean full offline suite, safety/format/
+  wheel checks, exact candidate review, and candidate/main CI. After that,
+  production-critical work resumes on action-label consumer wiring and complete
+  source-path admission/recovery; those remain the blockers to a real automatic
+  Gmail projection.
 
 - The bounded Dashboard/Compose HTTP unit is integrated on main `89774c7`
   after independent plan approval. `facet web` serves only the
