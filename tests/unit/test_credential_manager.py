@@ -120,7 +120,7 @@ def _envelope(owner, role, account):
             SecretText("synthetic-client-secret"),
             SecretText("synthetic-access-token"),
             SecretText("synthetic-refresh-token"),
-            FUTURE,
+            Timestamp(FUTURE.value + timedelta(hours=1)),
         ),
     )
 
@@ -162,6 +162,53 @@ class Profiles:
                 role,
             ),
         )
+
+
+def test_verify_rejects_expired_envelope_before_profile_or_publish(
+    trusted_state_parent, monkeypatch
+):
+    owner, _, manager, source, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+        expired = _future_secret("expired")
+        expired = ProviderSecret(
+            expired.client_id,
+            expired.client_secret,
+            expired.access_token,
+            expired.refresh_token,
+            Timestamp(FUTURE.value - timedelta(seconds=1)),
+        )
+        envelope = CredentialEnvelope(
+            source.version,
+            source.projection_id,
+            source.state_instance_id,
+            source.role,
+            source.binding_revision,
+            source.credential_revision,
+            source.change_id,
+            source.account,
+            source.scope_policy,
+            source.scope_policy_revision,
+            source.grant,
+            source.profile_verified_at,
+            expired,
+        )
+        (Path(owner.state_dir) / "credentials" / "source.json").write_bytes(
+            encode_envelope(envelope)
+        )
+        calls = []
+
+        class Reader:
+            def get_profile(self, role, secret):
+                calls.append(role)
+                return Profiles().get_profile(role, secret)
+
+        with pytest.raises(StorageFailure) as caught:
+            manager.verify_and_publish(Reader())
+        assert caught.value.code is ErrorCode.SOURCE_AUTH_REQUIRED
+        assert calls == []
+        assert owner.bindings()[Role.SOURCE].state.value == "verification_pending"
+    finally:
+        owner.close()
 
 
 def test_refresh_serializes_and_commits_metadata_only(

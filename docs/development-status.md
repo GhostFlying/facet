@@ -102,6 +102,19 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   offline suite passed 2469 tests. This is implemented/offline-tested only;
   it is not live Gmail, CLI-complete, deployment, or Phase 1 acceptance.
 
+- The next bounded runtime-wiring plan
+  `docs/implementation-plans/m2-cli-runtime-wiring.md` was independently
+  approved and is implemented locally on the merged main base. The new
+  composition performs profile probe, expiry/account/scope verification,
+  pending-binding publication, access-only service construction, and then
+  invokes the existing `ForegroundSync` through one injectable factory seam.
+  Synthetic evidence is `tests/integration/test_foreground_runtime.py` plus
+  the credential consumer/manager suites (27 focused tests); the Google
+  factory never receives refresh tokens and no provider payload is persisted.
+  This is offline-tested only. The CLI still stops at its preflight until the
+  production OAuth command and persisted-rule admission loader are delivered;
+  no live Gmail operation has occurred.
+
 - M1-04 credential binding is integrated through PR #35 recovery head and the
   separately reviewed explicit-scope follow-up PR #37. Main contains
   `4c07766` and `a61c474`; both Python lanes passed for the follow-up. The

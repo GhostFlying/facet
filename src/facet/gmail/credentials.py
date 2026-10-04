@@ -617,6 +617,12 @@ class CredentialManager:
         profiles = []
         for role in (Role.SOURCE, Role.TARGET):
             envelope = self._load_envelope(role)
+            if envelope.secret.expires_at.value <= _owner_now().value:
+                _fail(
+                    ErrorCode.SOURCE_AUTH_REQUIRED
+                    if role is Role.SOURCE
+                    else ErrorCode.TARGET_AUTH_REQUIRED
+                )
             try:
                 evidence = reader.get_profile(role, envelope.secret)
             except StorageFailure:
