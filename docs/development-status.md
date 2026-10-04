@@ -26,7 +26,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M2 automated projection core | Foreground synthetic vertical integrated | PR #45 merged at `0a928369c8a1ee4f0684f7e4605899fec42af021`; fixed-window discovery, H0→History pagination, typed candidate/admission bridge, action-label effects, serial projection/readback, pre-dispatch recovery, and durable attention/retry convergence are offline-tested. This does not claim CLI/OAuth, live Gmail, Dashboard, Compose, Actions or Phase 1 completion |
 | M3 continuous recovery and Dashboard alpha | HTTP boundary alpha implemented locally; aggregate consumer and recovery remain open | `facet web`, typed unavailable/unknown snapshots, fixed-output read-only routes, privacy tests, and Compose smoke fixture; no live counts, Gmail, or production deployment claim |
 | M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
-| M5 self-hosted delivery | Not implemented | One-command Compose, Actions GHCR image, Nginx and bilingual operations docs |
+| M5 self-hosted delivery | Image workflow implemented locally; publication evidence pending | Immutable multi-arch PR/main workflow and pinned Compose base; GHCR digest, anonymous pull, deployment and Nginx evidence remain open |
 | M6 real deployment and v0.1 | Not implemented | Backup/restore, live Gmail, selected host and 72-hour evidence |
 
 Both `facet` and the isolated `facet_spike` are now packaged for Python 3.12+.
