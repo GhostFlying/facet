@@ -79,11 +79,24 @@ def _init(root, state):
 
 
 def _files(root):
-    return {
+    files = {
         str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in root.rglob("*")
-        if path.is_file() and path.name not in {"facet.db-wal", "facet.db-shm"}
+        if path.is_file() and path.name != "facet.db-shm"
     }
+    return files
+
+
+def _without_times(value):
+    if isinstance(value, dict):
+        return {
+            key: _without_times(item)
+            for key, item in value.items()
+            if key not in {"sampled_at", "checked_at"}
+        }
+    if isinstance(value, list):
+        return [_without_times(item) for item in value]
+    return value
 
 
 def test_status_and_doctor_are_aggregate_only_and_read_only(trusted_root):
@@ -94,13 +107,13 @@ def test_status_and_doctor_are_aggregate_only_and_read_only(trusted_root):
     status = _run(trusted_root, "status", "--state-dir", str(state), guard=True)
     doctor = _run(trusted_root, "doctor", "--state-dir", str(state), guard=True)
     assert status.returncode == 0, status.stderr + status.stdout
-    assert doctor.returncode == 0, doctor.stderr + doctor.stdout
+    assert doctor.returncode == 3, doctor.stderr + doctor.stdout
     status_doc = json.loads(status.stdout)
     doctor_doc = json.loads(doctor.stdout)
     assert status_doc["command"] == "status"
     assert doctor_doc["command"] == "doctor"
-    assert status_doc["data"]["health"] == "blocked"
-    assert status_doc["data"]["binding_states"]["source"]["state"] == (
+    assert status_doc["data"]["status"]["data"]["health"] == "blocked"
+    assert status_doc["data"]["status"]["data"]["source"]["auth_state"] == (
         "verification_pending"
     )
     assert {check["name"] for check in doctor_doc["data"]["checks"]} == {
@@ -113,7 +126,13 @@ def test_status_and_doctor_are_aggregate_only_and_read_only(trusted_root):
     assert "source@synthetic.example" not in output
     assert "target@synthetic.example" not in output
     assert "facet.db" not in output
-    assert _files(state) == before
+    after = _files(state)
+    for name, digest in before.items():
+        assert after.get(name) == digest
+    # A read-only SQLite connection may create an empty WAL coordination file;
+    # an existing WAL payload, like the main database, must remain unchanged.
+    if "facet.db-wal" in before:
+        assert after["facet.db-wal"] == before["facet.db-wal"]
 
 
 def test_status_does_not_take_writer_lock_and_private_flag_does_not_expand_output(
@@ -139,9 +158,7 @@ def test_status_does_not_take_writer_lock_and_private_flag_does_not_expand_outpu
     plain_data = json.loads(plain.stdout)["data"]
     private_data = json.loads(private.stdout)["data"]
     assert plain_data.keys() == private_data.keys()
-    assert {key: value for key, value in plain_data.items() if key != "sampled_at"} == {
-        key: value for key, value in private_data.items() if key != "sampled_at"
-    }
+    assert _without_times(plain_data) == _without_times(private_data)
 
 
 def test_status_reports_the_synthetic_projection_closure(trusted_root):
@@ -193,13 +210,14 @@ def test_status_reports_the_synthetic_projection_closure(trusted_root):
     status = _run(trusted_root, "status", "--state-dir", str(state))
     assert status.returncode == 0
     data = json.loads(status.stdout)["data"]
-    assert data["confirmed_mappings"] == 1
-    assert data["epoch"]["state"] in {
+    assert data["progress"]["data"]["confirmed_messages"] == 1
+    assert data["progress"]["data"]["epoch"]["state"] in {
         "draining",
         "completed",
         "completed_with_issues",
     }
-    assert data["queue"]["completed"] >= 1
+    assert data["progress"]["data"]["jobs"]["completed"] >= 1
+    assert data["status"]["data"]["health"] == "unknown"
 
 
 def test_status_reports_paused_epoch_as_blocked(trusted_root):
@@ -258,8 +276,8 @@ def test_status_reports_paused_epoch_as_blocked(trusted_root):
     result = _run(trusted_root, "status", "--state-dir", str(state))
     assert result.returncode == 0
     data = json.loads(result.stdout)["data"]
-    assert data["health"] == "blocked"
-    assert data["phase"] == "paused"
+    assert data["status"]["data"]["health"] == "blocked"
+    assert data["status"]["data"]["phase"] == "paused"
 
 
 def test_status_rejects_a_different_projection_selector(trusted_root):
@@ -283,3 +301,18 @@ def test_doctor_live_is_explicitly_not_implemented(trusted_root):
     result = _run(trusted_root, "doctor", "--state-dir", str(state), "--live")
     assert result.returncode == 2
     assert json.loads(result.stdout)["code"] == "invalid_input"
+
+
+def test_doctor_retains_findings_with_typed_exit(trusted_root):
+    state = trusted_root / "state"
+    _init(trusted_root, state)
+    result = _run(trusted_root, "doctor", "--state-dir", str(state))
+    assert result.returncode == 3
+    document = json.loads(result.stdout)
+    assert document["code"] == "binding_pending"
+    checks = {check["name"]: check for check in document["data"]["checks"]}
+    assert checks["bindings"] == {
+        "name": "bindings",
+        "state": "attention",
+        "code": "binding_pending",
+    }

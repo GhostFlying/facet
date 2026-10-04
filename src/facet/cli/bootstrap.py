@@ -1325,8 +1325,13 @@ def main(argv: list[str] | None = None) -> int:
                 raise ConfigError(ErrorCode.INVALID_INPUT)
             from facet.cli.status import read_status
 
-            data = read_status(options, doctor=options.family == "doctor")
-            return _emit(command, data=data, json_mode=json_mode)
+            result = read_status(options, doctor=options.family == "doctor")
+            return _emit(
+                command,
+                code=result.code if options.family == "doctor" else None,
+                data=result.data,
+                json_mode=json_mode,
+            )
         if options.family == "web":
             command = "web"
             if not 1 <= options.port <= 65535:

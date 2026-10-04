@@ -23,6 +23,19 @@ checks for config ownership/digest, schema readability, binding readiness,
 restore/paused state, and unresolved work.  Unknown or stale facts remain
 unknown; zero is never substituted for an unavailable check.
 
+Acceptance clarification for the same unit: reuse the existing four public
+Dashboard DTOs/serializers for aggregate output, not unvalidated DB strings.
+All local queries use one deferred read transaction; cached verified bindings
+are stale and clean offline health is unknown, with no fabricated heartbeat or
+live owner count. Doctor reports local failures using the existing error
+catalogue exit code, preserving the findings in its JSON data. Check both
+role addresses against config privately, plus regular owner-only DB/WAL/SHM
+files; close failed readers. SQLite's ordinary WAL coordination sidecars are
+allowed, but no business writes, checkpoint, immutable-live read or copy of a
+live DB is introduced. Tests must separately prove unchanged main DB and WAL
+payload and tolerate SQLite read-lock marks in SHM, rather than excluding both
+sidecars from all assertions.
+
 ## Files and behavior
 
 - `src/facet/cli/status.py`: add a narrow read-only state adapter.  Validate
