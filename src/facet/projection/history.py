@@ -150,10 +150,10 @@ def _typed_events(
             Revision(0),
             observed,
             observed,
-            origin_epoch_id,
+            None,
             Count(0),
             None,
-            None,
+            origin_epoch_id,
             JobSubjectResolveEvent("resolve_event", row.event.key),
         )
         for row in rows

@@ -9,10 +9,11 @@ foreground container; it is not a daemon or an IPC service.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from facet.contracts import (
+    BindingState,
     Claim,
     ClaimPhase,
     Count,
@@ -23,17 +24,33 @@ from facet.contracts import (
     LocalId,
     Priority,
     ProviderId,
+    RestoreState,
     Revision,
+    Role,
     Timestamp,
 )
 from facet.contracts.records import JobSubjectProjectMessage
-from facet.db.codecs import EventProcessing, PollOrigin, PollState, StorageFailure
+from facet.db.codecs import (
+    EventProcessing,
+    PollOrigin,
+    PollState,
+    StorageFailure,
+    timestamp_to_sql,
+)
 from facet.db.keys import event_key, job_key
 from facet.db.models import HistoryPollRow, RevisionGuard, SyncJobRow
 from facet.db.repositories import epochs, events, jobs, reads
 from facet.db.repositories.base import _decode, _get, _query
 from facet.db.repositories.serialization import COLUMNS
+from facet.gmail.retry import ProviderFailure
+from facet.gmail.source import CandidateAttentionReason
 from facet.projection.action_consumer import ActionEffectConsumer
+from facet.projection.admission import (
+    AdmissionAttentionReason,
+)
+from facet.projection.admission import (
+    AdmissionEvaluator as PolicyAdmissionEvaluator,
+)
 from facet.projection.backfill import BackfillProducer
 from facet.projection.history import HistoryProducer
 from facet.projection.worker import ProjectionWorker, WorkerReceipt
@@ -45,6 +62,52 @@ def _now() -> Timestamp:
 
 def _id() -> LocalId:
     return LocalId(uuid4().hex)
+
+
+_RETRY_DELAY = timedelta(seconds=1)
+
+
+class SourceCandidateAdmission:
+    """Adapt the provider candidate seam to the pure admission policy.
+
+    The adapter owns all Gmail metadata/authentication calls and is invoked
+    before ``BackfillProducer`` opens its write transaction.  This prevents an
+    ID-only discovery item from being mistaken for a typed, authenticated
+    candidate by production code.
+    """
+
+    def __init__(self, source, policy: PolicyAdmissionEvaluator) -> None:
+        if not hasattr(source, "candidate") or not isinstance(
+            policy, PolicyAdmissionEvaluator
+        ):
+            raise ValueError("invalid_input")
+        self._source = source
+        self._policy = policy
+
+    def evaluate(self, item, epoch):
+        from facet.projection.backfill import DiscoveryDecision
+
+        try:
+            result = self._source.candidate(item)
+        except ProviderFailure as error:
+            return DiscoveryDecision(False, attention=error.code)
+        if result.attention is not None:
+            code = (
+                ErrorCode.SOURCE_AUTH_REQUIRED
+                if result.attention.reason is CandidateAttentionReason.PROVIDER_FAILURE
+                else ErrorCode.REQUEST_CONFLICT
+            )
+            return DiscoveryDecision(False, attention=code)
+        decision = self._policy.evaluate(result.candidate, _now())
+        if decision.admit:
+            return DiscoveryDecision(True, decision.rule)
+        if decision.attention_reason in {
+            AdmissionAttentionReason.AUTHENTICITY_MISSING,
+            AdmissionAttentionReason.AUTHENTICITY_UNTRUSTED,
+            AdmissionAttentionReason.AUTHENTICITY_STALE,
+        }:
+            return DiscoveryDecision(False, attention=ErrorCode.SOURCE_AUTH_REQUIRED)
+        return DiscoveryDecision(False)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -109,8 +172,12 @@ class ForegroundSync:
         self._source = source
         self._target = target
         self._projection = owner.projection_id
-        self._admission = admission
-        self._backfill = BackfillProducer(source, admission)
+        self._admission = (
+            SourceCandidateAdmission(source, admission)
+            if isinstance(admission, PolicyAdmissionEvaluator)
+            else admission
+        )
+        self._backfill = BackfillProducer(source, self._admission)
         self._history = HistoryProducer(source)
         self._worker = ProjectionWorker(
             owner, source, target, max_raw_bytes=max_raw_bytes
@@ -126,6 +193,7 @@ class ForegroundSync:
             or not 1 <= max_events <= 10_000
         ):
             raise ValueError("invalid_input")
+        self._require_ready()
         self._recover_pre_dispatch_claims()
         discovered = self._discover_initial_epoch()
         history_pages = self._poll_history()
@@ -152,6 +220,24 @@ class ForegroundSync:
             projected,
             attention,
         )
+
+    def _require_ready(self) -> None:
+        """Reject a cycle before it can read Gmail or mutate queue state."""
+        with self._owner.session.transaction() as uow:
+            projection = reads.get_projection(uow, self._projection)
+            if projection is None:
+                raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+            if projection.binding_state is not BindingState.VERIFIED:
+                raise StorageFailure(ErrorCode.BINDING_PENDING)
+            if (
+                projection.daemon_paused
+                or projection.restore_state is not RestoreState.NORMAL
+            ):
+                raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+            for role in Role:
+                binding = reads.get_binding(uow, self._projection, role)
+                if binding is None or binding.state is not BindingState.VERIFIED:
+                    raise StorageFailure(ErrorCode.BINDING_PENDING)
 
     def _recover_pre_dispatch_claims(self) -> int:
         """Requeue only claims with no remote-dispatch evidence.
@@ -289,8 +375,9 @@ class ForegroundSync:
                 uow,
                 "SELECT " + ",".join(COLUMNS["sync_jobs"]) + " FROM sync_jobs "
                 "WHERE projection_id=? AND kind='resolve_event' AND state IN "
-                "('queued','retry_wait') ORDER BY created_at,job_id LIMIT 1000",
-                (self._projection.value,),
+                "('queued','retry_wait') AND (next_attempt_at IS NULL OR "
+                "next_attempt_at<=?) ORDER BY created_at,job_id LIMIT 1000",
+                (self._projection.value, timestamp_to_sql(_now())),
                 maximum=1000,
             )
             return tuple(
@@ -303,6 +390,7 @@ class ForegroundSync:
             key = job.subject.event_key
             if hasattr(key, "label_id"):
                 if self._action is None:
+                    self._defer_event_attention(job, ErrorCode.OWNER_UNAVAILABLE)
                     attention += 1
                     continue
                 try:
@@ -312,7 +400,14 @@ class ForegroundSync:
                         self._event_id(job),
                         epoch_id=self._active_live_epoch() or job.origin_epoch_id,
                     )
-                except StorageFailure:
+                except StorageFailure as error:
+                    retryable = error.code in {
+                        ErrorCode.SOURCE_AUTH_REQUIRED,
+                        ErrorCode.SOURCE_RATE_LIMITED,
+                        ErrorCode.NETWORK_UNAVAILABLE,
+                        ErrorCode.OWNER_BUSY,
+                    }
+                    self._defer_event_attention(job, error.code, retryable=retryable)
                     attention += 1
                     continue
                 if result.attention is not None:
@@ -321,6 +416,7 @@ class ForegroundSync:
                     resolved += 1
                 continue
             if key.tag != "message_added":
+                self._defer_event_attention(job, ErrorCode.REQUEST_CONFLICT)
                 attention += 1
                 continue
             if self._resolve_message_added(job):
@@ -328,6 +424,83 @@ class ForegroundSync:
             else:
                 attention += 1
         return resolved, attention
+
+    def _defer_event_attention(
+        self,
+        resolve_job: SyncJobRow,
+        error: ErrorCode,
+        *,
+        retryable: bool = False,
+    ) -> None:
+        """Persist review or retry state for event work that did not converge."""
+        with self._owner.session.transaction() as uow:
+            event_row = _get(
+                uow,
+                self._projection,
+                "source_events",
+                (
+                    (
+                        "event_key",
+                        event_key(self._projection, resolve_job.subject.event_key),
+                    ),
+                ),
+            )
+            event = (
+                None
+                if event_row is None
+                else reads.get_event(uow, self._projection, event_row.event_id)
+            )
+            job = reads.get_job(uow, self._projection, resolve_job.job_id)
+            if (
+                event is None
+                or job is None
+                or job.state
+                not in {
+                    JobState.QUEUED,
+                    JobState.RETRY_WAIT,
+                }
+            ):
+                return
+            now = _now()
+            claim = Claim(
+                _id(),
+                self._owner.owner_info.owner_run_id,
+                now,
+                None,
+                Revision(job.revision.value + 1),
+                ClaimPhase.PREPARING,
+            )
+            jobs.claim(
+                uow,
+                self._projection,
+                job.job_id,
+                claim,
+                RevisionGuard(job.revision),
+                now,
+            )
+            claimed = reads.get_job(uow, self._projection, job.job_id)
+            if not retryable and event.processing not in {
+                EventProcessing.NEEDS_ATTENTION,
+                EventProcessing.SOURCE_MISSING,
+            }:
+                events.classify_event(
+                    uow,
+                    self._projection,
+                    event.event_id,
+                    EventProcessing.NEEDS_ATTENTION,
+                    error,
+                    (),
+                    RevisionGuard(event.revision),
+                )
+            jobs.defer_job(
+                uow,
+                self._projection,
+                claimed.job_id,
+                "retry_wait" if retryable else "needs_attention",
+                error,
+                Timestamp(now.value + _RETRY_DELAY) if retryable else None,
+                RevisionGuard(claimed.revision),
+            )
 
     def _event_id(self, job: SyncJobRow) -> LocalId:
         with self._owner.session.transaction() as uow:

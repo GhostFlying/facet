@@ -8,7 +8,7 @@ thread, action and job metadata cross the persistence boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from facet.contracts import (
@@ -139,6 +139,12 @@ _RETRYABLE_SOURCE_ERRORS = {
     ErrorCode.SOURCE_RATE_LIMITED,
     ErrorCode.NETWORK_UNAVAILABLE,
 }
+
+_RETRY_DELAY = timedelta(seconds=1)
+
+
+def _retry_at(now: Timestamp) -> Timestamp:
+    return Timestamp(now.value + _RETRY_DELAY)
 
 
 def _rule_kind(kind: ActionKind) -> RuleKind:
@@ -358,7 +364,7 @@ class ActionEffectConsumer:
                         job.job_id,
                         "retry_wait",
                         ErrorCode.OWNER_BUSY,
-                        now,
+                        _retry_at(now),
                         RevisionGuard(job.revision),
                     )
                     return None
@@ -417,7 +423,7 @@ class ActionEffectConsumer:
                     prepared.job_id,
                     "retry_wait" if retryable else "needs_attention",
                     code,
-                    _now() if retryable else None,
+                    _retry_at(_now()) if retryable else None,
                     RevisionGuard(job.revision),
                 )
         return ActionEffectResult(attention=reason)

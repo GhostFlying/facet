@@ -106,3 +106,29 @@ One foreground process owns the SQLite writer and performs one job at a time.
 - Keep the candidate incomplete for live automatic admission until a reviewed
   source-Gmail-path authenticity provider is available. This is an explicit
   evidence gate, not a reason to block the synthetic vertical path.
+
+## Revision 1: review-driven convergence fixes
+
+The implementation review found three convergence gaps in the first candidate.
+This revision keeps the repair inside the existing foreground unit:
+
+1. Preflight projection, both role bindings, pause state, and restore state
+   before any source-provider call. A non-ready owner fails with a typed
+   maintenance/binding error and performs no discovery or History read.
+2. Provide an explicit source-candidate/admission bridge. Provider metadata and
+   source-path evidence are fetched outside SQLite transactions and then passed
+   to the pure admission policy. The ID-only synthetic seam remains available
+   for fake adapters, but production construction cannot accidentally pass
+   `DiscoveryItem` to the typed candidate evaluator.
+3. Persist unsupported/non-retryable History work as durable
+   `needs_attention` event/job state. Temporarily unavailable provider work
+   uses durable `retry_wait` with a future next-attempt time. Neither remains
+   immediately queued and counted repeatedly on every foreground cycle; retry
+   work is eligible only when due, while review work waits for a later
+   reviewed recovery/decision path.
+
+Acceptance for this revision is focused: the exact candidate must prove these
+three convergence properties, including both durable attention and due-only
+retry behavior, with synthetic adapters; preserve the existing unknown-insert
+recovery behavior; and pass the complete offline checks. It does not claim
+CLI/OAuth, live Gmail, Dashboard, Compose, or final Phase 1 completion.

@@ -359,6 +359,29 @@ class SourceAdapter:
             )
         return CandidatePage(tuple(results), listed.next_page_token)
 
+    def candidate(self, item: DiscoveryItem) -> CandidateResult:
+        """Fetch and authenticate one already-enumerated discovery item.
+
+        Enumeration and candidate metadata are deliberately separate calls so
+        the foreground producer can perform provider work outside its SQLite
+        transaction while retaining the source binding owned by this adapter.
+        """
+        if type(item) is not DiscoveryItem:
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+        if (
+            type(self._source_account) is not PrivateAddress
+            or type(self._binding_revision) is not Revision
+            or type(self._credential_revision) is not Revision
+        ):
+            raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
+        return self._candidate_result(
+            item,
+            self._source_account,
+            self._binding_revision,
+            self._credential_revision,
+            self._auth_provider,
+        )
+
     def _candidate_result(
         self,
         item: DiscoveryItem,

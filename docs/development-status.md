@@ -23,7 +23,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1-05 public status/privacy | Early pure/logging library integrated; full consumer gate open | PR #16 actually merged exact `f209fbe`, independent review and candidate/main CI passed with 488 offline tests; actual DB/auth/runtime/HTTP/DOM/Compose consumers still pending |
 | M1-06 authentication/initialization | Typed candidate seam integrated; full package open | PR #39 exact `3ba6465` merged at main `05a6044`; candidate discovery converts ID-only pages into redacted typed candidate/attention results, rejects malformed metadata, and defaults source authentication to unknown. Independent implementation review, focused 22, full 2443 offline tests, Python 3.12/3.13 CI, Ruff and safety passed. Real source-path attestation, initialization and G1 remain open |
 | M1 foundation as a whole | Incomplete | Full persistence, process/view/credential ownership, init/doctor/config apply, authenticated bindings and real status consumers remain; G1 has not passed |
-| M2 automated projection core | Foreground synthetic vertical path implemented; milestone incomplete | Main now contains the bounded composition in `src/facet/sync.py`: fixed-window discovery continuation, H0→History pagination, `messagesAdded` resolution, action-label bridge, serial projection worker, target readback/mapping, pre-dispatch claim recovery, and retained DRAINING authorization epoch. The exact plan `m2-foreground-sync-cli.md` received independent APPROVE. Focused vertical tests (38) and the complete offline suite (2469) pass with Ruff. Live source-path authenticity, production OAuth/CLI command journaling, post-backfill live Gmail evidence, Dashboard, Compose and Actions remain open |
+| M2 automated projection core | Foreground synthetic vertical candidate under review; milestone incomplete | PR #45 candidate adds the bounded composition in `src/facet/sync.py`: fixed-window discovery continuation, H0→History pagination, `messagesAdded` resolution, action-label bridge, serial projection worker, target readback/mapping, pre-dispatch claim recovery, and retained DRAINING authorization epoch. Revision 1 additionally gates paused/unverified owners, bridges typed Gmail candidates to pure admission, and durably converges unsupported/retryable History work. The revised plan is pending independent approval; exact candidate review/CI/merge remain open. Live source-path authenticity, production OAuth/CLI command journaling, post-backfill live Gmail evidence, Dashboard, Compose and Actions remain open |
 | M3 continuous recovery and Dashboard alpha | Not implemented | History gap recovery, reconcile/audit, aggregate read-only Web UI and status diagnostics |
 | M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
 | M5 self-hosted delivery | Not implemented | One-command Compose, Actions GHCR image, Nginx and bilingual operations docs |
@@ -59,6 +59,15 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
 而是从当前关键路径移除的工程方案。
 
 ## Latest product-first handoff (2026-10-04)
+
+- PR #45's first candidate was held by implementation review for three concrete
+  gaps: readiness was checked too late, the production candidate/admission seam
+  was not connected, and unsupported History jobs stayed queued. Revision 1 of
+  `m2-foreground-sync-cli.md` narrows the repair to those gaps. The current
+  unmerged candidate adds a preflight before any provider call, a
+  `SourceCandidateAdmission` adapter over `SourceAdapter.candidate`, and
+  durable `needs_attention` versus due-only `retry_wait` handling. It remains
+  synthetic/offline evidence only until the new exact review and CI pass.
 
 - The first product-shaped foreground composition is now implemented locally
   (candidate not yet merged): `ForegroundSync.run_once` reopens an initialized

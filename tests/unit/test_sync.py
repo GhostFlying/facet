@@ -9,36 +9,85 @@ from tempfile import TemporaryDirectory
 import pytest
 from test_projection_worker import _raw, _ready_owner
 
-from facet.contracts import ProviderId
+from facet.contracts import (
+    ErrorCode,
+    LocalId,
+    ProviderId,
+    Revision,
+    RuleKind,
+    RuleRef,
+    Timestamp,
+    Visibility,
+)
+from facet.db.codecs import PrivateAddress, StorageFailure
 from facet.gmail.source import (
+    DiscoveryItem,
     DiscoveryPage,
+    HistoryMessage,
     HistoryPage,
+    HistoryRecord,
     MessageMetadata,
     SourceProfile,
     ThreadMetadata,
 )
 from facet.gmail.target import TargetInsertResult, TargetReadback
+from facet.projection.admission import (
+    AdmissionEvaluator,
+    AdmissionRule,
+    DiscoveryCandidate,
+)
 from facet.projection.backfill import DiscoveryDecision
-from facet.sync import ForegroundSync
+from facet.projection.rules import normalize_rule, normalize_sender
+from facet.sync import ForegroundSync, SourceCandidateAdmission
 
 
 class _Admission:
+    def __init__(self, admit=False):
+        self.admit = admit
+
     def evaluate(self, item, epoch):
-        return DiscoveryDecision(False)
+        return DiscoveryDecision(
+            self.admit,
+            RuleRef(LocalId("00000000000040008000000000000384"), Revision(1))
+            if self.admit
+            else None,
+        )
 
 
 class _Source:
-    def __init__(self, raw):
+    def __init__(self, raw, *, discover=False, deleted=False):
         self.raw_bytes = raw
+        self.discover_item = discover
+        self.deleted = deleted
+        self.discover_calls = 0
+        self.history_calls = 0
 
     def profile(self):
         return SourceProfile("source@example.invalid", ProviderId("h-1"), 1, 1)
 
     def discover(self, *, window_start, window_end, page_token=None):
-        return DiscoveryPage((), None, 0)
+        self.discover_calls += 1
+        items = (
+            (DiscoveryItem(ProviderId("m-new"), ProviderId("thread-1")),)
+            if self.discover_item
+            else ()
+        )
+        return DiscoveryPage(items, None, len(items))
 
     def history(self, cursor, *, page_token=None):
-        return HistoryPage(ProviderId("h-2"), (), None)
+        self.history_calls += 1
+        records = ()
+        if self.deleted:
+            records = (
+                HistoryRecord(
+                    ProviderId("history-deleted"),
+                    (),
+                    (HistoryMessage(ProviderId("m-deleted"), ProviderId("thread-1")),),
+                    (),
+                    (),
+                ),
+            )
+        return HistoryPage(ProviderId("h-2"), records, None)
 
     def thread_metadata(self, thread_id):
         return ThreadMetadata(
@@ -70,6 +119,43 @@ class _Target:
 
     def readback(self, message_id):
         return TargetReadback(message_id, ProviderId("tt-1"), (), self.raw_bytes)
+
+
+def test_source_candidate_admission_keeps_authentication_typed():
+    candidate = DiscoveryCandidate(
+        ProviderId("m-candidate"),
+        ProviderId("thread-candidate"),
+        normalize_sender("sender@example.com"),
+        PrivateAddress("source@example.com"),
+        Visibility.NORMAL,
+        False,
+        Timestamp(datetime(2026, 4, 1, tzinfo=UTC)),
+        None,
+    )
+
+    class CandidateSource:
+        def candidate(self, item):
+            from facet.gmail.source import CandidateResult
+
+            return CandidateResult(candidate=candidate)
+
+    policy = AdmissionEvaluator(
+        (
+            AdmissionRule(
+                RuleRef(LocalId("00000000000040008000000000000001"), Revision(1)),
+                normalize_rule(RuleKind.ALLOW_SENDER, "sender@example.com"),
+                Timestamp(datetime(2026, 1, 1, tzinfo=UTC)),
+            ),
+        ),
+        source_account=PrivateAddress("source@example.com"),
+        binding_revision=Revision(1),
+        credential_revision=Revision(1),
+    )
+    result = SourceCandidateAdmission(CandidateSource(), policy).evaluate(
+        DiscoveryItem(ProviderId("m-candidate"), ProviderId("thread-candidate")),
+        object(),
+    )
+    assert result.attention is ErrorCode.SOURCE_AUTH_REQUIRED
 
 
 @pytest.fixture
@@ -111,5 +197,68 @@ def test_foreground_cycle_discovers_catches_up_and_maps_message(
             assert owner._connection.execute(
                 "SELECT state FROM epochs WHERE kind='initial_backfill'"
             ).fetchone() == ("draining",)
+        finally:
+            owner.close()
+
+
+def test_foreground_cycle_runs_discovery_before_projection(
+    trusted_state_parent, monkeypatch
+):
+    raw = _raw("m-new", "DISCOVERY_PRIVATE_SENTINEL")
+    with TemporaryDirectory(prefix="facet-sync-", dir=trusted_state_parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=False)
+        source = _Source(raw, discover=True)
+        target = _Target(raw)
+        try:
+            receipt = ForegroundSync(owner, source, target, _Admission(True)).run_once(
+                max_jobs=10
+            )
+            assert receipt.discovered == 1
+            assert receipt.projected.verified == 1
+            assert target.inserted == 1
+        finally:
+            owner.close()
+
+
+def test_foreground_cycle_refuses_paused_owner_before_provider_calls(
+    trusted_state_parent, monkeypatch
+):
+    with TemporaryDirectory(prefix="facet-sync-", dir=trusted_state_parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch)
+        source = _Source(b"unused")
+        try:
+            with owner.session.transaction() as uow:
+                uow._execute(
+                    "UPDATE projections SET daemon_paused=1 WHERE projection_id=?",
+                    (owner.projection_id.value,),
+                )
+            with pytest.raises(StorageFailure) as raised:
+                ForegroundSync(
+                    owner, source, _Target(b"unused"), _Admission()
+                ).run_once()
+            assert raised.value.code is ErrorCode.MAINTENANCE_REQUIRED
+            assert source.discover_calls == 0
+            assert source.history_calls == 0
+        finally:
+            owner.close()
+
+
+def test_unsupported_history_event_becomes_durable_attention(
+    trusted_state_parent, monkeypatch
+):
+    with TemporaryDirectory(prefix="facet-sync-", dir=trusted_state_parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch)
+        source = _Source(b"unused", deleted=True)
+        try:
+            receipt = ForegroundSync(
+                owner, source, _Target(b"unused"), _Admission()
+            ).run_once()
+            assert receipt.attention == 1
+            assert owner._connection.execute(
+                "SELECT state FROM sync_jobs WHERE kind='resolve_event'"
+            ).fetchone() == ("needs_attention",)
+            assert owner._connection.execute(
+                "SELECT processing FROM source_events"
+            ).fetchone() == ("needs_attention",)
         finally:
             owner.close()
