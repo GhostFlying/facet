@@ -138,6 +138,25 @@ def build_parser() -> _Parser:
     run.add_argument("--host", default="127.0.0.1")
     run.add_argument("--port", type=int, default=8080)
     run.add_argument("--interval", type=float, default=5.0)
+    status = commands.add_parser(
+        "status",
+        add_help=False,
+        allow_abbrev=False,
+        help="show aggregate local sync status",
+    )
+    _common(status)
+    doctor = commands.add_parser(
+        "doctor",
+        add_help=False,
+        allow_abbrev=False,
+        help="check aggregate local sync health",
+    )
+    _common(doctor)
+    doctor.add_argument(
+        "--live",
+        action="store_true",
+        help="reserved for a separately-authorized remote check",
+    )
     auth = commands.add_parser(
         "auth",
         add_help=False,
@@ -1300,6 +1319,14 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 data, warnings = _run_foreground_service(options)
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
+        if options.family in {"status", "doctor"}:
+            command = options.family
+            if getattr(options, "live", False):
+                raise ConfigError(ErrorCode.INVALID_INPUT)
+            from facet.cli.status import read_status
+
+            data = read_status(options, doctor=options.family == "doctor")
+            return _emit(command, data=data, json_mode=json_mode)
         if options.family == "web":
             command = "web"
             if not 1 <= options.port <= 65535:
