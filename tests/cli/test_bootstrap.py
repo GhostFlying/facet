@@ -6,12 +6,13 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from facet.cli import bootstrap
 from facet.config import ConfigError
-from facet.contracts import ErrorCode
+from facet.contracts import ErrorCode, Role
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = b"""projection:
@@ -437,6 +438,104 @@ def test_fake_cli_sync_closure_survives_restart_without_duplicate_insert(tmp_pat
         assert connection.execute(
             "SELECT COUNT(*) FROM insert_attempts WHERE state='verified'"
         ).fetchone() == (1,)
+
+
+def test_fake_cli_tampered_raw_stops_before_target_insert(tmp_path, monkeypatch):
+    """A transport-level raw failure remains attention in the runtime path."""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    trusted_root = Path(
+        tempfile.mkdtemp(prefix="facet-cli-tamper-", dir=f"/run/user/{os.geteuid()}")
+    )
+    state = trusted_root / "state"
+    prefix = [str(Path(sys.executable).parent / "facet")]
+
+    def invoke(*arguments):
+        result = subprocess.run(
+            prefix + ["--state-dir", str(state), "--json", *arguments],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        assert result.returncode == 0, result.stderr + result.stdout
+        assert result.stderr == ""
+        return json.loads(result.stdout)
+
+    invoke(
+        "init",
+        "--source",
+        "source@example.com",
+        "--target",
+        "target@example.com",
+        "--yes",
+        "--request-id",
+        "rq1_00000000000040008000000000000081_00000000000040008000000000000082",
+    )
+    invoke(
+        "auth",
+        "authorize",
+        "--fake",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000083",
+    )
+    invoke(
+        "rules",
+        "add-sender",
+        "--sender",
+        "sender@example.com",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000084",
+    )
+    preview = invoke(
+        "backfill",
+        "preview",
+        "--fake",
+        "--request-id",
+        "00000000000040008000000000000085",
+    )["data"]["preview_id"]
+    invoke(
+        "backfill",
+        "start",
+        "--fake",
+        "--preview-id",
+        preview,
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000086",
+    )
+
+    from facet.gmail.synthetic import SyntheticGmailServiceFactory
+
+    class TamperedFactory(SyntheticGmailServiceFactory):
+        def __init__(self, source_account, target_account):
+            super().__init__(source_account, target_account)
+            self._services[
+                Role.SOURCE
+            ]._raw = b"From: sender@example.com\r\n\r\nunsigned\r\n"
+
+    monkeypatch.setattr(
+        "facet.gmail.synthetic.SyntheticGmailServiceFactory", TamperedFactory
+    )
+    data, warnings = bootstrap._run_once_fake(
+        SimpleNamespace(state_dir=str(state), config_path=None)
+    )
+    assert warnings == ()
+    assert data["projected"] == 0
+    with sqlite3.connect(state / "facet.db") as connection:
+        assert connection.execute("SELECT state FROM epoch_partitions").fetchone() == (
+            "needs_attention",
+        )
+        assert connection.execute(
+            "SELECT COUNT(*) FROM insert_attempts"
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM message_mappings"
+        ).fetchone() == (0,)
 
 
 def test_domain_rule_cli_publishes_and_replays_existing_ruleset_path(tmp_path):

@@ -9,6 +9,19 @@ from facet.contracts import Role
 
 from .credential_models import AccountAddress, ProviderSecret
 
+_SYNTHETIC_PUBLIC_KEY = base64.b64decode(
+    "MIGJAoGBALX2wl5pVUuagVvXrWCnjlANv8ngaInMYNn9gbsEsQmUdxea4W7MkPUi9C3baE9w1mRnisoW2f96LnqHrahD2OcJ41DAhttJlmV4wfWzPK24c330Is2EbDNcScuAEAR3xHhsw0LplEFTNpjX8XRtsN4YSYVzjBw392kFGzISxTbXAgMBAAE="
+)
+_SYNTHETIC_RAW = base64.b64decode(
+    "REtJTS1TaWduYXR1cmU6IHY9MTsgYT1yc2Etc2hhMjU2OyBjPXJlbGF4ZWQvc2ltcGxlOyBkPWV4YW1wbGUuY29tOw0KIGk9QGV4YW1wbGUuY29tOyBxPWRucy90eHQ7IHM9c2VsOyB0PTE3OTExNTAwNDA7IGg9ZnJvbSA6IHRvIDogc3ViamVjdDsNCiBiaD14L044L2l2UmZHTXhGNTZwOC92a3JUYUhsUGFkR2lqSFJXejBNQjg3OFdrPTsNCiBiPVBGS01ZdEsxaUU0TXhJRWJrMlFwNzkxcDlmdUVTUEd2bmZJeGlzWmg0K1dKWmNaNDdPZmprcy93QkdkT2crcEdIdE5YSQ0KIDVoa2cwdnRkc3h4akh2QVhKVi85c1hzbjgySENYcXN1WTR5b1ozV0ZwZVhKNmpEaTYxeFUrRGphMDgzeXNYY01lTmNIZVkvDQogd2xZOGFQTk5MUitTalpaZCtOUFF4R2xBVmpwVUU1ND0NCkZyb206IHNlbmRlckBleGFtcGxlLmNvbQ0KVG86IHRhcmdldEBleGFtcGxlLmludmFsaWQNClN1YmplY3Q6IFN5bnRoZXRpYw0KDQpCb2R5DQo="
+)
+
+
+def _synthetic_dkim_dns(name, timeout=5):
+    if name != b"sel._domainkey.example.com." or timeout != 5:
+        raise ValueError("synthetic_dns_miss")
+    return b"v=DKIM1; k=rsa; p=" + base64.b64encode(_SYNTHETIC_PUBLIC_KEY)
+
 
 class _Request:
     def __init__(self, value):
@@ -93,13 +106,7 @@ class SyntheticGmailService:
         self.role = role
         self.account = account
         self._inserted = {}
-        self._raw = (
-            b"From: sender@example.com\r\n"
-            b"To: target@example.invalid\r\n"
-            b"Message-ID: <synthetic@example.com>\r\n"
-            b"Date: Sat, 04 Oct 2026 00:00:00 +0000\r\n"
-            b"Subject: synthetic\r\n\r\nsynthetic body\r\n"
-        )
+        self._raw = _SYNTHETIC_RAW
 
     def users(self):
         return _Users(self)
@@ -160,3 +167,10 @@ class SyntheticGmailServiceFactory:
         if snapshot.role is not role:
             raise ValueError("binding_mismatch")
         return self._services[role]
+
+    def source_auth_provider(self):
+        """Return the real DKIM provider backed by this fake transport."""
+
+        from .source_auth import DkimSourceAuthProvider
+
+        return DkimSourceAuthProvider(dnsfunc=_synthetic_dkim_dns)
