@@ -3,7 +3,7 @@
 import os
 import stat
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -133,7 +133,7 @@ def envelope(owner, role, account):
             SecretText("synthetic-client-secret"),
             SecretText("synthetic-access-token"),
             SecretText("synthetic-refresh-token"),
-            NOW,
+            Timestamp(NOW.value + timedelta(days=365)),
         ),
     )
 

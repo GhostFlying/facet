@@ -102,6 +102,19 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   offline suite passed 2469 tests. This is implemented/offline-tested only;
   it is not live Gmail, CLI-complete, deployment, or Phase 1 acceptance.
 
+- The next bounded runtime-wiring plan
+  `docs/implementation-plans/m2-cli-runtime-wiring.md` was independently
+  approved and is implemented locally on the merged main base. The new
+  composition performs profile probe, expiry/account/scope verification,
+  pending-binding publication, access-only service construction, and then
+  invokes the existing `ForegroundSync` through one injectable factory seam.
+  Synthetic evidence is `tests/integration/test_foreground_runtime.py` plus
+  the credential consumer/manager suites (27 focused tests); the Google
+  factory never receives refresh tokens and no provider payload is persisted.
+  This is offline-tested only. The CLI still stops at its preflight until the
+  production OAuth command and persisted-rule admission loader are delivered;
+  no live Gmail operation has occurred.
+
 - M1-04 credential binding is integrated through PR #35 recovery head and the
   separately reviewed explicit-scope follow-up PR #37. Main contains
   `4c07766` and `a61c474`; both Python lanes passed for the follow-up. The
@@ -492,6 +505,21 @@ engineering integration and remaining gates are in the sections above.
   for the production privacy tests still required by later milestones.
 - Runtime credentials/evidence are ignored local files. No live Gmail writes are
   part of this bootstrap, and no experimental state is adopted as production data.
+
+## M2 runtime composition handoff (2026-10-04)
+
+- The exact-SHA review of the first runtime candidate found and blocked two
+  issues: the CLI was not actually dispatching the library seam, and invalid
+  Google factory paths constructed an untyped `StorageFailure`. The revised
+  plan now explicitly names this unit library runtime composition; `facet run
+  --once` remains preflight-only until production OAuth and persisted-rule
+  admission are delivered.
+- The follow-up candidate adds typed factory failures, access-token-only
+  construction tests, and missing/swapped/expired/mismatched credential tests
+  with unchanged bindings and no sync service on failure. The focused runtime
+  and factory suite passes (10 tests); Ruff and format checks pass locally.
+  Full-suite completion, independent candidate review, and CI rerun remain
+  required before merge. No live Gmail or deployment action was used.
 
 ## Next authorized development unit
 
