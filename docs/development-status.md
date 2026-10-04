@@ -100,20 +100,23 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   passed 2519. Candidate CI passed before merge; this still does not prove a
   live Gmail action event or source-path attestation.
 
-- The offline maintenance CLI unit is implemented on branch
-  `feat/cli-status-doctor` at code candidate `def56f5` (plan:
+- The offline maintenance CLI unit is integrated in PR #59 at main merge
+  `2033be505e36217da7dbaf2b547caeef5819260b` (implementation candidate
+  `c4779ac39d6e56bc5214abd3c8aba33bb077847`; plan:
   `implementation-plans/m1-status-doctor-cli.md`). `facet status --json` and
-  `facet doctor --json` read the managed SQLite WAL through a read-only
-  connection without taking the writer lease or constructing Gmail/OAuth
-  clients. They report only aggregate phase/health, binding states, epoch,
-  queue, mapping and typed issue facts; `doctor --live` remains explicitly
-  outside this unit. The exact implementation review approved the selector
-  and paused-state correction, six focused subprocess tests pass, and the
-  complete local offline suite passes 2525 tests with Ruff and repository
-  safety. SQLite's normal `-wal`/`-shm` coordination sidecars may appear on a
+  `facet doctor --json` read the managed SQLite WAL through one deferred,
+  read-only transaction without taking the writer lease or constructing
+  Gmail/OAuth clients. They reuse the four aggregate Dashboard DTOs, report
+  offline snapshots as stale/unknown rather than fabricating live health,
+  retain typed doctor findings with catalogue exit codes, and privately check
+  both declared/verified role addresses plus projection binding consistency.
+  Nine focused subprocess tests pass; the complete local offline suite passes
+  2528 tests, with Ruff, format, safety, wheel smoke, and candidate/main CI
+  passed. SQLite's normal `-wal`/`-shm` coordination sidecars may appear on a
   read snapshot; no business rows, config, credentials or mail content are
-  written. This is not yet merged to main and does not close the complete CLI,
-  source-path attestation, live Gmail, recovery, deployment or Phase 1 gates.
+  written. This closes only the offline status/doctor unit, not the complete
+  CLI, source-path attestation, live Gmail, recovery, deployment or Phase 1
+  gates.
 
 - The bounded Dashboard/Compose HTTP unit is integrated on main `e2b9b17`
   after independent plan approval. `facet web` serves only the
