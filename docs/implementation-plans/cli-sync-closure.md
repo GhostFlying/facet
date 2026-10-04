@@ -70,3 +70,14 @@ This does not close live automatic admission. The non-fake authorization path
 still returns `source_auth_required`, and the fake runner uses test-only source
 attestation evidence. A real OAuth flow and verified Gmail source-path
 attestation remain the next external/provider-bound implementation gap.
+
+### Minimal candidate revision after implementation review
+
+Before acceptance, all four mutating CLI steps must honor the existing stable
+request-key contract on replay: authorization returns the already verified
+result, rule insertion returns the original ruleset revision, preview returns
+the original preview, and start returns the original epoch while preserving
+the original fence. The fix is limited to typed request lookup/replay and a
+small owner-scoped resume helper; it does not add a generic command framework
+or change the product path. Raw SQL remains behind that fixed internal helper,
+and no provider or live-account authority is added.

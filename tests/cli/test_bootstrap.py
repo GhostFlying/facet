@@ -331,13 +331,25 @@ def test_fake_cli_sync_closure_survives_restart_without_duplicate_insert(tmp_pat
         "--request-id",
         "rq1_00000000000040008000000000000031_00000000000040008000000000000032",
     )
+    auth_request = "00000000000040008000000000000033"
     invoke(
         "auth",
         "authorize",
         "--fake",
         "--yes",
         "--request-id",
-        "00000000000040008000000000000033",
+        auth_request,
+    )
+    invoke("auth", "authorize", "--fake", "--yes", "--request-id", auth_request)
+    rule_request = "00000000000040008000000000000034"
+    invoke(
+        "rules",
+        "add-sender",
+        "--sender",
+        "sender@example.com",
+        "--yes",
+        "--request-id",
+        rule_request,
     )
     invoke(
         "rules",
@@ -346,9 +358,27 @@ def test_fake_cli_sync_closure_survives_restart_without_duplicate_insert(tmp_pat
         "sender@example.com",
         "--yes",
         "--request-id",
-        "00000000000040008000000000000034",
+        rule_request,
     )
-    preview = invoke("backfill", "preview", "--fake")["data"]["preview_id"]
+    preview_request = "00000000000040008000000000000036"
+    preview = invoke(
+        "backfill",
+        "preview",
+        "--fake",
+        "--request-id",
+        preview_request,
+    )["data"]["preview_id"]
+    assert (
+        invoke(
+            "backfill",
+            "preview",
+            "--fake",
+            "--request-id",
+            preview_request,
+        )["data"]["preview_id"]
+        == preview
+    )
+    start_request = "00000000000040008000000000000035"
     invoke(
         "backfill",
         "start",
@@ -357,7 +387,29 @@ def test_fake_cli_sync_closure_survives_restart_without_duplicate_insert(tmp_pat
         preview,
         "--yes",
         "--request-id",
-        "00000000000040008000000000000035",
+        start_request,
+    )
+    assert (
+        invoke(
+            "backfill",
+            "start",
+            "--fake",
+            "--preview-id",
+            preview,
+            "--yes",
+            "--request-id",
+            start_request,
+        )["data"]["epoch_id"]
+        == invoke(
+            "backfill",
+            "start",
+            "--fake",
+            "--preview-id",
+            preview,
+            "--yes",
+            "--request-id",
+            start_request,
+        )["data"]["epoch_id"]
     )
     first = invoke("run", "--once", "--fake")
     second = invoke("run", "--once", "--fake")

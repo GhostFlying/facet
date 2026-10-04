@@ -44,6 +44,17 @@ class _Parser(argparse.ArgumentParser):
         raise _InputError()
 
 
+def _auth_role_nonce(request_nonce: LocalId, role: Role) -> LocalId:
+    digest = bytearray(
+        hashlib.sha256((request_nonce.value + "\x00" + role.value).encode()).digest()[
+            :16
+        ]
+    )
+    digest[6] = (digest[6] & 0x0F) | 0x40
+    digest[8] = (digest[8] & 0x3F) | 0x80
+    return LocalId(UUID(bytes=bytes(digest)).hex)
+
+
 def _common(parser: _Parser) -> None:
     parser.set_defaults(_help_parser=parser)
     for flag, destination in [
@@ -171,6 +182,7 @@ def build_parser() -> _Parser:
         help="create a write-free preview",
     )
     _common(preview)
+    preview.add_argument("--request-id", required=True)
     preview.add_argument("--fake", action="store_true")
     start = backfill_action.add_parser(
         "start", add_help=False, allow_abbrev=False, help="explicitly start a preview"
@@ -355,6 +367,7 @@ def _run_preflight(options: object) -> tuple[dict, tuple[str, ...]]:
 def _run_once_fake(options: object) -> tuple[dict, tuple[str, ...]]:
     from facet.contracts import PolicyVersion, ProviderId
     from facet.db.codecs import PrivateAddress
+    from facet.gmail.credentials import CredentialManager
     from facet.gmail.source_auth import SyntheticSourceAuthProvider
     from facet.gmail.synthetic import SyntheticGmailServiceFactory
     from facet.projection.authenticity import (
@@ -375,6 +388,13 @@ def _run_once_fake(options: object) -> tuple[dict, tuple[str, ...]]:
     owner = StateOwner.open(paths.root, config)
     try:
         owner.verify_config_artifact(raw)
+        manager = CredentialManager(owner.state_dir, config, owner)
+        snapshots = {role: manager.snapshot(role) for role in Role}
+        if any(
+            not snapshot.access_token.value.startswith("facet-synthetic-")
+            for snapshot in snapshots.values()
+        ):
+            raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
         evidence = _issuer_for_tests().issue(
             source_role=Role.SOURCE,
             source_account=PrivateAddress(config.projection.source_email),
@@ -438,19 +458,29 @@ def _auth_authorize(options: object) -> tuple[dict, tuple[str, ...]]:
     try:
         owner.verify_config_artifact(config_raw)
         operation_ids = {}
+        replayed = True
         with owner.session.transaction() as uow:
             for role in Role:
-                digest = bytearray(
-                    hashlib.sha256(
-                        (request_nonce.value + "\x00" + role.value).encode()
-                    ).digest()[:16]
-                )
-                digest[6] = (digest[6] & 0x0F) | 0x40
-                digest[8] = (digest[8] & 0x3F) | 0x80
-                role_nonce = LocalId(UUID(bytes=bytes(digest)).hex)
+                role_nonce = _auth_role_nonce(request_nonce, role)
                 operation_ids[role] = command_store.authorize_operation(
                     uow, config.projection.id, role, role_nonce
                 )
+                if uow._execute(
+                    "SELECT 1 FROM rules WHERE projection_id=? AND rule_id=? LIMIT 1",
+                    (config.projection.id.value, request_nonce.value),
+                ).fetchone():
+                    raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+                row = uow._execute(
+                    "SELECT state FROM operations WHERE projection_id=? "
+                    "AND operation_id=? LIMIT 2",
+                    (config.projection.id.value, operation_ids[role].value),
+                ).fetchall()
+                if len(row) != 1:
+                    raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
+                replayed = replayed and row[0][0] == "completed"
+
+        if replayed:
+            return {"binding_state": "verified"}, ()
 
         class SyntheticProfiles:
             def get_profile(self, role, _secret):
@@ -477,6 +507,11 @@ def _auth_authorize(options: object) -> tuple[dict, tuple[str, ...]]:
         CredentialManager(owner.state_dir, config, owner).authorize(
             secrets, SyntheticProfiles(), operation_ids
         )
+        with owner.session.transaction() as uow:
+            for operation_id in operation_ids.values():
+                command_store.complete_authorize_operation(
+                    uow, config.projection.id, operation_id
+                )
         return {"binding_state": "verified"}, ()
     finally:
         owner.close()
@@ -496,12 +531,12 @@ def _rules_add_sender(options: object) -> tuple[dict, tuple[str, ...]]:
         RulesetRow,
     )
     from facet.db.repositories import policy
-    from facet.db.repositories.base import _get
+    from facet.db.repositories.base import _decode, _get
     from facet.projection.rules import normalize_rule
     from facet.runtime.state_owner import StateOwner
 
     try:
-        LocalId(options.request_id)
+        request_id = LocalId(options.request_id)
         normalized = normalize_rule(RuleKind.ALLOW_SENDER, options.sender)
     except (TypeError, ValueError):
         raise ConfigError(ErrorCode.INVALID_INPUT) from None
@@ -512,8 +547,33 @@ def _rules_add_sender(options: object) -> tuple[dict, tuple[str, ...]]:
     try:
         owner.verify_config_artifact(raw)
         now = Timestamp(datetime.now(UTC))
-        rule_id = LocalId(uuid4().hex)
+        rule_id = request_id
+        auth_nonces = tuple(_auth_role_nonce(request_id, role).value for role in Role)
         with owner.session.transaction() as uow:
+            if uow._execute(
+                "SELECT 1 FROM operations WHERE projection_id=? AND "
+                "request_nonce IN (?,?) LIMIT 1",
+                (config.projection.id.value, *auth_nonces),
+            ).fetchone():
+                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+            existing_rule = _get(
+                uow, config.projection.id, "rules", (("rule_id", rule_id),)
+            )
+            if existing_rule is not None:
+                if (
+                    existing_rule.kind is not normalized.kind
+                    or existing_rule.normalized_value != normalized.storage_value
+                ):
+                    raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+                rows = uow._execute(
+                    "SELECT ruleset_revision FROM ruleset_members WHERE "
+                    "projection_id=? AND rule_id=? ORDER BY ruleset_revision "
+                    "ASC LIMIT 1",
+                    (config.projection.id.value, rule_id.value),
+                ).fetchall()
+                if not rows:
+                    raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
+                return {"ruleset_revision": rows[0][0]}, ()
             projection = _get(uow, config.projection.id, "projections", ())
             if projection is None:
                 raise ConfigError(ErrorCode.OWNER_UNAVAILABLE)
@@ -541,13 +601,34 @@ def _rules_add_sender(options: object) -> tuple[dict, tuple[str, ...]]:
                 now,
                 True,
             )
+            current_members = tuple(
+                RulesetMemberRow(
+                    config.projection.id,
+                    snapshot.revision,
+                    member.rule_id,
+                    member.rule_revision,
+                )
+                for member in (
+                    _decode(uow, config.projection.id, "ruleset_members", row)
+                    for row in uow._execute(
+                        "SELECT projection_id,ruleset_revision,rule_id,rule_revision "
+                        "FROM ruleset_members WHERE projection_id=? AND "
+                        "ruleset_revision=?",
+                        (
+                            config.projection.id.value,
+                            projection.ruleset_revision.value,
+                        ),
+                    ).fetchall()
+                )
+            )
             policy.publish_rules(
                 uow,
                 config.projection.id,
                 (rule,),
                 (revision,),
                 snapshot,
-                (
+                current_members
+                + (
                     RulesetMemberRow(
                         config.projection.id, snapshot.revision, rule_id, Revision(1)
                     ),
@@ -562,14 +643,43 @@ def _rules_add_sender(options: object) -> tuple[dict, tuple[str, ...]]:
 def _backfill_preview(options: object) -> tuple[dict, tuple[str, ...]]:
     from facet.contracts import Sha256Hex
     from facet.db.command_records import BackfillPreviewRequest
-    from facet.db.command_store import preview_backfill
+    from facet.db.command_store import _find_backfill, preview_backfill
     from facet.runtime.state_owner import StateOwner
 
+    try:
+        request_nonce = LocalId(options.request_id)
+    except (TypeError, ValueError):
+        raise ConfigError(ErrorCode.INVALID_INPUT) from None
     paths = select_paths(getattr(options, "state_dir", None), None)
     raw = read_managed_config(paths)
     config = load_config(raw)
     owner = StateOwner.open(paths.root, config)
     try:
+        auth_nonces = tuple(
+            _auth_role_nonce(request_nonce, role).value for role in Role
+        )
+        with owner.session.transaction() as uow:
+            if uow._execute(
+                "SELECT 1 FROM operations WHERE projection_id=? AND "
+                "request_nonce IN (?,?) LIMIT 1",
+                (config.projection.id.value, *auth_nonces),
+            ).fetchone():
+                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+            if uow._execute(
+                "SELECT 1 FROM rules WHERE projection_id=? AND rule_id=? LIMIT 1",
+                (config.projection.id.value, request_nonce.value),
+            ).fetchone():
+                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+            existing = _find_backfill(
+                uow,
+                config.projection.id,
+                owner.owner_info.request_namespace,
+                request_nonce,
+            )
+            if existing[0] is not None:
+                if existing[0].command.value != "backfill_preview":
+                    raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+                return {"preview_id": existing[0].operation_id.value}, ()
         now = Timestamp(datetime.now(UTC))
         month = now.value.year * 12 + now.value.month - 7
         year, month_index = divmod(month, 12)
@@ -586,7 +696,7 @@ def _backfill_preview(options: object) -> tuple[dict, tuple[str, ...]]:
         )
         request = BackfillPreviewRequest(
             LocalId(uuid4().hex),
-            LocalId(uuid4().hex),
+            request_nonce,
             window_start,
             now,
             Timestamp(now.value.replace(day=1)),
@@ -606,7 +716,11 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
     from facet.contracts import ProviderId
     from facet.db.codecs import PrivateAddress
     from facet.db.command_records import BackfillStartRequest
-    from facet.db.command_store import _find_backfill_by_id
+    from facet.db.command_store import (
+        _find_backfill,
+        _find_backfill_by_id,
+        resume_projection,
+    )
     from facet.gmail.credentials import CredentialManager
     from facet.gmail.source import SourceAdapter
     from facet.gmail.synthetic import SyntheticGmailServiceFactory
@@ -617,7 +731,7 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
         raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
     try:
         preview_id = LocalId(options.preview_id)
-        LocalId(options.request_id)
+        request_nonce = LocalId(options.request_id)
     except (TypeError, ValueError):
         raise ConfigError(ErrorCode.INVALID_INPUT) from None
     paths = select_paths(getattr(options, "state_dir", None), None)
@@ -625,8 +739,48 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
     config = load_config(raw)
     owner = StateOwner.open(paths.root, config)
     try:
+        auth_nonces = tuple(
+            _auth_role_nonce(request_nonce, role).value for role in Role
+        )
+        with owner.session.transaction() as uow:
+            if uow._execute(
+                "SELECT 1 FROM operations WHERE projection_id=? AND "
+                "request_nonce IN (?,?) LIMIT 1",
+                (config.projection.id.value, *auth_nonces),
+            ).fetchone():
+                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+            if uow._execute(
+                "SELECT 1 FROM rules WHERE projection_id=? AND rule_id=? LIMIT 1",
+                (config.projection.id.value, request_nonce.value),
+            ).fetchone():
+                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+            existing_start = _find_backfill(
+                uow,
+                config.projection.id,
+                owner.owner_info.request_namespace,
+                request_nonce,
+            )
+            if existing_start[0] is not None:
+                if (
+                    existing_start[0].command.value != "backfill_start"
+                    or existing_start[0].expected_preview_id != preview_id
+                ):
+                    raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+                row = uow._execute(
+                    "SELECT epoch_id FROM epochs WHERE projection_id=? "
+                    "AND operation_id=? LIMIT 2",
+                    (
+                        config.projection.id.value,
+                        existing_start[0].operation_id.value,
+                    ),
+                ).fetchall()
+                if len(row) != 1:
+                    raise ConfigError(ErrorCode.MAINTENANCE_REQUIRED)
+                return {"epoch_id": row[0][0]}, ()
         manager = CredentialManager(owner.state_dir, config, owner)
         snapshot = manager.snapshot(Role.SOURCE)
+        if not snapshot.access_token.value.startswith("facet-synthetic-"):
+            raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
         binding = owner.bindings()[Role.SOURCE]
         source = SourceAdapter(
             SyntheticGmailServiceFactory(
@@ -643,7 +797,7 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
         preview, payload = existing
         start = BackfillStartRequest(
             LocalId(uuid4().hex),
-            LocalId(options.request_id),
+            request_nonce,
             preview.operation_id,
             LocalId(uuid4().hex),
             ProviderId("pending-history"),
@@ -659,10 +813,7 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
             owner.session, config.projection.id, start
         )
         with owner.session.transaction() as uow:
-            uow._execute(
-                "UPDATE projections SET daemon_paused=0 WHERE projection_id=?",
-                (config.projection.id.value,),
-            )
+            resume_projection(uow, config.projection.id)
         return {"epoch_id": epoch.epoch_id.value}, ()
     finally:
         owner.close()

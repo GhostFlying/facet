@@ -207,7 +207,7 @@ def authorize_operation(owner, projection_id, role, request_nonce):
         _fail(ErrorCode.OWNER_UNAVAILABLE)
     existing = _owner_fetchall(
         owner,
-        "SELECT o.operation_id,a.expected_credential_revision,"
+        "SELECT o.operation_id,o.state,a.expected_credential_revision,"
         "a.expected_role_binding_revision,a.expected_policy_revision "
         "FROM operations o JOIN operation_auth a ON "
         "a.projection_id=o.projection_id AND a.operation_id=o.operation_id "
@@ -220,10 +220,12 @@ def authorize_operation(owner, projection_id, role, request_nonce):
     expected_policy = Revision(1)
     if existing:
         row = existing[0]
+        if row[1] == OperationState.COMPLETED.value:
+            return LocalId(row[0])
         if (
-            row[1] != binding.credential_revision.value
-            or row[2] != binding.binding_revision.value
-            or row[3] != expected_policy.value
+            row[2] != binding.credential_revision.value
+            or row[3] != binding.binding_revision.value
+            or row[4] != expected_policy.value
         ):
             _fail(ErrorCode.REQUEST_CONFLICT)
         return LocalId(row[0])
@@ -286,6 +288,70 @@ def authorize_operation(owner, projection_id, role, request_nonce):
         ),
     )
     return operation_id
+
+
+def complete_authorize_operation(owner, projection_id, operation_id):
+    """Record the durable effect of a completed authorization probe."""
+
+    from .transactions import UnitOfWork
+
+    if (
+        type(owner) is not UnitOfWork
+        or type(projection_id) is not ProjectionId
+        or type(operation_id) is not LocalId
+    ):
+        _fail(ErrorCode.INVALID_INPUT)
+    rows = _owner_fetchall(
+        owner,
+        "SELECT command,state,revision FROM operations "
+        "WHERE projection_id=? AND operation_id=? LIMIT 2",
+        (projection_id.value, operation_id.value),
+    )
+    if len(rows) != 1:
+        _fail(ErrorCode.REQUEST_CONFLICT)
+    command, state, revision = rows[0]
+    if command != LocalCommandKind.AUTH_AUTHORIZE.value:
+        _fail(ErrorCode.REQUEST_CONFLICT)
+    if state == OperationState.COMPLETED.value:
+        return
+    if state != OperationState.ACCEPTED.value:
+        _fail(ErrorCode.REQUEST_CONFLICT)
+    completed = _owner_now()
+    cursor = _owner_execute(
+        owner,
+        "UPDATE operations SET state=?,revision=?,updated_at=?,completed_at=?,"
+        "effect_completed=1 WHERE projection_id=? AND operation_id=? AND state=?",
+        (
+            OperationState.COMPLETED.value,
+            revision + 1,
+            _scalar(completed),
+            _scalar(completed),
+            projection_id.value,
+            operation_id.value,
+            OperationState.ACCEPTED.value,
+        ),
+    )
+    if cursor.rowcount != 1:
+        _fail(ErrorCode.REQUEST_CONFLICT)
+
+
+def resume_projection(owner, projection_id):
+    """Resume a started projection through the single writer boundary."""
+
+    from .repositories.base import _get
+    from .transactions import UnitOfWork
+
+    if type(owner) is not UnitOfWork or type(projection_id) is not ProjectionId:
+        _fail(ErrorCode.INVALID_INPUT)
+    projection = _get(owner, projection_id, "projections", ())
+    if projection is None:
+        _fail(ErrorCode.OWNER_UNAVAILABLE)
+    if projection.daemon_paused:
+        _owner_execute(
+            owner,
+            "UPDATE projections SET daemon_paused=0 WHERE projection_id=?",
+            (projection_id.value,),
+        )
 
 
 def _insert_bootstrap(connection, projection_id, commands):
