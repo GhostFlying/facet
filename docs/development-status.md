@@ -118,6 +118,18 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   CLI, source-path attestation, live Gmail, recovery, deployment or Phase 1
   gates.
 
+- The exact domain-rule mutation is integrated in PR #61 at main merge
+  `6a2a5d7` (implementation candidate `7c7ae20`; plan:
+  `implementation-plans/m1-cli-domain-rule.md`). `facet rules add-domain`
+  reuses the existing single-writer ruleset publication and request replay
+  path, applies the existing PSL/IDNA/public-suffix policy, and refuses new
+  mutations while bindings are pending. The candidate passed 43 CLI bootstrap
+  tests, 105 related rule/admission/action tests, 2530 full offline tests,
+  Ruff/format/safety, wheel import/help smoke, independent implementation
+  review, and Python 3.12/3.13 plus no-publish image CI. This adds maintenance
+  rule control only; it does not resolve source-path attestation, automatic
+  production admission, live Gmail, recovery, or final Phase 1 gates.
+
 - The bounded Dashboard/Compose HTTP unit is integrated on main `e2b9b17`
   after independent plan approval. `facet web` serves only the
   allowlisted aggregate routes (`/api/v1/status`, `/api/v1/progress`,
