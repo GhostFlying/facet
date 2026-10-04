@@ -21,7 +21,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1-03 writer/runtime/CLI | Bounded writer foundation and corrected Thread harness integrated; production sync owner open | PR #20 exact `ea80db2` and PR #22 exact `befe278` actually merged after nonauthor review and candidate/main dual-Python CI; corrected harness retains production OS bytes, 150 focused/758 full tests; no-state bootstrap source separately released, not accepted provider/actor/credential integration |
 | M1-04 OAuth/binding | Early pure values/codec/client parser integrated; full package open | PR #18 actually merged exact `ff77e63`; 120 OP/608 full tests, independent source/head review, wheel and candidate/main 3.12/3.13 CI passed; actual OAuth/profile/files/publication remain |
 | M1-05 public status/privacy | Early pure/logging library integrated; full consumer gate open | PR #16 actually merged exact `f209fbe`, independent review and candidate/main CI passed with 488 offline tests; actual DB/auth/runtime/HTTP/DOM/Compose consumers still pending |
-| M1-06 authentication/initialization | Typed candidate seam integrated; full package open | PR #39 exact `3ba6465` merged at main `05a6044`; candidate discovery converts ID-only pages into redacted typed candidate/attention results, rejects malformed metadata, and defaults source authentication to unknown. Independent implementation review, focused 22, full 2443 offline tests, Python 3.12/3.13 CI, Ruff and safety passed. Real source-path attestation, initialization and G1 remain open |
+| M1-06 authentication/initialization | Cryptographic source-path provider integrated; live gate open | PR #39 supplied the typed candidate seam; PR #71 merged at main `2e2ad639` (implementation commits `dc4836e`/`a453d60`). Production `run --once` and foreground service now use DKIM verification over the exact in-memory Gmail raw message, aligned normalized `From`, response message/thread binding, and bounded raw decoding; unknown/ambiguous cases remain attention. Independent plan/implementation review, 29 focused and 2545 full offline tests, Python 3.12/3.13 CI, Ruff, format, lock and safety passed. No live Gmail evidence; initialization and G1 remain open |
 | M1 foundation as a whole | Incomplete | `facet init`, production OAuth/profile ownership, and the non-fake `run --once`/`backfill start` dispatch seams are integrated; real source-path attestation, full maintenance CLI and G1 remain open |
 | M2 automated projection core | Foreground synthetic vertical integrated | PR #45 merged at `0a928369c8a1ee4f0684f7e4605899fec42af021`; fixed-window discovery, H0→History pagination, typed candidate/admission bridge, action-label effects, serial projection/readback, pre-dispatch recovery, and durable attention/retry convergence are offline-tested. This does not claim CLI/OAuth, live Gmail, Dashboard, Compose, Actions or Phase 1 completion |
 | M3 continuous recovery and Dashboard alpha | Foreground aggregate and action-label consumers integrated; recovery remains open | PR #55 and PR #57 merged at main `5b6097f`; one-process `facet run` publishes aggregate snapshots, gates Gmail on verified bindings plus explicit backfill start, and composes readonly action-label effects; no live-account claim |
@@ -59,6 +59,21 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
 而是从当前关键路径移除的工程方案。
 
 ## Latest product-first handoff (2026-10-05)
+
+- PR #71 is integrated at main `2e2ad639f40ab1a5c27161f2e6e51ca33952d654`.
+  The production source candidate path now fetches `messages.get(format=raw)` only
+  for the exact discovered message, verifies DKIM through DNS, requires the raw
+  normalized `From` to match metadata and the DKIM signing domain to satisfy the
+  frozen IDNA/PSL alignment policy, and rejects ARC/resent/ambiguous or failed
+  verification as attention. Raw response IDs and thread IDs are checked before
+  decoding, and the provider's raw-byte limit is enforced at the fetch boundary.
+  Raw mail remains memory-only; no raw, credentials, addresses, or provider
+  payloads enter the DB, logs, CLI receipts, or Dashboard. Fake CLI runs still
+  use a clearly separate synthetic provider. Evidence levels are: implemented
+  and offline-verified; not live-Gmail-verified; not a Phase 1/G1 completion.
+  The next product-bearing delivery is the complete CLI vertical path with a
+  fake transport that exercises production command composition, followed by a
+  separately authorized controlled Gmail run.
 
 - The next product-shaped candidate composes the existing foreground sync owner
   and aggregate Dashboard in one supported process. `facet run` without
