@@ -25,7 +25,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1 foundation as a whole | Incomplete | `facet init`, production OAuth/profile ownership, and the non-fake `run --once`/`backfill start` dispatch seams are integrated; real source-path attestation, full maintenance CLI and G1 remain open |
 | M2 automated projection core | Foreground synthetic vertical integrated | PR #45 merged at `0a928369c8a1ee4f0684f7e4605899fec42af021`; fixed-window discovery, H0→History pagination, typed candidate/admission bridge, action-label effects, serial projection/readback, pre-dispatch recovery, and durable attention/retry convergence are offline-tested. This does not claim CLI/OAuth, live Gmail, Dashboard, Compose, Actions or Phase 1 completion |
 | M3 continuous recovery and Dashboard alpha | Foreground aggregate and action-label consumers integrated; recovery remains open | PR #55 and PR #57 merged at main `5b6097f`; one-process `facet run` publishes aggregate snapshots, gates Gmail on verified bindings plus explicit backfill start, and composes readonly action-label effects; no live-account claim |
-| M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
+| M4 complete maintenance CLI and advanced rule maintenance | Recovery inspection candidate reviewed; CI pending | `facet recovery list/show/check` now inspect aggregate or private unknown-insert evidence without insert/retry/SQLite mutation; queue/review mutation, recovery preview/retry/repair, BlackList competition, offline backup/restore and optional label cleanup remain open |
 | M5 self-hosted delivery | Immutable image workflow integrated and first image published | Main `1a42938`; PR multi-arch no-publish build and main publish passed; public GHCR SHA tag, digest, anonymous pull, amd64/arm64 manifest and UID 10001 smoke verified; host deployment/Nginx remain open |
 | M6 real deployment and v0.1 | Not implemented | Backup/restore, live Gmail, selected host and 72-hour evidence |
 
@@ -88,6 +88,16 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   Python 3.12/3.13 CI, no-publish image build, Ruff/format/lock/safety checks.
   This is implemented and offline-verified; it is not live-Gmail-verified and
   does not close G1 or Phase 1.
+
+- Candidate `aa646bb` adds `facet recovery list/show/check`.
+  It creates an unknown insert only through the production insert-intent path in
+  the synthetic command test, then searches and reads back target evidence
+  without a second insert or SQLite mutation. Duplicate, missing and changed
+  evidence stay attention. Independent implementation review is approved; the
+  focused 61-test set and all 2546 non-flaky tests pass, while one existing
+  full-process FD-snapshot test remains environment-flaky (isolated rerun and
+  its file pass). Full candidate CI, recovery retry/repair and live Gmail are
+  not claimed.
 
 - The next product-shaped candidate composes the existing foreground sync owner
   and aggregate Dashboard in one supported process. `facet run` without

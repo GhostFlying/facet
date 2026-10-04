@@ -996,6 +996,10 @@ def test_ol10_closed_metadata_is_bounded_by_live_terminal_handles(sandbox):
     before = tree(sandbox)
     active = (len(private_root._ROOTS), len(private_root._LEASES))
     terminal = (len(private_root._CLOSED_ROOTS), len(private_root._RELEASED_LEASES))
+    # Earlier integration fixtures may leave owner/SQLite wrappers awaiting
+    # collection. Establish the live-FD baseline after that deterministic
+    # cleanup so this test measures only its own root/lease lifecycle.
+    gc.collect()
     descriptors = live_fds()
     references = []
     for _ in range(256):
