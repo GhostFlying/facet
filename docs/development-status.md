@@ -24,7 +24,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1-06 authentication/initialization | Typed candidate seam integrated; full package open | PR #39 exact `3ba6465` merged at main `05a6044`; candidate discovery converts ID-only pages into redacted typed candidate/attention results, rejects malformed metadata, and defaults source authentication to unknown. Independent implementation review, focused 22, full 2443 offline tests, Python 3.12/3.13 CI, Ruff and safety passed. Real source-path attestation, initialization and G1 remain open |
 | M1 foundation as a whole | Incomplete | `facet init`, production OAuth/profile ownership, and the non-fake `run --once`/`backfill start` dispatch seams are integrated; real source-path attestation, full maintenance CLI and G1 remain open |
 | M2 automated projection core | Foreground synthetic vertical integrated | PR #45 merged at `0a928369c8a1ee4f0684f7e4605899fec42af021`; fixed-window discovery, H0→History pagination, typed candidate/admission bridge, action-label effects, serial projection/readback, pre-dispatch recovery, and durable attention/retry convergence are offline-tested. This does not claim CLI/OAuth, live Gmail, Dashboard, Compose, Actions or Phase 1 completion |
-| M3 continuous recovery and Dashboard alpha | HTTP boundary alpha integrated; aggregate consumer and recovery remain open | Main `89774c7`; `facet web`, typed unavailable/unknown snapshots, fixed-output read-only routes, privacy tests, and Compose smoke fixture; no live counts or Gmail claim |
+| M3 continuous recovery and Dashboard alpha | Foreground aggregate consumer integrated; recovery remains open | PR #55 merged at main `e2b9b17`; one-process `facet run` publishes live aggregate snapshots and gates Gmail on verified bindings plus explicit backfill start; no live-account claim |
 | M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
 | M5 self-hosted delivery | Immutable image workflow integrated and first image published | Main `1a42938`; PR multi-arch no-publish build and main publish passed; public GHCR SHA tag, digest, anonymous pull, amd64/arm64 manifest and UID 10001 smoke verified; host deployment/Nginx remain open |
 | M6 real deployment and v0.1 | Not implemented | Backup/restore, live Gmail, selected host and 72-hour evidence |
@@ -58,9 +58,7 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
 公平调度和复杂 raw budget 不再是第一交付或 milestone gate。它们不代表已删除的代码，
 而是从当前关键路径移除的工程方案。
 
-## Latest product-first handoff (2026-10-04)
-
-## Current candidate handoff (2026-10-05)
+## Latest product-first handoff (2026-10-05)
 
 - The next product-shaped candidate composes the existing foreground sync owner
   and aggregate Dashboard in one supported process. `facet run` without
@@ -80,18 +78,19 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
 - The candidate now gates every provider cycle on DB-only verified bindings and
   an active, explicitly-started epoch. Before that gate passes, it publishes a
   blocked/unknown aggregate snapshot and does not construct or call Gmail.
-- Candidate evidence so far: the Dashboard/foreground/runtime/fake-restart
-  focused set passes 15 tests; full offline regression is running against the
-  corrected candidate. This is a local candidate pending implementation review,
-  CI, and merge; it is not evidence of live Gmail projection, automatic
-  trusted admission, action-label production wiring, or Phase 1 completion.
-- The immediate next acceptance is a clean full offline suite, safety/format/
-  wheel checks, exact candidate review, and candidate/main CI. After that,
-  production-critical work resumes on action-label consumer wiring and complete
-  source-path admission/recovery; those remain the blockers to a real automatic
-  Gmail projection.
+- PR #55 is integrated at main `e2b9b1727cbbe2743d1b887e9ec3d2250bc61431`.
+  Independent implementation review approved the corrected exact candidate
+  `bbddd4c`; the final offline suite passed 2516 tests, focused evidence passed
+  52 tests, and candidate Python 3.12/3.13 plus no-publish image CI passed.
+  This proves the supported one-process composition and aggregate Dashboard,
+  not live Gmail projection, trusted automatic admission, action-label
+  production wiring, or Phase 1 completion.
+- The next product-critical delivery is production action-label consumer wiring
+  plus the remaining source-path admission and recovery boundaries. A real
+  Gmail run still requires explicit live-account/test-scope authorization; no
+  such operation was performed by PR #55.
 
-- The bounded Dashboard/Compose HTTP unit is integrated on main `89774c7`
+- The bounded Dashboard/Compose HTTP unit is integrated on main `e2b9b17`
   after independent plan approval. `facet web` serves only the
   allowlisted aggregate routes (`/api/v1/status`, `/api/v1/progress`,
   `/api/v1/issues`, `/api/v1/diagnostics`, `/healthz`, `/readyz`) through a
@@ -104,7 +103,7 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   subprocess tests pass; full offline suite is 2508 passed. Docker Compose
   config parses. The bundled image and actual non-root container smoke are
   recorded in the image handoff below. This is an HTTP/container boundary
-  fixture, not a usable live sync deployment or Dashboard completion. Plan:
+  fixture, not a usable live Gmail deployment or Phase 1 completion. Plan:
   `implementation-plans/dashboard-compose-alpha.md`.
 
 - The immutable image delivery unit is integrated on main `1a429386f7670ae11f211e21105b19a6587f59f7`.
