@@ -210,6 +210,40 @@ def claim(uow, projection_id, job_id, claim: Claim, guard, now):
 
 
 @_mutating
+def requeue_preparing_claims(uow, projection_id):
+    """Requeue only claims with no evidence of a remote insert dispatch.
+
+    This is the restart boundary for the single foreground owner.  A claimed
+    insert with dispatch/unknown/known evidence is intentionally excluded and
+    remains available only to an explicit recovery path.
+    """
+    rows = _query(
+        uow,
+        "SELECT j.job_id,j.revision FROM sync_jobs j JOIN job_claims c "
+        "ON c.projection_id=j.projection_id AND c.job_id=j.job_id "
+        "WHERE j.projection_id=? AND j.state='claimed' AND NOT EXISTS("
+        "SELECT 1 FROM insert_attempts a WHERE a.projection_id=j.projection_id "
+        "AND a.job_id=j.job_id AND a.state IN "
+        "('dispatch_started','pending_recovery','known_inserted',"
+        "'needs_attention'))",
+        (projection_id.value,),
+        maximum=10_000,
+    )
+    for job_id, revision in rows:
+        uow._execute(
+            "DELETE FROM job_claims WHERE projection_id=? AND job_id=?",
+            (projection_id.value, job_id),
+        )
+        uow._execute(
+            "UPDATE sync_jobs SET state='queued',revision=?,"
+            "next_attempt_at=NULL WHERE projection_id=? AND job_id=? "
+            "AND state='claimed' AND revision=?",
+            (revision + 1, projection_id.value, job_id, revision),
+        )
+    return len(rows)
+
+
+@_mutating
 def defer_job(uow, projection_id, job_id, state, error, retry_at, guard):
     if (
         type(state) is not str
