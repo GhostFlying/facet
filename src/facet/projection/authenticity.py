@@ -136,6 +136,12 @@ def _issuer_for_tests() -> SourcePathEvidenceIssuer:
     return SourcePathEvidenceIssuer(_EVIDENCE_TOKEN)
 
 
+def _issuer_for_provider() -> SourcePathEvidenceIssuer:
+    """Return the closed issuer used by the reviewed production provider."""
+
+    return SourcePathEvidenceIssuer(_EVIDENCE_TOKEN)
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class TrustAssessment:
     trusted: bool
@@ -208,5 +214,6 @@ __all__ = (
     "TrustAssessment",
     "VerifiedSourceEvidence",
     "_issuer_for_tests",
+    "_issuer_for_provider",
     "assess_evidence",
 )

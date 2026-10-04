@@ -1,3 +1,4 @@
+import base64
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -148,6 +149,51 @@ def test_producer_attestation_is_bound_to_candidate(gmail_controller):
 
     assert page.items[0].candidate is not None, page.items[0].attention.reason
     assert page.items[0].candidate.evidence == evidence
+
+
+def test_raw_attestation_provider_receives_only_exact_candidate_bytes(
+    gmail_controller,
+):
+    class RawProvider:
+        requires_raw = True
+
+        def attest(self, **kwargs):
+            assert kwargs["raw"] == b"synthetic-auth-raw"
+            return None
+
+    gmail_controller.script(
+        "source",
+        "messages.list",
+        _list_args(),
+        {"messages": [{"id": "m-1", "threadId": "t-1"}]},
+    )
+    gmail_controller.script(
+        "source",
+        "messages.get",
+        {"userId": "me", "id": "m-1", "format": "metadata"},
+        _metadata(headers=({"name": "From", "value": "sender@example.com"},)),
+    )
+    gmail_controller.script(
+        "source",
+        "messages.get",
+        {"userId": "me", "id": "m-1", "format": "raw"},
+        {
+            "id": "m-1",
+            "threadId": "t-1",
+            "labelIds": [],
+            "internalDate": "1767225600000",
+            "payload": {"headers": []},
+            "raw": base64.urlsafe_b64encode(b"synthetic-auth-raw").decode(),
+        },
+    )
+
+    page = _adapter(gmail_controller, auth_provider=RawProvider()).discover_candidates(
+        window_start=datetime(2026, 1, 1, tzinfo=UTC),
+        window_end=datetime(2026, 7, 1, tzinfo=UTC),
+    )
+
+    assert page.items[0].candidate is not None
+    assert page.items[0].candidate.evidence is None
 
 
 @pytest.mark.parametrize(

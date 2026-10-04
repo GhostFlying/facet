@@ -450,12 +450,18 @@ class SourceAdapter:
         observed_at = Timestamp(datetime.now(UTC))
         evidence = None
         try:
+            raw = (
+                self.raw(item.message_id)
+                if getattr(provider, "requires_raw", False)
+                else None
+            )
             proposed = provider.attest(
                 source_account=account,
                 message_id=item.message_id,
                 observed_at=observed_at,
                 binding_revision=binding,
                 credential_revision=credential,
+                raw=raw,
             )
         except ProviderFailure:
             return CandidateResult(
