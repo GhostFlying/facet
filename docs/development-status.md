@@ -24,9 +24,9 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 | M1-06 authentication/initialization | Typed candidate seam integrated; full package open | PR #39 exact `3ba6465` merged at main `05a6044`; candidate discovery converts ID-only pages into redacted typed candidate/attention results, rejects malformed metadata, and defaults source authentication to unknown. Independent implementation review, focused 22, full 2443 offline tests, Python 3.12/3.13 CI, Ruff and safety passed. Real source-path attestation, initialization and G1 remain open |
 | M1 foundation as a whole | Incomplete | `facet init` and `run --once` preflight are now implemented locally, with request-keyed bootstrap replay and pending-binding refusal; full OAuth/profile ownership, status consumers, doctor/config apply and G1 remain open |
 | M2 automated projection core | Foreground synthetic vertical integrated | PR #45 merged at `0a928369c8a1ee4f0684f7e4605899fec42af021`; fixed-window discovery, H0→History pagination, typed candidate/admission bridge, action-label effects, serial projection/readback, pre-dispatch recovery, and durable attention/retry convergence are offline-tested. This does not claim CLI/OAuth, live Gmail, Dashboard, Compose, Actions or Phase 1 completion |
-| M3 continuous recovery and Dashboard alpha | HTTP boundary alpha implemented locally; aggregate consumer and recovery remain open | `facet web`, typed unavailable/unknown snapshots, fixed-output read-only routes, privacy tests, and Compose smoke fixture; no live counts, Gmail, or production deployment claim |
+| M3 continuous recovery and Dashboard alpha | HTTP boundary alpha integrated; aggregate consumer and recovery remain open | Main `89774c7`; `facet web`, typed unavailable/unknown snapshots, fixed-output read-only routes, privacy tests, and Compose smoke fixture; no live counts or Gmail claim |
 | M4 complete maintenance CLI and advanced rule maintenance | Not implemented | Queue/review/recovery/repair, BlackList competition, offline maintenance and optional label cleanup |
-| M5 self-hosted delivery | Image workflow implemented locally; publication evidence pending | Immutable multi-arch PR/main workflow and pinned Compose base; GHCR digest, anonymous pull, deployment and Nginx evidence remain open |
+| M5 self-hosted delivery | Immutable image workflow integrated and first image published | Main `1a42938`; PR multi-arch no-publish build and main publish passed; public GHCR SHA tag, digest, anonymous pull, amd64/arm64 manifest and UID 10001 smoke verified; host deployment/Nginx remain open |
 | M6 real deployment and v0.1 | Not implemented | Backup/restore, live Gmail, selected host and 72-hour evidence |
 
 Both `facet` and the isolated `facet_spike` are now packaged for Python 3.12+.
@@ -60,8 +60,8 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
 
 ## Latest product-first handoff (2026-10-04)
 
-- The current bounded Dashboard/Compose unit is implemented locally on main
-  base `27b2047` after independent plan approval. `facet web` serves only the
+- The bounded Dashboard/Compose HTTP unit is integrated on main `89774c7`
+  after independent plan approval. `facet web` serves only the
   allowlisted aggregate routes (`/api/v1/status`, `/api/v1/progress`,
   `/api/v1/issues`, `/api/v1/diagnostics`, `/healthz`, `/readyz`) through a
   silent fixed-output HTTP handler. Until a runtime collector publishes a
@@ -71,11 +71,23 @@ read-bootstrap 证明、独立 daemon/IPC/request receipt、跨 thread 并发四
   container `0.0.0.0:8080`, published only to host loopback, with a persistent
   `/var/lib/facet` volume and read-only root filesystem. Seven focused web/
   subprocess tests pass; full offline suite is 2508 passed. Docker Compose
-  config parses; image build smoke is currently blocked because the Docker
-  daemon cannot reach Docker Hub, so non-root container reachability is not
-  claimed. This is an HTTP/container boundary fixture, not a usable live sync
-  deployment or Dashboard completion. Plan: `implementation-plans/dashboard-
-  compose-alpha.md`.
+  config parses. The bundled image and actual non-root container smoke are
+  recorded in the image handoff below. This is an HTTP/container boundary
+  fixture, not a usable live sync deployment or Dashboard completion. Plan:
+  `implementation-plans/dashboard-compose-alpha.md`.
+
+- The immutable image delivery unit is integrated on main `1a429386f7670ae11f211e21105b19a6587f59f7`.
+  Dockerfile uses the frozen Python manifest and `uv sync --locked --no-dev`.
+  PR #51's Python 3.12/3.13 checks and multi-architecture no-publish Buildx
+  job passed. The main publish job passed at run `37200289682`, publishing only
+  `ghcr.io/ghostflying/facet:1a429386f7670ae11f211e21105b19a6587f59f7` with
+  manifest digest `sha256:9fcbb5b46fcbffd2df79072613be6eb8fd68f94349ccb76ead08c322f2ea6e41`.
+  Anonymous `skopeo` inspection and pull verified the public manifest contains
+  linux/amd64 and linux/arm64; a temporary container ran as UID 10001,
+  returned `{"status":"ok"}` from `/healthz`, and correctly reported
+  `{"status":"unavailable"}` from `/readyz`. This proves artifact delivery,
+  not live Gmail sync, host deployment, Nginx, or release completion. Plan:
+  `implementation-plans/image-delivery.md`.
 
 - The next bounded CLI slice is implemented locally on top of main: plan
   `docs/implementation-plans/m1-cli-bootstrap.md` was independently approved.
@@ -610,9 +622,9 @@ actual verification scope instead of marking a partial gate complete.
 - AI connector retrieval is an AI-product responsibility, not a Facet gate.
 - Real bank domains/credible authentication evidence, live account/test scope,
   dogfood host/local volume/Nginx entry, license and formal version release remain
-  undecided. GHCR/package public visibility and main full-SHA publication scope
-  are decided; actual package visibility and anonymous pulling still need M6
-  verification. Source publication does not substitute for those checks.
+  undecided. GHCR/package public visibility, main full-SHA publication, public
+  anonymous pulling, and the first multi-arch artifact are verified above;
+  source publication does not substitute for deployment or live-sync checks.
 - Authentication trust, unknown-insert attribution (excluding old unmanaged/spike
   copies), and daemon/CLI single-writer coordination are required early ADRs.
   Unique fingerprint matches alone do not establish this insert's provenance.
