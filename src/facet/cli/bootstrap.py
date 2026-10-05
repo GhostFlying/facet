@@ -1257,6 +1257,9 @@ def _rules_add(
         rule_id = request_id
         auth_nonces = tuple(_auth_role_nonce(request_id, role).value for role in Role)
         with owner.session.transaction() as uow:
+            from facet.db.action_labels import check_request_conflict
+
+            check_request_conflict(uow, config.projection.id, request_id)
             occupied = uow._execute(
                 "SELECT 1 FROM operations WHERE projection_id=? AND "
                 "request_nonce IN (?,?,?) LIMIT 1",
@@ -1367,21 +1370,26 @@ def _rules_action_label(options: object) -> tuple[dict, tuple[str, ...]]:
     from facet.runtime.state_owner import StateOwner
 
     if options.label_action == "list":
-        paths = select_paths(getattr(options, "state_dir", None), None)
-        raw = read_managed_config(paths)
-        config = load_config(raw)
-        owner = StateOwner.open(paths.root, config)
+        if not getattr(options, "private_metadata", False) or getattr(
+            options, "public", False
+        ):
+            raise ConfigError(ErrorCode.SCOPE_REQUIRED)
+        from facet.cli.status import (
+            _check_config_artifact,
+            _open_read_only,
+            _paths_and_config,
+        )
+
+        paths, raw, config = _paths_and_config(options)
+        connection = _open_read_only(paths.db)
         try:
-            return {
-                "labels": {
-                    kind.value: name
-                    for kind, name in effective(
-                        owner._connection, config.projection.id
-                    ).items()
-                }
-            }, ()
+            connection.execute("BEGIN")
+            _check_config_artifact(connection, config.projection.id.value, raw)
+            names = effective(connection, config.projection.id)
+            connection.execute("COMMIT")
+            return {"labels": {kind.value: name for kind, name in names.items()}}, ()
         finally:
-            owner.close()
+            connection.close()
     if not options.yes or options.request_id is None:
         raise ConfigError(ErrorCode.CONFIRMATION_REQUIRED)
     try:
@@ -1399,7 +1407,10 @@ def _rules_action_label(options: object) -> tuple[dict, tuple[str, ...]]:
         result = mutate(
             owner, request_id, kind, name, Timestamp(datetime.now(UTC)), raw
         )
-        return {"kind": kind.value, "name": name or DEFAULTS[kind], **result}, ()
+        data = {"kind": kind.value, **result}
+        if getattr(options, "private_metadata", False):
+            data["name"] = name or DEFAULTS[kind]
+        return data, ()
     finally:
         owner.close()
 

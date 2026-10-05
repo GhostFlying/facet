@@ -1,6 +1,6 @@
 # Configurable source action labels
 
-Date: 2026-10-05. Revision: 4. Status: awaiting independent plan review.
+Date: 2026-10-05. Revision: 4. Status: approved; implementation candidate under review.
 Base: `a888655` (current `origin/main`).
 
 ## Goal
