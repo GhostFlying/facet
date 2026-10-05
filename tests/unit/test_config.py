@@ -37,7 +37,6 @@ def test_defaults_are_conservative_and_immutable():
     assert config.web.enabled is True and config.web.host == "0.0.0.0"
     assert config.web.port == 8080 and config.web.refresh_interval_seconds == 10
     assert config.rules.allow_domains == config.rules.allow_senders == ()
-    assert config.rules.authenticity == "require_trusted_auth"
     assert MUTABLE_CONFIG_FIELDS == ()
     assert "rule_validation_pending" not in config_warnings(config)
     with pytest.raises(FrozenInstanceError):
@@ -118,6 +117,14 @@ def test_roles_own_addresses_and_rules_remain_pending():
     config = load_config(MINIMAL + b"rules: {allow_domains: [com]}\n")
     assert "rule_validation_pending" in config_warnings(config)
     assert config.rules.allow_domains == ("com",)  # structural, NOT PSL/admission pass
+
+
+def test_legacy_authenticity_setting_is_ignored_and_not_serialized():
+    config = load_config(MINIMAL + b"rules: {authenticity: require_trusted_auth}\n")
+    assert config.rules.allow_domains == ()
+    from facet.config import dump_config
+
+    assert b"authenticity" not in dump_config(config)
 
 
 def test_safe_loader_global_rules_are_not_modified():

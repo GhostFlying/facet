@@ -523,14 +523,12 @@ def _run_once_production(owner, config) -> tuple[dict, tuple[str, ...]]:
     """Dispatch one real-provider cycle through the reviewed runtime seam."""
 
     from facet.gmail.service_factory import GoogleGmailServiceFactory
-    from facet.gmail.source_auth import DkimSourceAuthProvider
     from facet.runtime.foreground_runtime import run_foreground_once
 
     receipt = run_foreground_once(
         owner,
         config,
         GoogleGmailServiceFactory(),
-        source_auth_provider=DkimSourceAuthProvider(),
     )
     return {
         "discovered": receipt.discovered,
@@ -576,7 +574,6 @@ def _run_foreground_service(options: object) -> tuple[dict, tuple[str, ...]]:
     """Own one sync loop and one read-only Dashboard in the current process."""
 
     from facet.gmail.service_factory import GoogleGmailServiceFactory
-    from facet.gmail.source_auth import DkimSourceAuthProvider
     from facet.runtime.dashboard import LiveSnapshotProvider
     from facet.runtime.foreground_runtime import run_foreground_once
     from facet.runtime.state_owner import StateOwner
@@ -638,7 +635,6 @@ def _run_foreground_service(options: object) -> tuple[dict, tuple[str, ...]]:
                     owner,
                     config,
                     GoogleGmailServiceFactory(),
-                    source_auth_provider=DkimSourceAuthProvider(),
                 )
             except KeyboardInterrupt:
                 break
@@ -701,7 +697,6 @@ def _run_once_fake(options: object) -> tuple[dict, tuple[str, ...]]:
             owner,
             config,
             factory,
-            source_auth_provider=factory.source_auth_provider(),
         )
         return {
             "discovered": receipt.discovered,
@@ -1335,7 +1330,6 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
             raise ConfigError(ErrorCode.BINDING_PENDING)
         manager = CredentialManager(owner.state_dir, config, owner)
         snapshot = manager.snapshot(Role.SOURCE)
-        binding = owner.bindings()[Role.SOURCE]
         if fake:
             if not snapshot.access_token.value.startswith("facet-synthetic-"):
                 raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
@@ -1347,8 +1341,6 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
         source = SourceAdapter(
             factory.service(Role.SOURCE, snapshot),
             source_account=PrivateAddress(config.projection.source_email),
-            binding_revision=binding.binding_revision,
-            credential_revision=binding.credential_revision,
         )
         start = BackfillStartRequest(
             LocalId(uuid4().hex),
@@ -1456,8 +1448,6 @@ def _recovery_check(options: object) -> tuple[dict, tuple[str, ...]]:
         source = SourceAdapter(
             factory.service(Role.SOURCE, source_snapshot),
             source_account=PrivateAddress(config.projection.source_email),
-            binding_revision=source_snapshot.binding_revision,
-            credential_revision=source_snapshot.credential_revision,
         )
         target = TargetAdapter(factory.service(Role.TARGET, target_snapshot))
         candidate_ids = target.find_by_rfc_message_id(attempt.rfc_message_id)

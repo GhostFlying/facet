@@ -15,7 +15,6 @@ from facet.gmail.credential_models import (
 from facet.gmail.credentials import CredentialManager, ProfileEvidence, ProfileReader
 from facet.gmail.service_factory import GmailServiceFactory
 from facet.gmail.source import SourceAdapter
-from facet.gmail.source_auth import SourceAuthProvider
 from facet.gmail.target import TargetAdapter
 from facet.projection.action_consumer import ActionEffectConsumer
 from facet.sync import ForegroundSync, SyncCycleReceipt
@@ -90,14 +89,9 @@ def load_persisted_admission(owner, config):
                     revision.enabled,
                 )
             )
-        source = _get(uow, owner.projection_id, "bindings", (("role", Role.SOURCE),))
-        if source is None:
-            raise ValueError("binding_pending")
         return AdmissionEvaluator(
             tuple(rules),
             source_account=PrivateAddress(config.projection.source_email),
-            binding_revision=source.binding_revision,
-            credential_revision=source.credential_revision,
         )
 
 
@@ -127,7 +121,6 @@ class ForegroundRuntime:
         admission,
         *,
         action_consumer=None,
-        source_auth_provider: SourceAuthProvider | None = None,
         max_jobs=1000,
         max_events=1000,
     ):
@@ -137,13 +130,9 @@ class ForegroundRuntime:
         manager.verify_and_publish(_ProfileProbe(self.config, self.factory))
         source_snapshot = manager.snapshot(Role.SOURCE)
         target_snapshot = manager.snapshot(Role.TARGET)
-        source_binding = self.owner.bindings()[Role.SOURCE]
         source = SourceAdapter(
             self.factory.service(Role.SOURCE, source_snapshot),
             source_account=PrivateAddress(self.config.projection.source_email),
-            binding_revision=source_binding.binding_revision,
-            credential_revision=source_binding.credential_revision,
-            auth_provider=source_auth_provider,
         )
         target = TargetAdapter(self.factory.service(Role.TARGET, target_snapshot))
         return ForegroundSync(
@@ -168,7 +157,6 @@ def run_foreground_once(
     admission=None,
     *,
     action_consumer=None,
-    source_auth_provider: SourceAuthProvider | None = None,
     max_jobs=1000,
     max_events=1000,
 ) -> SyncCycleReceipt:
@@ -176,7 +164,6 @@ def run_foreground_once(
     return ForegroundRuntime(owner, config, factory).run_once(
         admission,
         action_consumer=action_consumer,
-        source_auth_provider=source_auth_provider,
         max_jobs=max_jobs,
         max_events=max_events,
     )

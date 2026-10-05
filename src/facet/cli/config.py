@@ -18,7 +18,6 @@ def _summary(config: Config) -> dict:
         "allow_domain_count": len(config.rules.allow_domains),
         "allow_sender_count": len(config.rules.allow_senders),
         "blacklist_sender_count": len(config.rules.blacklist_senders),
-        "authenticity": config.rules.authenticity,
         "poll_interval_seconds": config.sync.poll_interval_seconds,
         "backfill_lookback_months": config.sync.backfill_lookback_months,
         "thread_concurrency": config.sync.thread_concurrency,

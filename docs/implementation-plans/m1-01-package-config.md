@@ -84,7 +84,7 @@ config apply execution, and runtime integration. M1-01 owns the closed mutable-c
 field registry, initially empty; no unregistered field is accepted for apply.
 M1-04 owns OAuth/binding/credential files.
 M1-05 owns public DTOs, fixed diagnostic messages and production logging. M1-06
-owns full rule normalization/PSL/authentication, integrated init/doctor. Config init
+owns full rule normalization/PSL and metadata admission, integrated init/doctor. Config init
 and facet init must become actual safe initialization commands at M1-03/M1-06 G1
 integration; no auth/status/doctor/run or config apply is advertised as implemented
 here. Unknown/unavailable commands return a controlled result, never call the spike.
@@ -208,7 +208,7 @@ profile verification; config validity never claims that has happened.
 | `sync.source_reconcile_interval_hours` | Positive integer; default 24 |
 | `sync.target_audit_interval_hours` | Positive integer; default 168 |
 | `rules.allow_domains`, `allow_senders`, `blacklist_senders` | Explicit string lists; default empty, no candidate hotel/bank allowlist automatically inserted |
-| `rules.authenticity` | Only `require_trusted_auth`; no pass/ignore bypass configuration |
+| legacy `rules.authenticity` | Read-only compatibility for `require_trusted_auth`; ignored and omitted from new config |
 | `target.inbox` | Exact boolean; default false, optional placement does not mirror mailbox state |
 | `target.projected_label` | Null or nonempty/control-free string; default null, no label creation/scope inference |
 | `web.enabled`, `host`, `port`, `refresh_interval_seconds` | True, `0.0.0.0`, 8080, 10; exact bool, IP literal, integer port 1-65535 and positive integer refresh respectively; container listener does not authorize public host publishing |

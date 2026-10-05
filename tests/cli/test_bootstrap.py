@@ -595,8 +595,8 @@ def test_gmail_auth_status_is_offline_metadata_only(tmp_path):
     assert target_status["code"] == "binding_mismatch"
 
 
-def test_fake_cli_tampered_raw_stops_before_target_insert(tmp_path, monkeypatch):
-    """A transport-level raw failure remains attention in the runtime path."""
+def test_fake_cli_unsigned_raw_is_projected_by_matching_rule(tmp_path, monkeypatch):
+    """Unsigned mail uses the same production rule/insert path as other mail."""
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
     env["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -669,9 +669,12 @@ def test_fake_cli_tampered_raw_stops_before_target_insert(tmp_path, monkeypatch)
     class TamperedFactory(SyntheticGmailServiceFactory):
         def __init__(self, source_account, target_account):
             super().__init__(source_account, target_account)
-            self._services[
-                Role.SOURCE
-            ]._raw = b"From: sender@example.com\r\n\r\nunsigned\r\n"
+            self._services[Role.SOURCE]._raw = (
+                b"From: sender@example.com\r\n"
+                b"To: target@example.invalid\r\n"
+                b"Message-ID: <synthetic@example.com>\r\n"
+                b"Subject: Synthetic\r\n\r\nunsigned\r\n"
+            )
 
     monkeypatch.setattr(
         "facet.gmail.synthetic.SyntheticGmailServiceFactory", TamperedFactory
@@ -680,17 +683,14 @@ def test_fake_cli_tampered_raw_stops_before_target_insert(tmp_path, monkeypatch)
         SimpleNamespace(state_dir=str(state), config_path=None)
     )
     assert warnings == ()
-    assert data["projected"] == 0
+    assert data["projected"] == 1
     with sqlite3.connect(state / "facet.db") as connection:
-        assert connection.execute("SELECT state FROM epoch_partitions").fetchone() == (
-            "needs_attention",
-        )
         assert connection.execute(
             "SELECT COUNT(*) FROM insert_attempts"
-        ).fetchone() == (0,)
+        ).fetchone() == (1,)
         assert connection.execute(
             "SELECT COUNT(*) FROM message_mappings"
-        ).fetchone() == (0,)
+        ).fetchone() == (1,)
 
 
 def test_recovery_check_uses_target_evidence_without_second_insert(

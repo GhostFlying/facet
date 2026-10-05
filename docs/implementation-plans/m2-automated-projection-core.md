@@ -1,5 +1,9 @@
 # M2 Automated Discovery, Backfill, History and Projection Core
 
+> The former source-authentication admission dependency in this historical plan
+> was superseded by the user's 2026-10-05 decision. Active admission is based
+> on metadata eligibility and exact rules; see `docs/gmail-projection-spec.md`.
+
 Status: plan for independent review. This document authorizes no code, Gmail
 operation, deployment, image publication or merge by itself.
 

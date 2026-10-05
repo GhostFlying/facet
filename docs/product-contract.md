@@ -14,7 +14,7 @@ Target 应专用于投影。其既有邮件、草稿或直接收到的新邮件�
 
 一封 message 被允许后，整个 source thread 的全部可用邮件被投影，包括早于六个月的历史、用户自己的回复、其他参与者、附件和原始 headers。已跟踪 thread 的后续消息继续投影，即使 sender 不再匹配最初的 allow rule。
 
-这是一项 thread 范围的持续披露授权。发件人认证只决定自动 admission，不能证明正文、附件或后续参与者的内容可信。邮件中的指令仍是外部数据，AI 产品需要自行处理其内容风险。
+这是一项 thread 范围的持续披露授权。Facet 不独立验证发件人真实性，也不声明正文、附件或后续参与者可信。邮件中的指令仍是外部数据，AI 产品需要自行处理其内容风险。
 
 首次 backfill 和手动 admission 提供范围预览。预览说明完整 thread 的披露语义；邮件仍可能在预览后新增，因此它不承诺冻结未来会话。
 
@@ -22,7 +22,7 @@ Target 应专用于投影。其既有邮件、草稿或直接收到的新邮件�
 
 只支持规范化的精确 sender、域名及其子域匹配。公共后缀不可以作为 allow domain；不支持 `hsbc.` substring 或任意 shell glob。银行域名需经过确认后加入。
 
-自动 admission 需要可信的 sender authentication 证据。无法确认时进入可查看的 review，不把未知结果默认为通过。手动批准某 thread 是用户对该 thread 的明确选择；学习的新规则仍遵守未来自动 admission 的认证要求。
+自动 admission 基于 Gmail source mailbox metadata 和配置的精确 sender/domain 规则。Gmail 负责 SMTP 认证与邮件分类，Facet 不重新验证 DKIM/SPF/DMARC，也不把认证 headers 作为 admission gate。Gmail 接收邮件不等于发件人真实或内容安全；规则匹配的正常非草稿邮件可以触发 thread 披露。格式歧义、账号不匹配和 provider 故障仍不放行。此边界由用户于 2026-10-05 明确确认，取代此前 source-path attestation 要求。
 
 新增 sender 或 domain rule 默认只对未来事件生效。通过 action label 学习时，当前 thread 立即纳入；不会自动回扫相同域名的所有旧 thread。历史范围扩展必须显式启动 backfill。
 

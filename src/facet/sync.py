@@ -46,9 +46,6 @@ from facet.gmail.retry import ProviderFailure
 from facet.gmail.source import CandidateAttentionReason
 from facet.projection.action_consumer import ActionEffectConsumer
 from facet.projection.admission import (
-    AdmissionAttentionReason,
-)
-from facet.projection.admission import (
     AdmissionEvaluator as PolicyAdmissionEvaluator,
 )
 from facet.projection.backfill import BackfillProducer
@@ -68,12 +65,11 @@ _RETRY_DELAY = timedelta(seconds=1)
 
 
 class SourceCandidateAdmission:
-    """Adapt the provider candidate seam to the pure admission policy.
+    """Adapt the Gmail metadata candidate seam to the admission policy.
 
-    The adapter owns all Gmail metadata/authentication calls and is invoked
-    before ``BackfillProducer`` opens its write transaction.  This prevents an
-    ID-only discovery item from being mistaken for a typed, authenticated
-    candidate by production code.
+    The adapter performs provider reads before ``BackfillProducer`` opens its
+    write transaction. Disclosure is decided from typed mailbox metadata and
+    the configured rules; Facet does not authenticate the sender.
     """
 
     def __init__(self, source, policy: PolicyAdmissionEvaluator) -> None:
@@ -101,12 +97,6 @@ class SourceCandidateAdmission:
         decision = self._policy.evaluate(result.candidate, _now())
         if decision.admit:
             return DiscoveryDecision(True, decision.rule)
-        if decision.attention_reason in {
-            AdmissionAttentionReason.AUTHENTICITY_MISSING,
-            AdmissionAttentionReason.AUTHENTICITY_UNTRUSTED,
-            AdmissionAttentionReason.AUTHENTICITY_STALE,
-        }:
-            return DiscoveryDecision(False, attention=ErrorCode.SOURCE_AUTH_REQUIRED)
         return DiscoveryDecision(False)
 
 

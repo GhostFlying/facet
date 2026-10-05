@@ -94,7 +94,6 @@ class RulesConfig:
     allow_domains: tuple[str, ...] = ()
     allow_senders: tuple[str, ...] = ()
     blacklist_senders: tuple[str, ...] = ()
-    authenticity: str = "require_trusted_auth"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -206,7 +205,10 @@ def _model(document: object) -> Config:
         top.get("rules", {}),
         {"allow_domains", "allow_senders", "blacklist_senders", "authenticity"},
     )
-    if rules.get("authenticity", "require_trusted_auth") != "require_trusted_auth":
+    # Configurations created before the sender-authentication gate was removed
+    # may still carry this fixed value.  It is accepted for artifact
+    # compatibility and deliberately has no effect on admission.
+    if "authenticity" in rules and rules["authenticity"] != "require_trusted_auth":
         raise ConfigError()
     rules_model = RulesConfig(
         _strings(rules.get("allow_domains", [])),
@@ -301,7 +303,6 @@ def dump_config(config: Config) -> bytes:
             "allow_domains": list(config.rules.allow_domains),
             "allow_senders": list(config.rules.allow_senders),
             "blacklist_senders": list(config.rules.blacklist_senders),
-            "authenticity": config.rules.authenticity,
         },
         "target": {
             "inbox": config.target.inbox,

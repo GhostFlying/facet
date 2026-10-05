@@ -173,15 +173,22 @@ accidentally behaving differently is not authority to change the contract.
 
 ## Rules, authenticity, and action labels
 
+**Product decision override (2026-10-05):** source-path attestation and
+Facet-side sender-authentication verification are formally removed from Phase 1
+automatic admission. Gmail owns SMTP authentication and mailbox
+classification. Facet admits eligible Gmail metadata through exact configured
+rules and does not claim sender or content safety. Historical authentication
+requirements are superseded; mailbox eligibility, account binding, privacy,
+rule and recovery invariants remain.
+
 - Exact normalized sender matching and domain/subdomain matching with dot
   boundaries only. Reject public suffixes; use versioned PSL/IDNA behavior for
   learning registrable domains. No substring bank rules or arbitrary globs.
   Candidate seed domains are not a verified banking allowlist.
-- New automatic admission must use verified source-Gmail-path authentication and
-  appropriate From alignment. Arbitrary `Authentication-Results` headers,
-  authserv-id text, or a bare `dkim=pass` are insufficient. Unknown/ambiguous
-  authenticity goes to review, never defaults to disclosure. Spike pass counters
-  are observations, NOT an admission policy.
+- New automatic admission uses Gmail metadata plus exact configured sender/domain
+  rules. Facet does not fetch raw mail, call DNS, or parse authentication
+  headers for admission. Gmail's SMTP authentication and mailbox classification
+  remain provider responsibilities; Facet does not infer sender or content safety.
 - Source Spam/Trash/drafts do not cause new automatic admission. A tracked
   thread's available non-draft history may include Spam/Trash; preview this.
 - Dynamic rules apply prospectively, plus the currently explicitly selected

@@ -113,9 +113,9 @@ H0 消费和 gap 恢复能力，并受单独 Gmail 操作范围授权。
 
 范围：`pyproject.toml`、`src/facet/config.py`、`src/facet/db/`、`src/facet/gmail/oauth.py`、`src/facet/cli/`、相关 tests。既有 spike 继续可运行，不自动导入其 target 邮件或重跑实验。
 
-补充酒店和银行的脱敏认证样本，定义可信 Gmail authentication header 的判断方式；银行实际域名未经确认不进入默认规则。现有 spike 的 pass 字符串统计只用于观测，不能直接成为 admission 判断。
+银行实际域名未经确认不进入默认规则。按照 2026-10-05 用户决定，SMTP 认证与分类交给 Gmail；Facet 不独立验证 sender authentication，不以认证 headers 或 source-path attestation 阻塞规则 admission，也不声明邮件安全。
 
-验收：错误账号、token 对调、source 等于 target、无效配置和第二个写入进程均被拒绝；数据库约束与迁移可以重复执行；规则边界与伪造 authentication header 的测试通过。Doctor 和首次 preview 提示 target 的既有内容与缺失的 action labels；只读模式缺少 action labels 时，CLI 规则管理仍可使用。
+验收：错误账号、token 对调、source 等于 target、无效配置和第二个写入进程均被拒绝；数据库约束与迁移可以重复执行；规则边界和 metadata-only admission 测试通过，认证 headers 不影响规则决策。Doctor 和首次 preview 提示 target 的既有内容与缺失的 action labels；只读模式缺少 action labels 时，CLI 规则管理仍可使用。
 
 ### M2 自动 discovery、backfill、History 增量和投影核心（第一条可用产品能力）
 
@@ -197,7 +197,7 @@ Release 仍需决定。公开源码不自动代表 package 已公开，必须实
 | Insert 后 crash | 唯一且内容匹配的候选被绑定；模糊结果不盲目重试 | M2 |
 | Message-ID 缺失或重复 | 不能只凭 Message-ID 判定同一封；进入受限恢复或 review | M2 |
 | 六个月边界 | 用固定截止时间发现候选，纳入后复制完整 thread | M2 |
-| Domain 和真实性 | PSL、子域边界、认证来源、alignment 和未知结果均有覆盖 | M1 M2 |
+| Domain 和 admission | PSL、子域边界、规则生效时间、metadata 歧义和账号边界均有覆盖；不验证 sender authentication | M1 M2 |
 | 初始化和分页 crash | H0 之前 discovery 与 H0 之后 History 共同覆盖，事件可重放 | M2 |
 | 收信和自己回复 | 自动投影；已 tracked thread 的后续 sender 变化保留 | M2 |
 | History 404 | 对 active threads 补漏，并恢复停机窗口内 admission | M3 |
@@ -239,7 +239,7 @@ Dashboard 至少显示 source/target 角色的授权状态、权限模式、init
 当前任务是 P1-00 开工台账与 P1-01 接口设计的独立 plan/review；具体权限状态见
 执行计划 D0-D8，未答复的决定不得记录为已授权。
 
-- M1 至 M3：验证银行实际 sender domains 和认证样本；未确认项保持关闭或 review。
+- M1 至 M3：确认银行实际 sender domains；未确认域名不进入默认规则。
 - M2：校准 pending recovery 的多次搜索等待策略；不以一次 spike 的 11.8 秒观测作为固定保证。
 - M6：选择实际 dogfood 主机与 volume 路径，核对 NAS 使用本地磁盘而非网络文件系统。
 - 用户已确认 [GhostFlying/facet](https://github.com/GhostFlying/facet) 使用 public 可见性和用户账号的 GitHub noreply 提交邮箱；推送与 CI 进度见 [开发状态](development-status.md)。

@@ -1,4 +1,7 @@
-# M1-06 trusted source candidate seam
+# M1-06 trusted source candidate seam — superseded
+
+> Superseded on 2026-10-05. Metadata/rule admission is now the active contract;
+> the source-auth evidence seam described below is historical only.
 
 Status: implementation plan for the next independent unit. This plan is based
 on the integrated main at `cf3004990dfe384a8d388ad98e4c33522274622e` and

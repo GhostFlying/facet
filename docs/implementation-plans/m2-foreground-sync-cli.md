@@ -45,16 +45,14 @@ One foreground process owns the SQLite writer and performs one job at a time.
 
 ## Required corrections while wiring
 
-- Backfill candidates must be fetched and authenticated outside SQLite
-  transactions. The production default uses the existing typed candidate seam;
-  unknown or unavailable source-path evidence returns a typed attention
-  decision. The existing `epoch_partitions.state=needs_attention` is the
-  durable aggregate review marker; no candidate identity or provider payload is
-  added to the schema. Synthetic tests may inject a reviewed typed evidence
-  provider and must verify the marker survives reopen.
+- Backfill candidate metadata must be fetched outside SQLite transactions. The
+  production default uses the typed candidate seam; malformed metadata, account
+  mismatch or provider failure returns typed attention. The existing
+  `epoch_partitions.state=needs_attention` is the durable aggregate review
+  marker; no candidate identity or provider payload is added to the schema.
 - Backfill must not revive an inactive/stopped tracked thread merely because a
   later scan sees it; stopped generations remain stopped.
-- Source network calls (candidate metadata/auth and Gmail pages) must happen
+- Source network calls (candidate metadata and Gmail pages) must happen
   outside SQLite transactions. Transactions contain only typed, redacted facts.
 - History startup must create the initial catch-up poll from the persisted H0
   fence before any normal checkpoint poll; an active poll is resumed rather
@@ -71,10 +69,9 @@ One foreground process owns the SQLite writer and performs one job at a time.
   explicit typed recovery transition; a dispatch-started or pending-recovery
   insert is never auto-retried. An unknown insert remains a recovery/attention
   state until a later explicit recovery path.
-- If the real source-path authenticity provider is still unavailable, automatic
-  admission remains `review`/attention. The implementation must expose that
-  typed state and report it as an open live-admission gate rather than silently
-  admitting or claiming a complete Gmail sync.
+- Facet does not provide a source-path authenticity provider. Gmail owns SMTP
+  authentication and classification; matching metadata/rule candidates follow
+  the normal admission path without a raw/DNS/authentication-header gate.
 
 ## Acceptance
 

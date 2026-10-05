@@ -1,6 +1,8 @@
 # M2 Adapter, Discovery and Normal History Implementation Plan
 
-Status: implementation plan for the bounded M2 producer unit, carried on
+Status: historical plan; source-path attestation language is superseded by the
+2026-10-05 metadata/rule admission decision. Implementation plan for the bounded
+M2 producer unit, carried on
 `fcb7afbb1df9e139d5eb33ccfd4a80b4156b84c8`.
 
 ## Scope
@@ -16,8 +18,8 @@ replayed pages and labels idempotent.
 Files are limited to `src/facet/gmail/`, `src/facet/projection/`, the minimal
 typed History repository getter used for restart continuation, and focused
 tests.  Admission is consumed through the typed `AdmissionEvaluator` seam;
-the verified M1-06 authenticity/rules implementation remains an explicit
-dependency and this unit does not claim to implement it.  No spike imports,
+the metadata/rules implementation remains an explicit dependency and this unit
+does not claim to implement it. No spike imports,
 generic provider registry, target projection worker,
 History-404 recovery, scheduler/concurrency, daemon/IPC, Dashboard, CLI polish,
 Compose, or raw disk cache are included.

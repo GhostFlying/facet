@@ -148,6 +148,6 @@ def test_replacing_config_with_invalid_type_is_rejected() -> None:
         normalize_rules(replace(RulesConfig(), allow_senders=["a@example.com"]))
 
 
-def test_untrusted_authentication_mode_is_rejected() -> None:
-    with pytest.raises(RuleInputError):
-        normalize_rules(RulesConfig(authenticity="allow_unknown"))
+def test_rule_normalization_has_no_sender_authentication_gate() -> None:
+    rules = normalize_rules(RulesConfig(allow_senders=("sender@example.com",)))
+    assert len(rules.allow_senders) == 1

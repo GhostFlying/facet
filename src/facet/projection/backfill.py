@@ -43,7 +43,7 @@ from facet.db.repositories.base import _get
 
 @dataclass(frozen=True, slots=True)
 class DiscoveryDecision:
-    """Result of the trusted admission consumer for one discovery item."""
+    """Result of the rule-based admission consumer for one discovery item."""
 
     admit: bool
     rule: RuleRef | None = None
@@ -61,7 +61,7 @@ class DiscoveryDecision:
 
 
 class AdmissionEvaluator(Protocol):
-    """Typed seam for the verified M1-06 authenticity/rules consumer."""
+    """Typed seam for the metadata/rules admission consumer."""
 
     def evaluate(self, item, epoch) -> DiscoveryDecision: ...
 
