@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from facet.contracts import Sha256Hex
 
 from ..codecs import SchemaVersion, invalid
-from . import v0001, v0002
+from . import v0001, v0002, v0003
 
 # Only an explicit pristine bootstrap can create v1. There is no production v0.
 REGISTRY = ((1, "v0001", v0001.STATEMENTS),)
@@ -156,4 +156,36 @@ _FRESH_V2_MANIFEST = _SchemaManifest(
         )
     ),
     Sha256Hex(FRESH_V2_REGISTRY_DIGEST),
+)
+
+FRESH_V3_REGISTRY = FRESH_V2_REGISTRY + ((3, "v0003", v0003.STATEMENTS),)
+FRESH_V3_CHECKSUMS = FRESH_V2_CHECKSUMS + (
+    hashlib.sha256("\n".join(v0003.STATEMENTS).encode("utf-8")).hexdigest(),
+)
+FRESH_V3_REGISTRY_DIGEST = hashlib.sha256(
+    "\n".join(
+        f"{version}:{name}:{checksum}"
+        for (version, name, _), checksum in zip(
+            FRESH_V3_REGISTRY, FRESH_V3_CHECKSUMS, strict=True
+        )
+    ).encode("ascii")
+).hexdigest()
+
+_FRESH_V3_MANIFEST = _SchemaManifest(
+    SchemaVersion(3),
+    _fresh_v2_catalogue()
+    + tuple(
+        (kind.lower(), name, sql)
+        for sql in v0003.STATEMENTS
+        for kind, name in [
+            re.match(r"CREATE (?:UNIQUE )?(TABLE|INDEX|TRIGGER) (\w+)", sql).groups()
+        ]
+    ),
+    tuple(
+        (version, name, checksum)
+        for (version, name, _), checksum in zip(
+            FRESH_V3_REGISTRY, FRESH_V3_CHECKSUMS, strict=True
+        )
+    ),
+    Sha256Hex(FRESH_V3_REGISTRY_DIGEST),
 )

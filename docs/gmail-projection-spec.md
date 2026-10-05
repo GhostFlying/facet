@@ -45,7 +45,12 @@ web:
 
 这些域名是候选 seed，不代表已验证所有 provider 的认证和别名。HSBC 不使用模糊模式，待实际 sender domains 确认后枚举加入。初始化按 UTC 和日历月计算并持久化六个月截止时间，Gmail query 使用明确时间边界，最终由本地规则复核。
 
-Source 默认 `gmail.readonly`，便利模式 `gmail.modify`。Target 固定 `gmail.insert` 和 `gmail.readonly`；后者用于搜索、回读和 audit，insert scope 本身不提供这些能力。[Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes)、[messages.list scopes](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list)
+Source 默认 `gmail.readonly`，便利模式 `gmail.modify`。Action label metakinds 固定为
+`add_sender`、`add_domain`、`blacklist`；默认读取 `AI/AddSender`、`AI/AddDomain`、
+`AI/BlackList`，私有 CLI 可为每类设置一个精确名称并在 remove 时回退默认。Facet
+只读查找 source labels，不创建或修改 Gmail label，不扩大 scope，已有绑定无需 reauth；
+旧 provider label ID 的 pending event 转为 typed attention/unknown，不重写历史或静默重放。
+Target 固定 `gmail.insert` 和 `gmail.readonly`；后者用于搜索、回读和 audit，insert scope 本身不提供这些能力。[Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes)、[messages.list scopes](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list)
 
 若用户指定已存在的 target label，读取其 label ID 并在 insert 时附带。自动创建 target label 是可选 setup 能力，需要单独核对并申请 `gmail.labels`；默认配置不需要。便利模式中的 `AI/Tracked` 和 `AI/Learned` 默认关闭，action labels 的创建和清理可启用。
 

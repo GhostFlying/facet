@@ -203,6 +203,9 @@ def authorize_operation(owner, projection_id, role, request_nonce):
         _fail(ErrorCode.INVALID_INPUT)
     projection = _get(owner, projection_id, "projections", ())
     binding = _get(owner, projection_id, "bindings", (("role", role),))
+    from .action_labels import check_request_conflict
+
+    check_request_conflict(owner, projection_id, request_nonce)
     if projection is None or binding is None:
         _fail(ErrorCode.OWNER_UNAVAILABLE)
     existing = _owner_fetchall(
@@ -551,7 +554,10 @@ def _backfill_guards(owner, projection_id):
 
 def _existing_backfill_request(owner, projection_id, request_nonce):
     """Find a request-keyed row before evaluating mutable current guards."""
+    from .action_labels import check_request_conflict
     from .repositories.base import _get
+
+    check_request_conflict(owner, projection_id, request_nonce)
 
     projection = _get(owner, projection_id, "projections", ())
     if projection is None:

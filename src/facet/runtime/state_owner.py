@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import sqlite3
 import stat
 from contextlib import contextmanager, suppress
@@ -31,7 +32,7 @@ from facet.contracts import (
     Sha256Hex,
     Timestamp,
 )
-from facet.db.codecs import PrivateAddress, StorageFailure
+from facet.db.codecs import PrivateAddress, StorageFailure, timestamp_to_sql
 from facet.db.command_records import (
     BootstrapCommand,
     BootstrapOperationSeed,
@@ -70,6 +71,32 @@ def _new_id() -> LocalId:
 
 def _timestamp() -> Timestamp:
     return Timestamp(datetime.now(UTC))
+
+
+def _backup_write(path: Path, content: bytes) -> None:
+    descriptor = os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+        0o600,
+    )
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(content)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def _backup_fsync(path: Path, *, directory: bool = False) -> None:
+    descriptor = os.open(
+        path,
+        os.O_RDONLY
+        | os.O_NOFOLLOW
+        | os.O_CLOEXEC
+        | (os.O_DIRECTORY if directory else 0),
+    )
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _request_parts(request_id: str | None) -> tuple[LocalId, LocalId]:
@@ -472,6 +499,116 @@ class StateOwner:
         if self._closed:
             _invalid(ErrorCode.OWNER_UNAVAILABLE)
         return self._session
+
+    def ensure_action_label_schema(
+        self, request_id: LocalId, config_bytes: bytes
+    ) -> None:
+        """Upgrade an owned v2 database to the closed v3 label catalogue."""
+        from facet.db.migrations import (
+            _FRESH_V2_MANIFEST,
+            _FRESH_V3_MANIFEST,
+            FRESH_V3_CHECKSUMS,
+            FRESH_V3_REGISTRY,
+            FRESH_V3_REGISTRY_DIGEST,
+        )
+        from facet.db.schema import _inspect_manifest
+
+        if type(request_id) is not LocalId or type(config_bytes) is not bytes:
+            _invalid(ErrorCode.INVALID_INPUT)
+        self.session._check()
+        self.session._check_lineage()
+        self.verify_config_artifact(config_bytes)
+        connection = self._connection
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        if version == 3:
+            _inspect_manifest(connection, _FRESH_V3_MANIFEST)
+            return
+        if version != 2:
+            _invalid(ErrorCode.MAINTENANCE_REQUIRED)
+        _inspect_manifest(connection, _FRESH_V2_MANIFEST)
+        backup_root = self._state_dir / "backups"
+        bundle = backup_root / f"action-label-v3-{request_id.value}"
+        temporary = backup_root / f".action-label-v3-{request_id.value}.tmp"
+        created_temporary = False
+        try:
+            if not backup_root.exists():
+                backup_root.mkdir(mode=0o700)
+            _check_directory(backup_root, create=False)
+            if bundle.exists() or temporary.exists():
+                _invalid(ErrorCode.REQUEST_CONFLICT)
+            temporary.mkdir(mode=0o700)
+            created_temporary = True
+            _backup_write(temporary / "config.yaml", config_bytes)
+            _check_directory(self._state_dir / "credentials", create=False)
+            for name in ("source.json", "target.json"):
+                source = self._state_dir / "credentials" / name
+                role = "source" if name == "source.json" else "target"
+                if not source.exists() and not source.is_symlink():
+                    revision = connection.execute(
+                        "SELECT credential_revision FROM bindings "
+                        "WHERE projection_id=? AND role=?",
+                        (self.projection_id.value, role),
+                    ).fetchone()
+                    if revision != (0,):
+                        _invalid(ErrorCode.MAINTENANCE_REQUIRED)
+                    continue
+                _check_file(source)
+                descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                try:
+                    before = os.fstat(descriptor)
+                    if before != source.lstat() or before.st_size > 1048576:
+                        _invalid(ErrorCode.SCOPE_REQUIRED)
+                    with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                        content = stream.read(1048577)
+                    if len(content) > 1048576 or os.fstat(descriptor) != before:
+                        _invalid(ErrorCode.SCOPE_REQUIRED)
+                finally:
+                    os.close(descriptor)
+                _backup_write(temporary / name, content)
+            _backup_write(temporary / "facet.db", b"")
+            snapshot = sqlite3.connect(temporary / "facet.db", autocommit=True)
+            try:
+                connection.backup(snapshot)
+                _inspect_manifest(snapshot, _FRESH_V2_MANIFEST)
+            finally:
+                snapshot.close()
+            _backup_fsync(temporary / "facet.db")
+            _backup_fsync(temporary, directory=True)
+            os.replace(temporary, bundle)
+            created_temporary = False
+            _backup_fsync(backup_root, directory=True)
+        except BaseException:
+            if created_temporary:
+                shutil.rmtree(temporary)
+            raise
+        commit_attempted = False
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            _inspect_manifest(connection, _FRESH_V2_MANIFEST)
+            for statement in FRESH_V3_REGISTRY[-1][2]:
+                connection.execute(statement)
+            created = connection.execute(
+                "SELECT created_at FROM schema_metadata WHERE singleton=1"
+            ).fetchone()[0]
+            connection.execute("DELETE FROM schema_metadata WHERE singleton=1")
+            connection.execute(
+                "INSERT INTO schema_metadata VALUES(1,3,?,?)",
+                (FRESH_V3_REGISTRY_DIGEST, created),
+            )
+            connection.execute(
+                "INSERT INTO schema_migrations VALUES(3,?,?,?)",
+                ("v0003", FRESH_V3_CHECKSUMS[-1], timestamp_to_sql(_timestamp())),
+            )
+            connection.execute("PRAGMA user_version=3")
+            _inspect_manifest(connection, _FRESH_V3_MANIFEST)
+            commit_attempted = True
+            connection.execute("COMMIT")
+        except BaseException:
+            if not commit_attempted and connection.in_transaction:
+                connection.execute("ROLLBACK")
+            if commit_attempted:
+                self.session._invalidate()
+            raise
 
     def bindings(self):
         from facet.db.repositories import reads
