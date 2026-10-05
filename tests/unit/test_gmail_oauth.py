@@ -143,6 +143,66 @@ def test_google_oauth_rejects_unbounded_loopback_port():
     assert caught.value.code is ErrorCode.INVALID_INPUT
 
 
+def test_strict_setup_requires_actual_granted_scope_evidence(monkeypatch):
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    from facet.gmail import oauth as oauth_module
+
+    observed = {}
+
+    class Credentials:
+        token = "access-token"
+        refresh_token = "refresh-token"
+        expiry = datetime.now(UTC) + timedelta(hours=1)
+        scopes = ("https://www.googleapis.com/auth/gmail.readonly",)
+        granted_scopes = None
+
+    class Flow:
+        credentials = Credentials()
+
+        def authorization_url(self, **kwargs):
+            observed["authorization"] = kwargs
+            return "https://accounts.example/authorize", "state-token"
+
+        def fetch_token(self, **kwargs):
+            pass
+
+    class Server:
+        server_port = 8080
+
+        def handle_request(self):
+            app_holder[
+                "app"
+            ].last_request_uri = (
+                "http://localhost:8080/?code=code-token&state=state-token"
+            )
+
+        def server_close(self):
+            pass
+
+    app_holder = {}
+
+    def make_server(_host, _port, app, **_kwargs):
+        app_holder["app"] = app
+        return Server()
+
+    monkeypatch.setattr(
+        InstalledAppFlow, "from_client_config", staticmethod(lambda *_args: Flow())
+    )
+    monkeypatch.setattr(oauth_module.wsgiref.simple_server, "make_server", make_server)
+    client = DesktopClientConfig(ClientIdText("client"), SecretText("client-secret"))
+    with pytest.raises(StorageFailure) as caught:
+        GoogleOAuthAuthorizer().authorize(
+            Role.SOURCE,
+            client,
+            ScopeSet(frozenset({ScopeName.GMAIL_READONLY})),
+            port=8080,
+            strict_setup=True,
+        )
+    assert caught.value.code is ErrorCode.SCOPE_REQUIRED
+    assert observed["authorization"]["include_granted_scopes"] == "false"
+
+
 def test_callback_validation_requires_exact_loopback_state_and_result():
     assert _valid_callback(
         "http://localhost:8080/?code=code&state=state", "state", 8080

@@ -149,6 +149,7 @@ class OAuthAuthorizer(Protocol):
         scopes: ScopeSet,
         *,
         port: int,
+        strict_setup: bool = False,
     ) -> OAuthResult:
         """Exchange one explicit role's loopback consent for private secrets."""
 
@@ -163,6 +164,7 @@ class GoogleOAuthAuthorizer:
         scopes: ScopeSet,
         *,
         port: int,
+        strict_setup: bool = False,
     ) -> OAuthResult:
         if (
             type(role) is not Role
@@ -170,6 +172,7 @@ class GoogleOAuthAuthorizer:
             or type(scopes) is not ScopeSet
             or type(port) is not int
             or not 1024 <= port <= 65535
+            or type(strict_setup) is not bool
         ):
             _fail(ErrorCode.INVALID_INPUT)
         try:
@@ -197,7 +200,7 @@ class GoogleOAuthAuthorizer:
                 auth_url, expected_state = flow.authorization_url(
                     access_type="offline",
                     prompt="consent",
-                    include_granted_scopes="true",
+                    include_granted_scopes="false" if strict_setup else "true",
                 )
                 print(
                     "Open this authorization URL in the controlling browser: "
@@ -237,9 +240,15 @@ class GoogleOAuthAuthorizer:
                 _fail(ErrorCode.INVALID_INPUT)
             if expiry.tzinfo is None:
                 expiry = expiry.replace(tzinfo=UTC)
-            granted = getattr(credentials, "scopes", None)
-            if granted is None:
+            if strict_setup:
+                # Requested scopes are not evidence of what Google granted. The
+                # token response's granted_scopes field is the only acceptable
+                # first-run evidence; absent evidence fails closed.
                 granted = getattr(credentials, "granted_scopes", None)
+            else:
+                granted = getattr(credentials, "scopes", None)
+                if granted is None:
+                    granted = getattr(credentials, "granted_scopes", None)
             if not isinstance(granted, (tuple, list, set)):
                 _fail(ErrorCode.SCOPE_REQUIRED)
             try:

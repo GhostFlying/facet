@@ -106,6 +106,27 @@ selected scope/preview 时拒绝；不能继续接受一个 `--yes` 就重插整
 
 ## 初始化、配置和 OAuth
 
+首次安装可使用交互式 `facet setup --oauth-client <private-desktop-client>
+--port <loopback-port> --request-id <rq1_uuid_uuid>`。它只适用于不存在的
+production state root：按 source、target 顺序授权，通过 `users.getProfile`
+发现地址，在同一个 controlling TTY 显示实际两角色并要求明确确认，然后才创建
+配置、binding 和 credential files。setup 是唯一允许 OAuth URL/实际账号地址
+出现在 controlling terminal 的命令；它拒绝 `--json`、`--public`、private
+metadata 输出和 non-TTY，`--yes` 也不能跳过发现后的确认。setup 不列邮件、读取
+raw、insert、写 labels、创建规则、开始 preview/backfill 或启动 sync。
+
+`--request-id` 必须使用 `rq1_<uuid4-hex>_<uuid4-hex>`；caller 在启动前建立并
+私下保存该稳定键。source/target role key 由 setup nonce 和 role
+确定性派生，必须原样用于现有 `auth authorize --role ... --request-id ...` 的
+中断续办。确认前崩溃不留 state；确认后中断保留 pending state，重跑 setup 拒绝
+该 root，用户用现有 role auth 命令继续，不能重建空 DB 或手工宣称 ready。
+
+setup 的 OAuth adapter 使用严格首次授权模式：不请求 incremental scope union，
+且仅接受 token response 的 actual `granted_scopes` 证据；缺少该字段即
+`scope_required`，不能用 `credentials.scopes` 或配置 requested scopes 填补。已有
+role auth/reauth 路径保持其既有兼容行为。source 默认 `gmail.readonly`，target
+默认 `gmail.insert` + `gmail.readonly`；没有新增 provider scope。
+
 `init` 只建新本地状态、schema 和待核验 binding；不读取/导入 spike token、cursor
 或旧 target mappings，不复制邮件。`config init` 不覆盖文件；已存在时返回冲突。
 `config validate` 和 `maintenance inspect` 都能 offline 运行。配置内 initial rules

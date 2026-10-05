@@ -90,6 +90,11 @@ normalization is a separately reviewed operation, not general rewrite authority.
 Python 3.12+ is required. Both `facet` and `facet-spike` are installed; the spike
 keeps its separate state and is never imported by production commands.
 
+The reviewed first-run OAuth flow is documented in
+[`docs/oauth-setup.md`](docs/oauth-setup.md). It requires a private Desktop
+client, a loopback/Tailscale SSH path, and an explicit source/target account
+confirmation; it does not start synchronization or backfill.
+
 ```bash
 uv sync --locked --extra dev
 uv run --frozen ruff check .
