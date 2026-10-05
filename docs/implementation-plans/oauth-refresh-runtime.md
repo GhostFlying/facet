@@ -1,6 +1,6 @@
 # Production OAuth token refresh runtime seam
 
-Date: 2026-10-06. Revision: 1. Status: awaiting independent plan review.
+Date: 2026-10-06. Revision: 2. Status: awaiting independent plan review.
 
 ## Goal and boundary
 
@@ -23,7 +23,10 @@ insert/read operations.
   the stored policy scopes; an omitted provider refresh token retains the old
   refresh token.
 - `src/facet/gmail/credentials.py`: add a manager-owned `ensure_current` seam
-  with a bounded short-expiry threshold and an injected exchange/profile probe.
+  with a fixed five-minute (300-second) short-expiry threshold. The boundary is
+  inclusive (`expires_at - owner_now <= 300s` refreshes), uses the existing UTC
+  owner clock, and is not configurable in this unit. It accepts an injected
+  exchange/profile probe.
   It invokes the existing single-flight, requesting/validated/committed CAS
   refresh path, then verifies profile account and exact effective scopes before
   envelope publication. Existing explicit reauth and ordinary synthetic refresh
@@ -43,8 +46,11 @@ insert/read operations.
 
 ## Acceptance, privacy, and recovery
 
-1. An unexpired credential performs zero exchange calls; an expired or bounded
-   short-lived credential performs exactly one serialized exchange for its role.
+1. A credential with more than 300 seconds remaining performs zero exchange
+   calls; one with exactly 300 seconds, less, or already expired performs
+   exactly one serialized exchange for its role. Tests use the UTC owner clock
+   at just-above, equal, and just-below boundaries; there is no environment or
+   config override.
 2. Account and scope checks occur before `validated`, file replacement, binding
    revision publication, or Gmail service construction. A mismatch, invalid
    grant, network error, malformed response, or missing required scope leaves the
@@ -56,7 +62,15 @@ insert/read operations.
 4. A failure after publication uncertainty follows the existing validated/
    attention recovery path; it never blindly retries Gmail inserts or creates a
    second change. Re-auth remains the explicit path for `invalid_grant`.
-5. The threshold is bounded and documented as a maintenance guard, not a
+5. Google provider failures are mapped in memory to fixed codes only: exact
+   `RefreshError`/`invalid_grant` becomes the role-specific auth-required code;
+   401/403 becomes auth/scope-required according to the typed reason; 429,
+   5xx, transport errors, and timeouts become the existing network/rate-limit
+   codes. Malformed responses, missing token, malformed/expired expiry, or
+   unsupported scopes fail closed with a typed code. No raw exception, response,
+   token, or payload is retained or emitted. Synthetic tests cover each mapping,
+   assert invalid-grant preserves jobs/old revision, and assert no blind retry.
+6. The threshold is bounded and documented as a maintenance guard, not a
    latency or token-lifetime guarantee. Long-cycle 401 handling is unchanged.
 
 ## Authority and stop gates
