@@ -1,6 +1,6 @@
 # Dedicated target-account deployment constraint
 
-Date: 2026-10-05. Revision: 2. Status: awaiting independent plan review.
+Date: 2026-10-05. Revision: 3. Status: awaiting independent plan review.
 Base: `1398549` (current `origin/main`).
 
 ## Goal
@@ -36,24 +36,24 @@ real account or mailbox is inspected.
   fail-closed result for unexpected/unmanaged mail, and the continuing
   no-delete/no-claim promise. Clarify that this requirement does not authorize
   target cleanup or mailbox mutation.
-- `docs/gmail-projection-spec.md`: make target admission/setup verify the
-  empty, dedicated mailbox and writer ownership before any projection. Cover
-  all relevant Gmail categories (normal mail, drafts, Spam, and Trash),
-  provider/account identity, and the operator-attested operational rule that
-  no other writer is configured; do not claim Gmail APIs can prove it. Keep
-  existing insert-attribution, recovery, audit, and
+- `docs/gmail-projection-spec.md`: make target admission/setup verify, after
+  target OAuth and through read-only Gmail calls but before any projection or
+  insert, the empty, dedicated mailbox and account identity. Cover all
+  relevant Gmail categories (normal mail, drafts, Spam, and Trash), and the
+  operator-attested operational rule that no other writer is configured; do
+  not claim Gmail APIs can prove it. Keep existing insert-attribution, recovery, audit, and
   unmanaged-content rules intact: an unexpected item stops setup/deployment
   and enters a report/attention state rather than being mapped or removed.
   State that existing deployments cannot be made compliant by automatic
   cleanup or retroactive claiming.
-- `docs/oauth-setup.md`: add a pre-OAuth deployment gate stating that the
-  target account must be newly created and dedicated, with an explicit
-  operator attestation that Facet is the only writer; automated checks must be
-  described as limited to observable content and account/binding mismatch.
-  The operator must stop and investigate if target discovery finds any content
-  or evidence of another writer. Keep the gate before OAuth/provider writes
-  and document that setup has no delete/claim/cleanup path. Synthetic examples
-  only; do not add real addresses or account evidence.
+- `docs/oauth-setup.md`: add a pre-OAuth deployment gate for the operator's
+  new-account/dedicated-account declaration and explicit Facet-only-writer
+  attestation. After target OAuth, document the read-only mailbox/account
+  discovery across normal mail, drafts, Spam, and Trash; before the first
+  projection/insert, unexpected content or account/binding mismatch stops the
+  flow. OAuth consent is not a Gmail mailbox write. Document that setup has no
+  delete/claim/cleanup path. Synthetic examples only; do not add real
+  addresses or account evidence.
 - `docs/cli-spec.md`: add the matching setup/doctor/deployment contract only
   where command behavior is described: setup/preflight and deployment checks
   fail closed on an unexpected target, while target audit reports unmanaged
@@ -68,9 +68,11 @@ real account or mailbox is inspected.
    every other writer's activity. AI products remain read-only consumers;
    provider-generated metadata is not treated as a Facet mapping or as
    permission for another writer.
-2. The new-account gate is checked before first projection/insert. A target
-   with any unexpected or unmanaged item, legacy/spike copy, prior forwarding,
-   or observable evidence of another writer fails closed. No content is adopted, deleted,
+2. The operator's new-account declaration and sole-writer attestation happen
+   before OAuth. After target OAuth, read-only mailbox/account checks happen
+   before first projection/insert. A target with any unexpected or unmanaged
+   item, legacy/spike copy, prior forwarding, or observable evidence of another
+   writer fails closed. No content is adopted, deleted,
    relabeled, or moved to make the check pass.
 3. Existing production deployments are not silently migrated. The operator
    must attest to the prerequisite at the next documented deployment/setup
@@ -89,8 +91,10 @@ real account or mailbox is inspected.
 - `gmail-projection-spec.md` defines the pre-projection empty-mailbox and
   sole-writer gate across normal mail, drafts, Spam, and Trash, and keeps
   unmanaged/unknown content in fail-closed report/attention paths.
-- `oauth-setup.md` places the target-account gate before OAuth/provider writes
-  and states the stop behavior using synthetic examples only.
+- `oauth-setup.md` places the operator attestation before OAuth, the
+  read-only target mailbox/account check after target OAuth and before the
+  first projection/insert, and states the stop behavior using synthetic
+  examples only; it does not call OAuth consent a mailbox write.
 - `cli-spec.md` (if updated) matches the same fail-closed setup/deployment and
   report-only audit semantics without introducing a cleanup or claim command.
 - Documentation review finds no contradictory instruction that allows
