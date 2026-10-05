@@ -10,7 +10,11 @@ Facet 将用户选定的主 Gmail 内容投影到另一个 Gmail，供 AI agents
 
 AI agents 只连接 target。Facet 本身需要 source 读取权限；Gmail OAuth 不能将该权限限制为单独几个 sender。选择性由 Facet 规则和执行逻辑实现，物理隔离存在于 source 与 agent 所连接的 target 之间。
 
-Target 应专用于投影。其既有邮件、草稿或直接收到的新邮件也可能被 AI connector 读取，Facet 只控制自己写入的内容。初始化提示未由本 projection 管理的内容，用户可以清理或明确接受；服务不自动删除或认领这些邮件。
+生产部署必须使用全新、专用于本 projection 的 target Gmail 账号，并由操作者确认和配置 Facet 为唯一应用写入者。这是用户于 2026-10-05 明确授权的部署前置条件，取代此前允许接受既有 unmanaged 内容的约定。不得配置 forwarding、其他导入器、旧 projection 或人工发信/导入等写入流程；AI agents/connector 只能作为只读消费者。Gmail metadata 和 OAuth scopes 不能证明唯一写入者，Facet 不声明能识别全部第三方写入活动。
+
+OAuth 前由操作者声明 target 为全新、专用且无其他写入者；target OAuth 后、首次 projection/insert 前，通过只读检查核对账号 binding 与邮箱内容，范围包括普通邮件、草稿、Spam 和 Trash。Inbox 为空不能证明邮箱为空。发现 unexpected/unmanaged 内容或账号不匹配时必须 fail closed：阻止部署/投影并报告，不自动认领、删除、移标或清理。授权成功不代表这项前置条件已通过，也不启动同步。
+
+既有部署不能靠自动清理或 retroactive claiming 迁移到此约束。在下一次部署验收前应保留既有 mappings、jobs 和审计证据，保持写入阻止/报告状态，直到操作者声明和可观察检查完成。之后 audit/recovery 仍不能把未知内容自动纳入生产映射。此变更仅定义契约；本次文档交付不声称已实现新增 runtime enforcement 或完成 live 验收。
 
 一封 message 被允许后，整个 source thread 的全部可用邮件被投影，包括早于六个月的历史、用户自己的回复、其他参与者、附件和原始 headers。已跟踪 thread 的后续消息继续投影，即使 sender 不再匹配最初的 allow rule。
 

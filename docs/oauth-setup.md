@@ -8,6 +8,13 @@ message content, inserts messages, writes labels, starts sync, or starts a
 backfill. Source uses `gmail.readonly`; target uses `gmail.insert` and
 `gmail.readonly`.
 
+Deployment prerequisite: the target must be a newly created, dedicated Gmail
+account for this projection. Before OAuth, the operator must explicitly attest
+that Facet is the only application/service that will write to it; AI
+agents/connectors are read-only consumers. Gmail metadata and OAuth scopes do
+not prove that attestation or reveal every third-party writer. OAuth consent
+itself is not a Gmail mailbox write.
+
 The command is interactive only and requires a controlling TTY. It rejects JSON,
 public/private metadata output modes, and non-TTY invocation. Use an explicit
 stable request key in the existing format:
@@ -30,6 +37,14 @@ with the same private state-parent mount and loopback binding. Open each
 displayed Google URL in the browser using the forwarded local port. The setup
 listener remains on numeric `127.0.0.1`; it is not a public listener and does
 not add a Dashboard OAuth route. Keep the command's request key private.
+
+After target OAuth and before the first projection/insert, deployment acceptance
+must use read-only target checks for account binding and mailbox content across
+normal mail, drafts, Spam, and Trash. An unexpected/unmanaged item, old
+forwarding or spike copy, or account mismatch is a stop gate: remain blocked
+and report the conflict. Setup has no delete, claim, relabel, or cleanup path;
+it must not make an existing mailbox appear empty. A successful OAuth grant
+does not by itself pass this target-account gate.
 
 The supported container recipe uses an immutable image and a setup-only
 loopback mapping. Set `FACET_IMAGE` to a full-commit tag or digest and provide
