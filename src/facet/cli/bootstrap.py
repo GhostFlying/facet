@@ -179,6 +179,21 @@ def build_parser() -> _Parser:
     authorize.add_argument("--role", choices=("source", "target"))
     authorize.add_argument("--oauth-client")
     authorize.add_argument("--port", type=int, default=8080)
+    gmail = commands.add_parser(
+        "gmail",
+        add_help=False,
+        allow_abbrev=False,
+        help="inspect Gmail integration state without contacting Gmail",
+    )
+    _common(gmail)
+    gmail_action = gmail.add_subparsers(dest="action", parser_class=_Parser)
+    auth_status = gmail_action.add_parser(
+        "auth-status",
+        add_help=False,
+        allow_abbrev=False,
+        help="show persisted credential status offline",
+    )
+    _common(auth_status)
     rules = commands.add_parser(
         "rules", add_help=False, allow_abbrev=False, help="update admission rules"
     )
@@ -1621,6 +1636,14 @@ def main(argv: list[str] | None = None) -> int:
             command = "auth.authorize"
             data, warnings = _auth_authorize(options)
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
+        if options.family == "gmail":
+            if options.action != "auth-status":
+                raise _InputError()
+            command = "gmail.auth-status"
+            from facet.cli.auth_status import read_auth_status
+
+            data = read_auth_status(options)
+            return _emit(command, data=data, json_mode=json_mode)
         if options.family == "rules":
             if options.action == "add-sender":
                 command = "rules.add-sender"
