@@ -95,8 +95,10 @@ def load_persisted_admission(owner, config):
         )
 
 
-def _action_consumer(source: SourceAdapter, config: Config):
-    labels = source.action_label_map()
+def _action_consumer(source: SourceAdapter, config: Config, owner):
+    from facet.db.action_labels import effective
+
+    labels = source.action_label_map(effective(owner._connection, config.projection.id))
     if labels is None:
         return None
     own_addresses = tuple(
@@ -145,7 +147,7 @@ class ForegroundRuntime:
             action_consumer=(
                 action_consumer
                 if action_consumer is not None
-                else _action_consumer(source, self.config)
+                else _action_consumer(source, self.config, self.owner)
             ),
         ).run_once(max_jobs=max_jobs, max_events=max_events)
 

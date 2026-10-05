@@ -85,7 +85,7 @@ bounded pagination 和受控失败；涉及对象的 `list/show` 只显示持久
 | `facet gmail auth/reauth <source|target> --port <port>`；`facet gmail auth-status` | 独立 Desktop flow、固定角色/scope、原子替换；reauth 保 binding/jobs，auth-status 默认离线；A/O | M1-04、M1-06；G1，真实 re-auth G6 |
 | `facet status`；`facet doctor [--live]` | 本地汇总和诊断；默认 offline；O/R | M1-03/05/06、M3/M4；G1/G4 |
 | `facet run` | Docker image 内前台唯一 sync/HTTP owner；由 Docker/Compose 负责生命周期；O/C | M1-03、M3；G1/G4 |
-| `facet rules list/show/add-sender/add-domain/remove`；`facet rules blacklist --sender <address> --thread <id>` | exact 规则、future effective_at；blacklist + 所选 thread stop，typed audit；O/C | M1-02/06、M3-01/03、M5-03；G3/G5 |
+| `facet rules list/show/add-sender/add-domain/remove`；`facet rules action-label set/remove/list --kind ...`；`facet rules blacklist --sender <address> --thread <id>` | exact 规则、future effective_at；blacklist + 所选 thread stop，typed audit；action-label mapping is private, single-writer, exact-name, and source-readonly；O/C | M1-02/06、M3-01/03、M5-03；G3/G5 |
 | `facet backfill preview/start/status/pause/resume` | 固定 cutoff/H0/epoch、明确 start、自动 discovery/backfill、暂停/恢复与进度；R/C→W/O | M2、M3；G2/G3 |
 | `facet queue list/show`；`facet queue retry --job <id>` | 看互斥 job 状态、next attempt/error code；仅安全可重试 job 重新调度；O/C | M2-03/04/05、M4-06；G2/G4 |
 | `facet review list/show/preview --item <id>`；`facet review approve --item <id> --preview <id>`；`facet review reject --item <id>` | 仅处理认证未知、归属未知等异常 admission item；不作为常规逐 thread 入口；O/C→W | M2/M3/M4；G2/G3/G4 |

@@ -271,6 +271,31 @@ def build_parser() -> _Parser:
     )
     _common(show_rule)
     show_rule.add_argument("--rule-id", required=True)
+    action_labels = rule_action.add_parser(
+        "action-label",
+        add_help=False,
+        allow_abbrev=False,
+        help="configure one source action label name",
+    )
+    _common(action_labels)
+    label_action = action_labels.add_subparsers(
+        dest="label_action", parser_class=_Parser
+    )
+    label_set = label_action.add_parser("set", add_help=False, allow_abbrev=False)
+    _common(label_set)
+    _mutations(label_set)
+    label_set.add_argument(
+        "--kind", required=True, choices=("add_sender", "add_domain", "blacklist")
+    )
+    label_set.add_argument("--name", required=True)
+    label_remove = label_action.add_parser("remove", add_help=False, allow_abbrev=False)
+    _common(label_remove)
+    _mutations(label_remove)
+    label_remove.add_argument(
+        "--kind", required=True, choices=("add_sender", "add_domain", "blacklist")
+    )
+    label_list = label_action.add_parser("list", add_help=False, allow_abbrev=False)
+    _common(label_list)
     backfill = commands.add_parser(
         "backfill",
         add_help=False,
@@ -1336,6 +1361,47 @@ def _rules_add_domain(options: object) -> tuple[dict, tuple[str, ...]]:
     return _rules_add(options, RuleKind.ALLOW_DOMAIN, options.domain)
 
 
+def _rules_action_label(options: object) -> tuple[dict, tuple[str, ...]]:
+    from facet.db.action_labels import DEFAULTS, effective, mutate
+    from facet.db.codecs import ActionKind
+    from facet.runtime.state_owner import StateOwner
+
+    if options.label_action == "list":
+        paths = select_paths(getattr(options, "state_dir", None), None)
+        raw = read_managed_config(paths)
+        config = load_config(raw)
+        owner = StateOwner.open(paths.root, config)
+        try:
+            return {
+                "labels": {
+                    kind.value: name
+                    for kind, name in effective(
+                        owner._connection, config.projection.id
+                    ).items()
+                }
+            }, ()
+        finally:
+            owner.close()
+    if not options.yes or options.request_id is None:
+        raise ConfigError(ErrorCode.CONFIRMATION_REQUIRED)
+    try:
+        request_id = LocalId(options.request_id)
+        kind = ActionKind(options.kind)
+    except (TypeError, ValueError):
+        raise ConfigError(ErrorCode.INVALID_INPUT) from None
+    name = options.name if options.label_action == "set" else None
+    paths = select_paths(getattr(options, "state_dir", None), None)
+    raw = read_managed_config(paths)
+    config = load_config(raw)
+    owner = StateOwner.open(paths.root, config)
+    try:
+        owner.verify_config_artifact(raw)
+        result = mutate(owner, request_id, kind, name, Timestamp(datetime.now(UTC)))
+        return {"kind": kind.value, "name": name or DEFAULTS[kind], **result}, ()
+    finally:
+        owner.close()
+
+
 def _preview_summary(operation, payload) -> dict:
     def timestamp(value):
         return value.value.isoformat().replace("+00:00", "Z")
@@ -1829,6 +1895,10 @@ def main(argv: list[str] | None = None) -> int:
             data = read_auth_status(options)
             return _emit(command, data=data, json_mode=json_mode)
         if options.family == "rules":
+            if options.action == "action-label":
+                command = f"rules.action-label.{options.label_action}"
+                data, warnings = _rules_action_label(options)
+                return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
             if options.action == "add-sender":
                 command = "rules.add-sender"
                 data, warnings = _rules_add_sender(options)

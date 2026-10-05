@@ -473,6 +473,46 @@ class StateOwner:
             _invalid(ErrorCode.OWNER_UNAVAILABLE)
         return self._session
 
+    def ensure_action_label_schema(self) -> None:
+        """Upgrade an owned v2 database to the closed v3 label catalogue."""
+        from facet.db.migrations import (
+            _FRESH_V2_MANIFEST,
+            FRESH_V3_CHECKSUMS,
+            FRESH_V3_REGISTRY,
+            FRESH_V3_REGISTRY_DIGEST,
+        )
+        from facet.db.schema import _inspect_manifest
+
+        connection = self._connection
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        if version == 3:
+            return
+        if version != 2:
+            _invalid(ErrorCode.MAINTENANCE_REQUIRED)
+        _inspect_manifest(connection, _FRESH_V2_MANIFEST)
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            for statement in FRESH_V3_REGISTRY[-1][2]:
+                connection.execute(statement)
+            created = connection.execute(
+                "SELECT created_at FROM schema_metadata WHERE singleton=1"
+            ).fetchone()[0]
+            connection.execute("DELETE FROM schema_metadata WHERE singleton=1")
+            connection.execute(
+                "INSERT INTO schema_metadata VALUES(1,3,?,?)",
+                (FRESH_V3_REGISTRY_DIGEST, created),
+            )
+            connection.execute(
+                "INSERT INTO schema_migrations VALUES(3,?,?,?)",
+                ("v0003", FRESH_V3_CHECKSUMS[-1], created),
+            )
+            connection.execute("PRAGMA user_version=3")
+            connection.execute("COMMIT")
+        except BaseException:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+
     def bindings(self):
         from facet.db.repositories import reads
 

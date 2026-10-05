@@ -21,7 +21,7 @@ from facet.contracts import (
     Timestamp,
     Visibility,
 )
-from facet.db.codecs import PrivateAddress
+from facet.db.codecs import ActionKind, PrivateAddress
 from facet.projection.actions import ActionMessageFact, PrivateActionLabelMap
 from facet.projection.admission import DiscoveryCandidate
 from facet.projection.rules import RuleInputError, normalize_sender
@@ -492,13 +492,18 @@ class SourceAdapter:
         except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
             raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
 
-    def action_label_map(self) -> PrivateActionLabelMap | None:
-        """Resolve fixed action labels without persisting names.
+    def action_label_map(self, names=None) -> PrivateActionLabelMap | None:
+        """Resolve exact configured action labels without writing Gmail.
 
         Missing fixed labels are a normal opt-in state: ordinary sync can
         continue, while any matching history work remains explicit attention.
         Duplicate fixed labels and provider failures stay hard typed errors.
         """
+        names = names or {
+            ActionKind.ADD_SENDER: "AI/AddSender",
+            ActionKind.ADD_DOMAIN: "AI/AddDomain",
+            ActionKind.BLACKLIST: "AI/BlackList",
+        }
         value = execute(self._service.users().labels().list(userId="me"), self.role)
         found = {}
         for label in value.get("labels", ()):
@@ -507,14 +512,16 @@ class SourceAdapter:
             name, identifier = label.get("name"), label.get("id")
             if type(name) is not str or type(identifier) is not str:
                 raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
-            if name in {"AI/AddSender", "AI/AddDomain", "AI/BlackList"}:
+            if name in set(names.values()):
                 if name in found:
                     raise ProviderFailure(ErrorCode.CONSISTENCY_FAILURE, self.role)
                 found[name] = _id(identifier)
-        if set(found) != {"AI/AddSender", "AI/AddDomain", "AI/BlackList"}:
+        if set(found) != set(names.values()):
             return None
         return PrivateActionLabelMap(
-            found["AI/AddSender"], found["AI/AddDomain"], found["AI/BlackList"]
+            found[names[ActionKind.ADD_SENDER]],
+            found[names[ActionKind.ADD_DOMAIN]],
+            found[names[ActionKind.BLACKLIST]],
         )
 
     def get_thread_facts(self, source_thread_id: ProviderId):
