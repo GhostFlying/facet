@@ -32,6 +32,22 @@ def test_dockerfile_only_provisions_state_parent():
     assert "mkdir -p /var/lib/facet/production" not in dockerfile
 
 
+def test_compose_image_ref_check_rejects_mutable_tags():
+    checker = ROOT / "scripts" / "check-compose-image-ref.sh"
+    valid = os.environ | {
+        "FACET_IMAGE": "ghcr.io/ghostflying/facet:"
+        "0123456789abcdef0123456789abcdef01234567"
+    }
+    accepted = subprocess.run([str(checker)], env=valid, capture_output=True)
+    assert accepted.returncode == 0
+    rejected = subprocess.run(
+        [str(checker)],
+        env=valid | {"FACET_IMAGE": "ghcr.io/ghostflying/facet:latest"},
+        capture_output=True,
+    )
+    assert rejected.returncode == 2
+
+
 def test_compose_config_parses_with_synthetic_inputs(tmp_path):
     docker = subprocess.run(
         ["docker", "compose", "version"],

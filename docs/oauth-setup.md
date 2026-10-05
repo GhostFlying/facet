@@ -41,6 +41,7 @@ export FACET_IMAGE=ghcr.io/ghostflying/facet:<full-commit-sha>
 export FACET_OAUTH_CLIENT=/private/path/google-client.json
 export FACET_SETUP_REQUEST_ID=rq1_<uuid4-hex>_<uuid4-hex>
 export FACET_OAUTH_PORT=18080
+bash scripts/check-compose-image-ref.sh
 docker compose --profile setup run --rm --service-ports facet-setup
 ```
 

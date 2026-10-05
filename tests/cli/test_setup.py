@@ -171,3 +171,47 @@ def test_setup_client_preflight_runs_before_authorizer(monkeypatch, tmp_path):
     assert caught.value.code is ErrorCode.INVALID_INPUT
     assert calls == []
     assert not (tmp_path / "state").exists()
+
+
+def test_setup_rechecks_root_before_each_authorizer_call(monkeypatch, tmp_path):
+    from facet.gmail import oauth as oauth_module
+
+    calls = []
+
+    class Authorizer:
+        def authorize(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            raise AssertionError("OAuth must not start for a newly-owned root")
+
+    monkeypatch.setattr("facet.gmail.oauth.GoogleOAuthAuthorizer", Authorizer)
+    original_reader = oauth_module.read_desktop_client
+    client = tmp_path / "client.json"
+    client.write_text(_client_document())
+    client.chmod(0o600)
+    tmp_path.chmod(0o700)
+    state = tmp_path / "state"
+
+    def reader(path):
+        state.mkdir()
+        state.chmod(0o700)
+        return original_reader(path)
+
+    monkeypatch.setattr("facet.gmail.oauth.read_desktop_client", reader)
+    monkeypatch.setattr(bootstrap.sys, "stdin", _TTY("confirm\n"))
+    monkeypatch.setattr(bootstrap.sys, "stdout", _TTY())
+    monkeypatch.setattr(bootstrap.sys, "stderr", _TTY())
+    options = bootstrap.build_parser().parse_args(
+        [
+            "setup",
+            "--state-dir",
+            str(state),
+            "--oauth-client",
+            str(client),
+            "--request-id",
+            REQUEST,
+        ]
+    )
+    with pytest.raises(ConfigError) as caught:
+        bootstrap._setup_command(options)
+    assert caught.value.code is ErrorCode.REQUEST_CONFLICT
+    assert calls == []
