@@ -238,7 +238,10 @@ def authorize_operation(
         row = existing[0]
         if row[2] != role.value:
             _fail(ErrorCode.REQUEST_CONFLICT)
-        if row[1] == OperationState.COMPLETED.value:
+        if row[1] in {
+            OperationState.COMPLETED.value,
+            OperationState.REJECTED.value,
+        }:
             return LocalId(row[0])
         if (
             row[3] != binding.credential_revision.value
