@@ -245,6 +245,8 @@ class GoogleOAuthAuthorizer:
                 # token response's granted_scopes field is the only acceptable
                 # first-run evidence; absent evidence fails closed.
                 granted = getattr(credentials, "granted_scopes", None)
+                if isinstance(granted, str):
+                    granted = tuple(granted.split())
             else:
                 granted = getattr(credentials, "scopes", None)
                 if granted is None:
