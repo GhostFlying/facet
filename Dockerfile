@@ -12,10 +12,11 @@ RUN pip install --no-cache-dir uv==0.12.2 \
     && addgroup --system --gid 10001 facet \
     && adduser --system --uid 10001 --gid 10001 --no-create-home facet \
     && mkdir -p /var/lib/facet \
+    && chmod 0700 /var/lib/facet \
     && chown 10001:10001 /var/lib/facet
 
 USER 10001:10001
 EXPOSE 8080
 VOLUME ["/var/lib/facet"]
 ENTRYPOINT ["facet"]
-CMD ["run", "--state-dir", "/var/lib/facet", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["run", "--state-dir", "/var/lib/facet/production", "--host", "0.0.0.0", "--port", "8080"]

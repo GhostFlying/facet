@@ -60,6 +60,35 @@ def test_read_desktop_client_rejects_symlinked_ancestor(tmp_path):
     assert caught.value.code is ErrorCode.SCOPE_REQUIRED
 
 
+def test_read_desktop_client_uses_final_parent_for_host_like_ancestor(tmp_path):
+    host_like = tmp_path / "data00" / "operator" / "facet"
+    host_like.mkdir(parents=True)
+    host_like.chmod(0o700)
+    path = host_like / "client.json"
+    path.write_text(json.dumps(_client()))
+    path.chmod(0o600)
+    assert read_desktop_client(path).client_id.value == "synthetic-client"
+
+
+def test_container_secret_contract_allows_readable_non_private_parent(
+    monkeypatch, tmp_path
+):
+    import facet.gmail.oauth as oauth_module
+
+    parent = tmp_path / "secrets"
+    parent.mkdir()
+    parent.chmod(0o755)
+    path = parent / "google-client.json"
+    path.write_text(json.dumps(_client()))
+    path.chmod(0o440)
+    monkeypatch.setattr(oauth_module, "_CONTAINER_SECRET_PARENT", parent)
+    assert read_desktop_client(path).client_id.value == "synthetic-client"
+    path.chmod(0o460)
+    with pytest.raises(StorageFailure) as caught:
+        read_desktop_client(path)
+    assert caught.value.code is ErrorCode.SCOPE_REQUIRED
+
+
 def test_google_oauth_exchange_is_typed_and_uses_fixed_scopes(monkeypatch):
     from google_auth_oauthlib.flow import InstalledAppFlow
 

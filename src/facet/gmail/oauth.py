@@ -73,7 +73,10 @@ class OAuthResult:
     __str__ = __repr__
 
 
-def _read_private(path: Path) -> bytes:
+_CONTAINER_SECRET_PARENT = Path("/run/secrets")
+
+
+def _read_private(path: Path, *, container_secret: bool = False) -> bytes:
     if not path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
         _fail(ErrorCode.SCOPE_REQUIRED)
     directory = None
@@ -88,21 +91,42 @@ def _read_private(path: Path) -> bytes:
             os.close(directory)
             directory = child
         parent = os.fstat(directory)
-        if (
-            not stat.S_ISDIR(parent.st_mode)
-            or parent.st_uid != os.geteuid()
-            or stat.S_IMODE(parent.st_mode) & 0o77
-        ):
+        parent_is_private = (
+            stat.S_ISDIR(parent.st_mode)
+            and parent.st_uid == os.geteuid()
+            and stat.S_IMODE(parent.st_mode) & 0o77 == 0
+        )
+        parent_is_container_secret = (
+            container_secret
+            and path.parent == _CONTAINER_SECRET_PARENT
+            and stat.S_ISDIR(parent.st_mode)
+            and stat.S_IMODE(parent.st_mode) & 0o022 == 0
+        )
+        if not parent_is_private and not parent_is_container_secret:
             _fail(ErrorCode.SCOPE_REQUIRED)
         descriptor = os.open(
             path.parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory
         )
         try:
             info = os.fstat(descriptor)
+            file_is_private = (
+                stat.S_ISREG(info.st_mode)
+                and info.st_uid == os.geteuid()
+                and stat.S_IMODE(info.st_mode) & 0o77 == 0
+            )
+            file_is_container_secret = (
+                container_secret
+                and path.parent == _CONTAINER_SECRET_PARENT
+                and stat.S_ISREG(info.st_mode)
+                and info.st_uid in {os.geteuid(), 0}
+                and stat.S_IMODE(info.st_mode) & 0o022 == 0
+                and (
+                    (info.st_uid == os.geteuid() and stat.S_IMODE(info.st_mode) & 0o400)
+                    or (info.st_uid == 0 and stat.S_IMODE(info.st_mode) & 0o004)
+                )
+            )
             if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_uid != os.geteuid()
-                or stat.S_IMODE(info.st_mode) & 0o77
+                (not file_is_private and not file_is_container_secret)
                 or info.st_nlink != 1
                 or info.st_size > 32768
             ):
@@ -134,7 +158,13 @@ def read_desktop_client(path: str | os.PathLike[str]) -> DesktopClientConfig:
     if not isinstance(path, (str, os.PathLike)):
         _fail(ErrorCode.INVALID_INPUT)
     try:
-        return parse_desktop_client(_read_private(Path(path)))
+        candidate = Path(path)
+        return parse_desktop_client(
+            _read_private(
+                candidate,
+                container_secret=candidate.parent == _CONTAINER_SECRET_PARENT,
+            )
+        )
     except StorageFailure:
         raise
     except Exception:

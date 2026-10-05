@@ -896,18 +896,22 @@ def _setup_command(options: object) -> tuple[dict, tuple[str, ...]]:
         raise ConfigError(ErrorCode.INVALID_INPUT)
 
     paths = select_paths(getattr(options, "state_dir", None), None)
-    try:
-        if inspect_state_root(paths.root):
-            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
-        parent = paths.root.parent.stat(follow_symlinks=False)
-    except FileNotFoundError:
-        raise ConfigError(ErrorCode.OWNER_UNAVAILABLE) from None
-    if (
-        not stat.S_ISDIR(parent.st_mode)
-        or parent.st_uid != os.geteuid()
-        or stat.S_IMODE(parent.st_mode) & 0o77
-    ):
-        raise ConfigError(ErrorCode.SCOPE_REQUIRED)
+
+    def setup_preflight() -> None:
+        try:
+            if inspect_state_root(paths.root):
+                raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+            parent = paths.root.parent.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            raise ConfigError(ErrorCode.OWNER_UNAVAILABLE) from None
+        if (
+            not stat.S_ISDIR(parent.st_mode)
+            or parent.st_uid != os.geteuid()
+            or stat.S_IMODE(parent.st_mode) & 0o77
+        ):
+            raise ConfigError(ErrorCode.SCOPE_REQUIRED)
+
+    setup_preflight()
 
     from facet.db import command_store
     from facet.gmail.credential_models import ScopeName, ScopeSet
@@ -927,6 +931,10 @@ def _setup_command(options: object) -> tuple[dict, tuple[str, ...]]:
     grants = {}
     profiles = {}
     for role in (Role.SOURCE, Role.TARGET):
+        # Re-check immediately before each network-capable authorizer call so
+        # an unexpected state-root appearance cannot turn setup into a
+        # credential flow for an already-owned directory.
+        setup_preflight()
         result = authorizer.authorize(
             role,
             client,
