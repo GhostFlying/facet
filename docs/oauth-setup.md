@@ -53,8 +53,11 @@ a bind mount). The container accepts the mounted secret only at the fixed
 ordinary private client paths still require owner-only ownership and modes.
 
 The setup profile maps only `127.0.0.1:${FACET_OAUTH_PORT}` to the container
-callback port and exits after setup. The normal `facet` service never publishes
-the OAuth port. It mounts the persistent parent at `/var/lib/facet`; the
+callback port and exits after setup. Inside that short-lived container only,
+the explicit bind address is `0.0.0.0` so Docker can deliver the mapped
+loopback connection; the host publication remains loopback-only. Direct host
+invocation keeps the default `127.0.0.1` bind. The normal `facet` service never
+publishes the OAuth port. It mounts the persistent parent at `/var/lib/facet`; the
 first-run `/var/lib/facet/production` child is created only after the terminal
 confirmation. The default named volume is initialized for UID/GID `10001` with
 mode `0700`. For a bind mount, provision the parent explicitly with numeric

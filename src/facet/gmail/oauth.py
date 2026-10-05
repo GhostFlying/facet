@@ -174,6 +174,7 @@ class OAuthAuthorizer(Protocol):
         scopes: ScopeSet,
         *,
         port: int,
+        bind_address: str = "127.0.0.1",
         strict_setup: bool = False,
     ) -> OAuthResult:
         """Exchange one explicit role's loopback consent for private secrets."""
@@ -189,6 +190,7 @@ class GoogleOAuthAuthorizer:
         scopes: ScopeSet,
         *,
         port: int,
+        bind_address: str = "127.0.0.1",
         strict_setup: bool = False,
     ) -> OAuthResult:
         if (
@@ -197,6 +199,7 @@ class GoogleOAuthAuthorizer:
             or type(scopes) is not ScopeSet
             or type(port) is not int
             or not 1024 <= port <= 65535
+            or bind_address not in {"127.0.0.1", "0.0.0.0"}
             or type(strict_setup) is not bool
         ):
             _fail(ErrorCode.INVALID_INPUT)
@@ -215,7 +218,7 @@ class GoogleOAuthAuthorizer:
             flow = InstalledAppFlow.from_client_config(config, _scope_values(scopes))
             wsgi_app = _RedirectApp()
             server = wsgiref.simple_server.make_server(
-                "127.0.0.1",
+                bind_address,
                 port,
                 wsgi_app,
                 handler_class=_SilentRequestHandler,
