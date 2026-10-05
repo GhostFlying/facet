@@ -118,12 +118,7 @@ def _read_private(path: Path, *, container_secret: bool = False) -> bytes:
                 container_secret
                 and path.parent == _CONTAINER_SECRET_PARENT
                 and stat.S_ISREG(info.st_mode)
-                and info.st_uid in {os.geteuid(), 0}
                 and stat.S_IMODE(info.st_mode) & 0o022 == 0
-                and (
-                    (info.st_uid == os.geteuid() and stat.S_IMODE(info.st_mode) & 0o400)
-                    or (info.st_uid == 0 and stat.S_IMODE(info.st_mode) & 0o004)
-                )
             )
             if (
                 (not file_is_private and not file_is_container_secret)

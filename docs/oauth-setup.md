@@ -45,6 +45,13 @@ bash scripts/check-compose-image-ref.sh
 docker compose --profile setup run --rm --service-ports facet-setup
 ```
 
+Keep the host secret's parent private (`0700`) and make the secret itself a
+regular, bounded, no-write file readable by the container UID (for example
+`0444` or `0644`; a host `0600` file owned by another UID is not readable after
+a bind mount). The container accepts the mounted secret only at the fixed
+`/run/secrets/google-client.json` path, after the descriptor opens successfully;
+ordinary private client paths still require owner-only ownership and modes.
+
 The setup profile maps only `127.0.0.1:${FACET_OAUTH_PORT}` to the container
 callback port and exits after setup. The normal `facet` service never publishes
 the OAuth port. It mounts the persistent parent at `/var/lib/facet`; the
