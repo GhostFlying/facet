@@ -1,6 +1,6 @@
 # Container deployment and OAuth setup verification
 
-Date: 2026-10-05. Revision: 6. Status: awaiting independent plan review.
+Date: 2026-10-05. Revision: 7. Status: awaiting independent plan review.
 Base: `56a4f26` (current `origin/main`).
 
 ## Goal
@@ -43,7 +43,11 @@ The existing empty `.facet/production` tree remains untouched.
   bind address: the host/default path remains `127.0.0.1`, while the setup
   profile passes `0.0.0.0` only inside the container so Docker can forward the
   callback. The host publication remains `127.0.0.1` only; no default public
-  ports or implicit backfill.
+  ports or implicit backfill. Map
+  `FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS=${FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS:-900}`
+  only in `facet-setup`; do not inject this variable into the normal `facet`
+  service. The setup process validates the mapped value and fails closed before
+  opening the listener when it is empty, malformed, or outside 60..1800.
 - State provisioning is explicit. The setup and normal services mount their
   parent at `/var/lib/facet`; the default named volume is initialized from the
   image's parent directory (UID/GID 10001, mode 0700) with no `production`
@@ -75,9 +79,11 @@ The existing empty `.facet/production` tree remains untouched.
   wildcard bind from the host port publication. The Compose setup profile is
   the only documented caller of the internal `0.0.0.0` value. Add the
   `FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS` environment input only to the
-  supported setup OAuth path: absent means 900 seconds; a base-10 integer is
-  accepted only in the inclusive 60..1800-second range. Empty, non-integer,
-  negative, zero, or out-of-range values fail closed during setup preflight
+  supported setup OAuth path: absent means 900 seconds; an ASCII decimal
+  digit string matching `^[0-9]+$` is accepted only in the inclusive
+  60..1800-second range. Empty, whitespace-padded, plus-prefixed,
+  underscore-containing, non-integer, negative, zero, or out-of-range values
+  fail closed during setup preflight
   before the authorizer/listener is called. Pass the validated value through
   an explicit internal argument rather than reading the environment in the
   generic authorizer, and do not alter other auth commands, OAuth scopes,
@@ -96,7 +102,8 @@ The existing empty `.facet/production` tree remains untouched.
   named-volume versus explicitly provisioned bind ownership/mode expectations,
   immutable `FACET_IMAGE`, the exact setup-profile loopback mapping and
   container-internal bind address, and
-  explicit stop gates. Document the timeout environment input, its default and
+  explicit stop gates. Document the setup-only Compose environment mapping,
+  timeout input, its default and
   bounds, and that expiration requires a new setup request after checking
   uninitialized state. State clearly that offline tests do
   not prove Google consent, mailbox ownership, live Gmail, image publication,
@@ -130,8 +137,11 @@ The existing empty `.facet/production` tree remains untouched.
   calls. Docker daemon/build and live
    OAuth checks are recorded only when externally available and are not
    claimed by this unit. Add focused tests for the default, valid bounded
-   override, malformed/empty/negative/zero/too-small/too-large values, and
-   proof that invalid values do not call the authorizer or create state.
+   override, malformed/empty/whitespace/plus/underscore/negative/zero/
+   too-small/too-large values, and proof that invalid values do not call the
+   authorizer or create state. Static Compose assertions must prove the mapping
+   exists only on `facet-setup` and the normal `facet` service receives no
+   timeout variable.
 
 ## Risks and stop gates
 
