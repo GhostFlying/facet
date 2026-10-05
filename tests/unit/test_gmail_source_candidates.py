@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from facet.contracts import ErrorCode
-from facet.db.codecs import PrivateAddress
+from facet.db.codecs import ActionKind, PrivateAddress
 from facet.gmail.retry import ProviderFailure
 from facet.gmail.source import CandidateAttentionReason, SourceAdapter
 
@@ -190,4 +190,61 @@ def test_action_label_map_rejects_duplicate_fixed_labels(gmail_controller):
     )
     with pytest.raises(ProviderFailure) as error:
         _adapter(gmail_controller).action_label_map()
+    assert error.value.code is ErrorCode.CONSISTENCY_FAILURE
+
+
+def test_action_label_map_resolves_custom_names_read_only(gmail_controller):
+    names = {
+        ActionKind.ADD_SENDER: "Facet/AddSender",
+        ActionKind.ADD_DOMAIN: "Facet/AddDomain",
+        ActionKind.BLACKLIST: "Facet/BlackList",
+    }
+    gmail_controller.labels(
+        "source",
+        [
+            {"id": "custom-sender", "name": "Facet/AddSender", "type": "user"},
+            {"id": "custom-domain", "name": "Facet/AddDomain", "type": "user"},
+            {"id": "custom-blacklist", "name": "Facet/BlackList", "type": "user"},
+        ],
+    )
+    labels = _adapter(gmail_controller).action_label_map(names)
+    assert labels is not None
+    assert labels.add_sender_label_id.value == "custom-sender"
+    assert labels.add_domain_label_id.value == "custom-domain"
+    assert labels.blacklist_label_id.value == "custom-blacklist"
+
+
+def test_action_label_map_custom_name_missing_is_typed_no_match(gmail_controller):
+    names = {
+        ActionKind.ADD_SENDER: "Facet/AddSender",
+        ActionKind.ADD_DOMAIN: "Facet/AddDomain",
+        ActionKind.BLACKLIST: "Facet/BlackList",
+    }
+    gmail_controller.labels(
+        "source",
+        [
+            {"id": "custom-sender", "name": "Facet/AddSender", "type": "user"},
+            {"id": "custom-domain", "name": "Facet/AddDomain", "type": "user"},
+        ],
+    )
+    assert _adapter(gmail_controller).action_label_map(names) is None
+
+
+def test_action_label_map_rejects_duplicate_custom_names(gmail_controller):
+    names = {
+        ActionKind.ADD_SENDER: "Facet/AddSender",
+        ActionKind.ADD_DOMAIN: "Facet/AddDomain",
+        ActionKind.BLACKLIST: "Facet/BlackList",
+    }
+    gmail_controller.labels(
+        "source",
+        [
+            {"id": "custom-sender-1", "name": "Facet/AddSender", "type": "user"},
+            {"id": "custom-sender-2", "name": "Facet/AddSender", "type": "user"},
+            {"id": "custom-domain", "name": "Facet/AddDomain", "type": "user"},
+            {"id": "custom-blacklist", "name": "Facet/BlackList", "type": "user"},
+        ],
+    )
+    with pytest.raises(ProviderFailure) as error:
+        _adapter(gmail_controller).action_label_map(names)
     assert error.value.code is ErrorCode.CONSISTENCY_FAILURE

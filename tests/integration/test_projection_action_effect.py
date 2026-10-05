@@ -13,14 +13,18 @@ from test_db_repositories import T, ready_test_metadata
 from test_db_repositories import state as state
 from test_db_schema import NOW, P
 
-from facet.contracts import LabelChange, ProviderId
-from facet.db.codecs import PrivateAddress
+from facet.contracts import JobState, LabelChange, ProviderId
+from facet.db.codecs import EventProcessing, PrivateAddress
 from facet.db.keys import event_key
 from facet.db.repositories import jobs, reads
 from facet.db.repositories.base import _insert
 from facet.gmail.credentials import AccountAddress
 from facet.projection.action_consumer import ActionEffectConsumer
-from facet.projection.actions import ActionMessageFact, PrivateActionLabelMap
+from facet.projection.actions import (
+    ActionAttentionReason,
+    ActionMessageFact,
+    PrivateActionLabelMap,
+)
 
 
 class CountingSource:
@@ -78,3 +82,36 @@ def test_action_effect_reopens_and_replays_without_refetching_source(state):
             assert reads.get_event(uow, P, row.event_id).processing.value == "consumed"
             assert reads.get_job(uow, P, first.receipt.object_id) is None
     assert path.exists()
+
+
+def test_pending_old_provider_label_id_becomes_durable_unknown_attention(state):
+    _, _, session, _ = state
+    labels = PrivateActionLabelMap(
+        ProviderId("custom-sender"),
+        ProviderId("custom-domain"),
+        ProviderId("custom-blacklist"),
+    )
+    row = event(81, thread=T, tag="label_changed", change=LabelChange.ADDED)
+    old_key = replace(row.event.key, label_id=ProviderId("old-provider-id"))
+    row = replace(
+        row,
+        event_key=event_key(P, old_key),
+        event=replace(row.event, key=old_key),
+    )
+    with session.transaction() as uow:
+        _insert(uow, P, "source_events", row)
+        jobs.enqueue(uow, P, resolution(row, n=1081))
+    consumer = ActionEffectConsumer(
+        labels,
+        CountingSource(),
+        (AccountAddress("source@example.com"),),
+        "source@example.com",
+    )
+    result = consumer.process(session, P, row.event_id)
+    assert result.attention is ActionAttentionReason.UNKNOWN_LABEL
+    with session.transaction() as uow:
+        persisted = reads.get_event(uow, P, row.event_id)
+        queued = reads.get_job(uow, P, resolution(row, n=1081).job_id)
+        assert persisted.processing is EventProcessing.NEEDS_ATTENTION
+        assert queued.state is JobState.NEEDS_ATTENTION
+        assert persisted.error_code.value == "request_conflict"

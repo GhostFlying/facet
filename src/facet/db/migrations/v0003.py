@@ -11,7 +11,7 @@ revision INTEGER NOT NULL CHECK(revision>=1),
 updated_at INTEGER NOT NULL,
 PRIMARY KEY(projection_id,action_kind),
 FOREIGN KEY(projection_id) REFERENCES projections(projection_id) ON DELETE RESTRICT ON UPDATE RESTRICT,
-CHECK(label_name IS NULL OR (length(CAST(label_name AS BLOB)) BETWEEN 1 AND 512 AND instr(label_name,char(0))=0 AND label_name NOT GLOB '*[^ -~]*'))
+CHECK(label_name IS NULL OR (length(CAST(label_name AS BLOB)) BETWEEN 1 AND 512 AND instr(label_name,char(0))=0))
 ) STRICT"""
 
 _RECEIPTS = """CREATE TABLE action_label_receipts(
@@ -24,7 +24,7 @@ revision INTEGER NOT NULL CHECK(revision>=1),
 observed_at INTEGER NOT NULL,
 PRIMARY KEY(projection_id,request_id),
 FOREIGN KEY(projection_id) REFERENCES projections(projection_id) ON DELETE RESTRICT ON UPDATE RESTRICT,
-CHECK(label_name IS NULL OR (length(CAST(label_name AS BLOB)) BETWEEN 1 AND 512 AND instr(label_name,char(0))=0 AND label_name NOT GLOB '*[^ -~]*'))
+CHECK(label_name IS NULL OR (length(CAST(label_name AS BLOB)) BETWEEN 1 AND 512 AND instr(label_name,char(0))=0))
 ) STRICT"""
 
 STATEMENTS = (

@@ -1,6 +1,7 @@
 """Private projection-scoped source action-label mapping operations."""
 
 import sqlite3
+import unicodedata
 
 from facet.contracts import ErrorCode, LocalId, ProjectionId, Revision, Role, Timestamp
 from facet.db.codecs import (
@@ -25,7 +26,7 @@ def _valid_name(name: str) -> None:
         type(name) is not str
         or not name.strip()
         or len(name.encode()) > 512
-        or any(ord(char) < 32 or ord(char) > 126 for char in name)
+        or any(unicodedata.category(char).startswith("C") for char in name)
     ):
         raise StorageFailure(ErrorCode.INVALID_INPUT)
 

@@ -1,6 +1,7 @@
 """CLI privacy and offline action-label listing guards."""
 
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -71,6 +72,54 @@ def test_action_label_set_remove_is_single_writer_and_remove_restores_default(
     )
     assert changed.returncode == 0, changed.stderr + changed.stdout
     assert "name" not in json.loads(changed.stdout)["data"]
+    with sqlite3.connect(state / "facet.db") as connection:
+        audit_count = connection.execute(
+            "SELECT COUNT(*) FROM audit_events"
+        ).fetchone()[0]
+        receipt_count = connection.execute(
+            "SELECT COUNT(*) FROM action_label_receipts"
+        ).fetchone()[0]
+    replay = _run(
+        trusted_root,
+        "rules",
+        "action-label",
+        "set",
+        "--state-dir",
+        str(state),
+        "--kind",
+        "add_sender",
+        "--name",
+        "Facet/AddSender",
+        "--request-id",
+        request,
+        "--yes",
+    )
+    assert replay.returncode == 0, replay.stderr + replay.stdout
+    assert json.loads(replay.stdout)["data"]["idempotent"] is True
+    with sqlite3.connect(state / "facet.db") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM audit_events").fetchone() == (
+            audit_count,
+        )
+        assert connection.execute(
+            "SELECT COUNT(*) FROM action_label_receipts"
+        ).fetchone() == (receipt_count,)
+    conflict = _run(
+        trusted_root,
+        "rules",
+        "action-label",
+        "set",
+        "--state-dir",
+        str(state),
+        "--kind",
+        "add_sender",
+        "--name",
+        "Facet/Other",
+        "--request-id",
+        request,
+        "--yes",
+    )
+    assert conflict.returncode == 3
+    assert json.loads(conflict.stdout)["code"] == "request_conflict"
     private = _run(
         trusted_root,
         "rules",

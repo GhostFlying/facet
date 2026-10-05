@@ -1,6 +1,7 @@
 """Closed action-label mapping validation and unknown-event safety."""
 
 import os
+import sqlite3
 import stat
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -24,6 +25,7 @@ def test_action_label_name_rejects_empty_or_whitespace(name):
 
 def test_action_label_name_accepts_bounded_synthetic_exact_name():
     _valid_name("Facet/AddSender")
+    _valid_name("Facet/发件人")
 
 
 def test_action_label_v2_upgrade_writes_private_sqlite_backup_bundle():
@@ -103,3 +105,38 @@ def test_action_label_upgrade_backup_failure_blocks_schema_mutation(monkeypatch)
             assert not (backups / f"action-label-v3-{request.value}").exists()
         finally:
             owner.close()
+
+
+def test_action_label_upgrade_ddl_failure_reopens_exact_v2(monkeypatch):
+    anchor = Path(f"/run/user/{os.geteuid()}")
+    if not anchor.is_dir() or stat.S_IMODE(anchor.stat().st_mode) & 0o77:
+        pytest.skip("no_verified_trusted_test_anchor")
+    with TemporaryDirectory(prefix="facet-label-ddl-", dir=anchor) as root:
+        config = initial_template(
+            "source@synthetic.example", "target@synthetic.example"
+        )
+        raw = dump_config(config)
+        state_path = Path(root) / "state"
+        owner = StateOwner.create(state_path, config, raw)
+        request = LocalId("423e4567e89b42d3a456426614174001")
+
+        def deny_create(action, *_):
+            if action == sqlite3.SQLITE_CREATE_TABLE:
+                return sqlite3.SQLITE_DENY
+            return sqlite3.SQLITE_OK
+
+        owner._connection.set_authorizer(deny_create)
+        try:
+            with pytest.raises(sqlite3.DatabaseError):
+                owner.ensure_action_label_schema(request, raw)
+            assert owner._connection.execute("PRAGMA user_version").fetchone() == (2,)
+        finally:
+            owner._connection.set_authorizer(None)
+            owner.close()
+        reopened = StateOwner.open(state_path, config)
+        try:
+            assert reopened._connection.execute("PRAGMA user_version").fetchone() == (
+                2,
+            )
+        finally:
+            reopened.close()
