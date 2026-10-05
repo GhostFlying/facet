@@ -17,6 +17,8 @@ def test_compose_uses_immutable_image_and_setup_only_oauth_listener():
     assert "profiles: [setup]" in compose
     assert "/run/secrets/google-client.json" in compose
     assert "target: google-client.json" in compose
+    assert '"--bind-address", "0.0.0.0"' in compose
+    assert '"127.0.0.1:${FACET_OAUTH_PORT:-18080}' in compose
     assert "127.0.0.1:${FACET_OAUTH_PORT:-18080}" in compose
     assert "facet-state:/var/lib/facet" in compose
     assert 'user: "10001:10001"' in compose

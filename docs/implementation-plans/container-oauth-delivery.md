@@ -1,6 +1,6 @@
 # Container deployment and OAuth setup verification
 
-Date: 2026-10-05. Revision: 3. Status: awaiting independent plan review.
+Date: 2026-10-05. Revision: 4. Status: awaiting independent plan review.
 Base: `b139ca94564cc4fb439fcd6e759585c8b1572df4`.
 
 ## Goal
@@ -39,7 +39,11 @@ The existing empty `.facet/production` tree remains untouched.
   ...`; this is the exact callback path for the browser/SSH forward. The
   normal `facet` service never publishes the OAuth port and keeps only its
   host-loopback Dashboard port. Preserve read-only root, `/tmp` tmpfs, and
-  non-root UID 10001. No default public ports or implicit backfill.
+  non-root UID 10001. The setup command explicitly selects its internal OAuth
+  bind address: the host/default path remains `127.0.0.1`, while the setup
+  profile passes `0.0.0.0` only inside the container so Docker can forward the
+  callback. The host publication remains `127.0.0.1` only; no default public
+  ports or implicit backfill.
 - State provisioning is explicit. The setup and normal services mount their
   parent at `/var/lib/facet`; the default named volume is initialized from the
   image's parent directory (UID/GID 10001, mode 0700) with no `production`
@@ -65,7 +69,11 @@ The existing empty `.facet/production` tree remains untouched.
   cannot reject an otherwise valid container mount. The client secret uses the
   separate read-only container-secret contract: no symlink, bounded regular
   file, no group/other write bits, and readable by the service UID; ordinary
-  host private files retain owner-only validation.
+  host private files retain owner-only validation. Add an explicit, validated
+  internal bind-address argument to the setup/OAuth call; permit only
+  `127.0.0.1` and `0.0.0.0`, defaulting to `127.0.0.1`, and never infer a
+  wildcard bind from the host port publication. The Compose setup profile is
+  the only documented caller of the internal `0.0.0.0` value.
 - `tests/unit/test_gmail_oauth.py`, `tests/cli/test_setup.py`, and a focused
   container/Compose test module: synthetic mounted-secret and state-root
   fixtures, final-root ownership/mode checks, trusted host-ancestor fixtures
@@ -78,7 +86,8 @@ The existing empty `.facet/production` tree remains untouched.
   --service-ports facet-setup ...` with a mounted secret, then `docker compose
   up -d`), local loopback/SSH forwarding, `/var/lib/facet/production`,
   named-volume versus explicitly provisioned bind ownership/mode expectations,
-  immutable `FACET_IMAGE`, the exact setup-profile loopback mapping, and
+  immutable `FACET_IMAGE`, the exact setup-profile loopback mapping and
+  container-internal bind address, and
   explicit stop gates. State clearly that offline tests do
   not prove Google consent, mailbox ownership, live Gmail, image publication,
   or host deployment.
@@ -89,8 +98,9 @@ The existing empty `.facet/production` tree remains untouched.
    `pull_policy: never`, non-root UID, state-parent mount with an absent
    production child before setup, read-only
    client-secret mount, no secret bytes in the image, setup-only loopback
-   callback mapping, no persistent OAuth listener, and no implicit `backfill
-   start`.
+   callback mapping, explicit container-internal `0.0.0.0` bind with
+   host-loopback-only publication, no persistent OAuth listener, and no
+   implicit `backfill start`.
 2. OAuth client loading accepts a synthetic read-only mounted secret whose
    parent is a trusted system/container directory, rejects symlinks,
    writable modes, wrong type, oversize data, and malformed/unknown JSON, and
@@ -105,7 +115,9 @@ The existing empty `.facet/production` tree remains untouched.
    mismatch or pre-existing unexpected child fails without changing
    permissions.
 4. The focused tests, offline full suite, Ruff/format, package/wheel smoke,
-   and `bash scripts/check-repo-safety.sh` pass. Docker daemon/build and live
+  and `bash scripts/check-repo-safety.sh` pass. Synthetic tests prove default
+  host loopback, explicit container bind, invalid-bind refusal, and no network
+  calls. Docker daemon/build and live
    OAuth checks are recorded only when externally available and are not
    claimed by this unit.
 

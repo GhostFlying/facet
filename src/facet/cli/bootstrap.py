@@ -105,6 +105,7 @@ def build_parser() -> _Parser:
     _common(setup)
     setup.add_argument("--oauth-client", required=True)
     setup.add_argument("--port", type=int, default=8080)
+    setup.add_argument("--bind-address", default="127.0.0.1")
     setup.add_argument("--request-id", required=True)
     setup.add_argument("--yes", action="store_true")
     config = commands.add_parser(
@@ -890,9 +891,12 @@ def _setup_command(options: object) -> tuple[dict, tuple[str, ...]]:
         parts = request_id.value.split("_")
         request_nonce = LocalId(parts[2])
         port = int(options.port)
+        bind_address = str(options.bind_address)
     except (TypeError, ValueError):
         raise ConfigError(ErrorCode.INVALID_INPUT) from None
     if not 1024 <= port <= 65535:
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+    if bind_address not in {"127.0.0.1", "0.0.0.0"}:
         raise ConfigError(ErrorCode.INVALID_INPUT)
 
     paths = select_paths(getattr(options, "state_dir", None), None)
@@ -940,6 +944,7 @@ def _setup_command(options: object) -> tuple[dict, tuple[str, ...]]:
             client,
             expected[role],
             port=port,
+            bind_address=bind_address,
             strict_setup=True,
         )
         if result.scopes != expected[role]:

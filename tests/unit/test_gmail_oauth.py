@@ -139,7 +139,8 @@ def test_google_oauth_exchange_is_typed_and_uses_fixed_scopes(monkeypatch):
 
     app_holder = {}
 
-    def make_server(_host, _port, app, **_kwargs):
+    def make_server(host, _port, app, **_kwargs):
+        observed["host"] = host
         app_holder["app"] = app
         return Server()
 
@@ -163,6 +164,7 @@ def test_google_oauth_exchange_is_typed_and_uses_fixed_scopes(monkeypatch):
     assert secret.secret.refresh_token.value == "refresh-token"
     assert secret.scopes.value == frozenset({ScopeName.GMAIL_READONLY})
     assert observed["scopes"] == ("https://www.googleapis.com/auth/gmail.readonly",)
+    assert observed["host"] == "127.0.0.1"
     assert observed["authorization"]["prompt"] == "consent"
     assert observed["fetch"]["authorization_response"].startswith("https://")
     assert observed["server_timeout"] == 300
@@ -178,6 +180,15 @@ def test_google_oauth_rejects_unbounded_loopback_port():
             client,
             ScopeSet(frozenset({ScopeName.GMAIL_READONLY})),
             port=80,
+        )
+    assert caught.value.code is ErrorCode.INVALID_INPUT
+    with pytest.raises(StorageFailure) as caught:
+        GoogleOAuthAuthorizer().authorize(
+            Role.SOURCE,
+            client,
+            ScopeSet(frozenset({ScopeName.GMAIL_READONLY})),
+            port=8080,
+            bind_address="192.0.2.1",
         )
     assert caught.value.code is ErrorCode.INVALID_INPUT
 
