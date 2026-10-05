@@ -1,6 +1,6 @@
 # Configurable source action labels
 
-Date: 2026-10-05. Revision: 3. Status: awaiting independent plan review.
+Date: 2026-10-05. Revision: 4. Status: awaiting independent plan review.
 Base: `a888655` (current `origin/main`).
 
 ## Goal
@@ -44,6 +44,51 @@ does not require reauthorization of an existing source/target binding.
   whitespace-only, over-size, or ambiguous values with the existing sanitized
   CLI error. Do not add aliases, globs, substring matching, or a disable mode
   in this unit.
+
+## Bounded schema upgrade (Revision 4)
+
+Inspection of the shipping code found that existing-state migration producers
+are intentionally unavailable and the owner accepts only the exact trusted v2
+manifest. Therefore do not edit the already-shipped v0001/v0002 SQL, checksums,
+or manifests. The recommended path is one compiled v2-to-v3 extension, not a
+general migration framework and not storage in an unrelated business table.
+
+- Add `src/facet/db/migrations/v0003.py` with only the projection-scoped
+  mapping table and an append-only typed mutation receipt table. Receipts retain
+  action kind, set/remove discriminator, request ID, exact private name when
+  set, resulting revision, and time. They provide stable replay even after a
+  later mutation replaces the mapping. Reject request-ID collisions with other
+  existing command/rule mutations rather than sharing or reinterpreting them.
+- Extend the compiled manifest registry and schema inspection to recognize both
+  exact v2 and v3. Leave pristine initialization at v2: untouched installations
+  need no upgrade; v2 runtime/list uses built-in defaults. Bootstrap replay,
+  owner attachment, offline status/doctor, and existing writer operations must
+  continue to inspect v3 without weakening exact-catalogue validation.
+- The first explicit `action-label set/remove` mutation upgrades v2 while
+  holding the existing uninterrupted owner lock and after config digest,
+  projection, and binding validation. Before DDL, create a new owner-only local
+  backup bundle using SQLite's backup API (not a main-DB file copy), the managed
+  config, and the complete currently present credential envelope set. Never
+  print paths, credentials, or private names in public output. Backup failure
+  prevents DDL and mapping mutation; do not overwrite a prior bundle.
+- Apply only compiled v3 DDL, append its migration ledger entry, replace schema
+  version/digest metadata, and verify the exact target manifest in one owned
+  transaction. Retain state-instance/request namespace, accounts, tokens,
+  rules, checkpoints, jobs, action events, and existing ledger rows. Interrupted
+  upgrade must reopen as exact v2 or exact v3; it must never bootstrap empty
+  state or retry an uncertain commit. v1 and unknown catalogues remain blocked.
+- Keep generic migration producer enrollment and unsupported general maintenance
+  paths unchanged. A small private upgrade helper used only by the explicit
+  action-label mutation and the current state owner is sufficient. Restore of
+  the backup is operator-directed rollback with the prior image; no automatic
+  downgrade or mailbox cleanup is introduced.
+- Record typed set/remove receipts plus the existing projection maintenance
+  audit entry in the same transaction as the mapping change. Do not change the
+  shipped audit enum catalogue or write arbitrary JSON/log payloads.
+
+Additional files: `src/facet/runtime/state_owner.py`, the narrow new upgrade
+helper, `src/facet/db/schema.py`, compiled manifest/owner/bootstrap inspection,
+and synthetic v2-to-v3 upgrade tests. No real volume is opened by tests.
 
 ## Runtime and source boundary
 
@@ -110,6 +155,12 @@ does not require reauthorization of an existing source/target binding.
 - Schema migration is transactional and preserves existing action events and
   bindings. Audit rows identify typed mapping changes without raw content or
   provider payloads.
+- An offline fixture built from the unmodified v2 SQL upgrades through the
+  actual state-owner lock and complete backup path, then retains credentials,
+  bindings, request lineage, action events, and ordinary CLI/runtime behavior.
+  The original v2 backup opens with the prior exact catalogue; the upgraded
+  state opens with exact v3. Fault injection before DDL, during DDL, and at
+  commit/reopen proves old-or-target state and no empty initialization.
 - Runtime resolves custom names exactly and retains missing/duplicate/malformed
   provider behavior. Synthetic transport assertions prove no Gmail label
   create/update/delete/clear call and no OAuth-scope change.
