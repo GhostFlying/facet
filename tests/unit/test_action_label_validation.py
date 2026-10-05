@@ -58,6 +58,69 @@ def test_action_label_v2_upgrade_writes_private_sqlite_backup_bundle():
             reopened.close()
 
 
+def test_action_label_upgrade_ignores_credential_atime_change(monkeypatch):
+    anchor = Path(f"/run/user/{os.geteuid()}")
+    if not anchor.is_dir() or stat.S_IMODE(anchor.stat().st_mode) & 0o77:
+        pytest.skip("no_verified_trusted_test_anchor")
+    with TemporaryDirectory(prefix="facet-label-atime-", dir=anchor) as root:
+        config = initial_template(
+            "source@synthetic.example", "target@synthetic.example"
+        )
+        raw = dump_config(config)
+        state_path = Path(root) / "state"
+        owner = StateOwner.create(state_path, config, raw)
+        source = state_path / "credentials" / "source.json"
+        source.write_bytes(b"synthetic credential envelope")
+        source.chmod(0o600)
+        # An old atime makes a normal read update it on relatime filesystems.
+        os.utime(source, ns=(1_000_000_000, 2_000_000_000))
+        real_fstat = state_owner_module.os.fstat
+        observed_fd = None
+        fstat_calls = 0
+
+        class AtimeOnlyStat:
+            def __init__(self, wrapped):
+                self._wrapped = wrapped
+
+            def __getattr__(self, name):
+                return getattr(self._wrapped, name)
+
+            @property
+            def st_atime(self):
+                return self._wrapped.st_atime + 1
+
+            @property
+            def st_atime_ns(self):
+                return self._wrapped.st_atime_ns + 1
+
+        def fstat_with_atime(fd):
+            nonlocal observed_fd, fstat_calls
+            value = real_fstat(fd)
+            if observed_fd is None:
+                observed_fd = fd
+            if fd == observed_fd:
+                fstat_calls += 1
+                if fstat_calls == 2:
+                    return AtimeOnlyStat(value)
+            return value
+
+        monkeypatch.setattr(state_owner_module.os, "fstat", fstat_with_atime)
+        try:
+            owner.ensure_action_label_schema(
+                LocalId("523e4567e89b42d3a456426614174001"), raw
+            )
+            assert fstat_calls >= 2
+            assert owner._connection.execute("PRAGMA user_version").fetchone() == (3,)
+            bundle = (
+                state_path
+                / "backups"
+                / "action-label-v3-523e4567e89b42d3a456426614174001"
+            )
+            assert (bundle / "source.json").read_bytes() == source.read_bytes()
+        finally:
+            owner.close()
+
+
 def test_action_label_upgrade_rejects_config_digest_mismatch_without_migration():
     anchor = Path(f"/run/user/{os.geteuid()}")
     if not anchor.is_dir() or stat.S_IMODE(anchor.stat().st_mode) & 0o77:
