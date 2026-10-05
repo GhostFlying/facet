@@ -1694,11 +1694,14 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
         _find_backfill_by_id,
         resume_projection,
     )
-    from facet.gmail.credentials import CredentialManager
+    from facet.gmail.credential_models import policy_scopes
+    from facet.gmail.credentials import CredentialManager, ProfileEvidence
+    from facet.gmail.refresh_exchange import refresh_google
     from facet.gmail.service_factory import GoogleGmailServiceFactory
     from facet.gmail.source import SourceAdapter
     from facet.gmail.synthetic import SyntheticGmailServiceFactory
     from facet.projection.backfill import BackfillProducer
+    from facet.runtime.foreground_runtime import _policy
     from facet.runtime.state_owner import StateOwner
 
     fake = getattr(options, "fake", False)
@@ -1765,8 +1768,8 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
         ):
             raise ConfigError(ErrorCode.BINDING_PENDING)
         manager = CredentialManager(owner.state_dir, config, owner)
-        snapshot = manager.snapshot(Role.SOURCE)
         if fake:
+            snapshot = manager.snapshot(Role.SOURCE)
             if not snapshot.access_token.value.startswith("facet-synthetic-"):
                 raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
             factory = SyntheticGmailServiceFactory(
@@ -1774,6 +1777,17 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
             )
         else:
             factory = GoogleGmailServiceFactory()
+
+            def exchange(role, old):
+                return refresh_google(
+                    role, old, policy_scopes(_policy(config, role), role)
+                )
+
+            def refreshed_profile(role, secret, scopes):
+                return ProfileEvidence(factory.profile_account(role, secret), scopes)
+
+            manager.ensure_current(Role.SOURCE, exchange, refreshed_profile)
+        snapshot = manager.snapshot(Role.SOURCE)
         source = SourceAdapter(
             factory.service(Role.SOURCE, snapshot),
             source_account=PrivateAddress(config.projection.source_email),
