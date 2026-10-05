@@ -51,7 +51,11 @@ Source 默认 `gmail.readonly`，便利模式 `gmail.modify`。Target 固定 `gm
 
 每次启动先回读两个 profiles，与持久绑定核对，拒绝相同账号、角色互换或未经初始化的身份变化。Own-addresses 使用明确地址列表，不额外申请 settings scope，也不擅自合并所有 plus 或 dot 地址。
 
-正式初始化创建新的 DB 与 source checkpoint，不沿用 `.facet-spike/` 中的 cursor、实验映射或旧 target IDs。Doctor 分别检查 target 普通邮件、草稿和 Spam/Trash，并提示未管理的内容；Gmail 收件箱为空不代表 All Mail 为空。Source action labels 不存在时，只读模式继续提供 CLI 管理并说明如何手工创建；便利模式才自动创建。
+正式初始化创建新的 DB 与 source checkpoint，不沿用 `.facet-spike/` 中的 cursor、实验映射或旧 target IDs。生产 target 必须是全新、专用于本 projection 的 Gmail 账号，由操作者在 OAuth 前声明并配置 Facet 为唯一应用写入者；不得配置其他应用、forwarding、legacy projection 或人工导入/发信写入。AI connector 只能读取。Gmail metadata/OAuth scopes 不能证明该声明，也不能识别所有第三方写入者。
+
+Target OAuth 后、首次 projection/insert 前，部署验收必须通过只读 Gmail 检查核对 target 账号/binding，并覆盖普通邮件、草稿、Spam 和 Trash；收件箱为空不代表 All Mail 或整个 mailbox 为空。发现 unexpected/unmanaged 邮件、旧 forwarding/spike 副本或 binding mismatch 时 fail closed：保持投影写入阻止并报告/进入 attention，不自动认领、删除、移标或清理。OAuth consent 不是 Gmail mailbox write，授权成功本身不完成邮箱前置检查；当前 setup 仅授权和读取 profile，本次文档修改不新增该 runtime 检查。
+
+既有部署不得自动迁移或清理以满足新约束。在下一次部署验收前保留 mappings/jobs/audit，缺少操作者声明或可观察检查时保持 blocked/report-only；未知旧邮件不能作为新 mappings。Source action labels 不存在时，只读模式继续提供 CLI 管理并说明如何手工创建；便利模式才自动创建。
 
 OAuth 使用 Desktop loopback helper 和独立 token 文件，支持本机浏览器或 SSH 转发。Refresh 写入由单一账号管理器序列化并原子替换；不让多个 worker 竞争覆盖 token。External Testing 的 Gmail refresh token 有七天到期条件，长期运行文档必须说明发布状态与重新授权，而不是保证 token 永不失效。[Google OAuth token expiration](https://developers.google.com/identity/protocols/oauth2#expiration)
 
@@ -222,6 +226,8 @@ Blacklist 精确 sender 优先于新 thread allow。当前 thread 变 inactive�
 | 按需 | 全 target metadata 与待确认候选 | 检测重复和未映射内容，按需读取 raw 核验 |
 
 校对保存 epoch 和进度，限流、可恢复。Target 人工删除默认报告，显式 `--repair-missing` 才重新投影；人工放入 Trash 的内容不被自动认领为正常可见。未知旧邮件、此前 forwarding 和 spike 的副本不自动纳入生产映射，也不清理。
+
+全 target audit 发现 unexpected/unmanaged 内容时，专用 target 的部署前置条件不再满足，应停止新的投影写入并报告；不能用 audit/recovery 或内容相同绕过唯一写入者声明和 insert 归属核验。已记录的 mappings、pending intents 和审计证据保留，已有在途 insert 的未知结果仍按恢复协议处理，不宣称能撤销在途请求。
 
 ## 运行故障和备份
 

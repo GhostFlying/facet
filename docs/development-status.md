@@ -783,8 +783,16 @@ actual verification scope instead of marking a partial gate complete.
   crash/recovery and ambiguous-ID tests remain necessary.
 - Default raw processing is memory-only with no disk spool; source loss may
   prevent recovery. DB contains only necessary metadata and state.
-- Target may contain unmanaged or old experiment mail. Initialization reports it
-  without deleting, adopting mappings, or assuming All Mail is empty.
+- Production target must be newly created and dedicated, with operator
+  attestation/configuration that Facet is the only application writer before
+  OAuth. After target OAuth, read-only account/content checks must cover normal
+  mail, drafts, Spam, and Trash before the first projection/insert. Unexpected
+  or unmanaged content/account mismatch blocks deployment and new projection
+  writes; report-only, no delete, claim, cleanup, or automatic migration. Gmail
+  metadata/OAuth cannot prove sole-writer status. Existing deployments retain
+  mappings/jobs/audit and remain blocked until the prerequisite is checked;
+  this docs-only change does not implement runtime enforcement or prove live
+  acceptance. See [product contract](product-contract.md).
 - AI connector retrieval is an AI-product responsibility, not a Facet gate.
 - Real bank domains, live account/test scope,
   dogfood host/local volume/Nginx entry, license and formal version release remain

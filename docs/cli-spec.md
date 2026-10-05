@@ -217,6 +217,8 @@ SQLite backup API 保存 DB 与配置/binding/credentials；不复制 raw，不�
 主 DB。Destination 必须新建/空的指定备份位置，不覆盖任意已有目录。`backup verify`
 离线检查完整性、schema、成套文件与私密权限，不要求 Gmail 可用。
 
+`setup` 的 target 前置条件是操作者在 OAuth 前声明 target 为全新、专用且 Facet 为唯一应用写入者；target OAuth 后、首次 projection/insert 前的只读检查核对账号 binding 及普通邮件、草稿、Spam、Trash。检查发现 unexpected/unmanaged 内容或账号不匹配时 fail closed，保持 blocked/report-only；Gmail/OAuth metadata 不证明所有第三方 writer。CLI 不提供认领、自动清理或删除路径，且本契约变更不声称当前 runtime 已新增 enforcement。
+
 `restore plan --backup <path>` 和 `maintenance inspect/check` 默认 offline、metadata
 only；`restore apply` 需明确 destination/backup、停机锁和确认，保留 recoverable 旧
 状态或按 runbook 的成套备份，不删除用户其他目录。恢复 stopped/paused/generation、
