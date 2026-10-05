@@ -1,7 +1,6 @@
 """Offline tests for the manager-owned Google refresh boundary."""
 
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 
 import pytest
 
@@ -36,6 +35,7 @@ class _Credentials:
         self.token = None
         self.refresh_token = kwargs["refresh_token"]
         self.expiry = None
+        self.scopes = kwargs["scopes"]
         self.granted_scopes = None
 
     def refresh(self, request):
@@ -43,15 +43,31 @@ class _Credentials:
         if self.mode not in {"success", "omitted"}:
             from google.auth.exceptions import RefreshError
 
-            error = RefreshError("synthetic provider payload")
-            error.response = SimpleNamespace(status=self.mode)
             if self.mode == "invalid_grant":
-                error.content = b'{"error":"invalid_grant"}'
+                response_data = {"error": "invalid_grant"}
+            elif self.mode == "retryable":
+                response_data = {"error": "temporarily_unavailable"}
+            elif self.mode == 429:
+                response_data = {"error": "rate_limit_exceeded", "code": 429}
+            elif isinstance(self.mode, int) and self.mode >= 500:
+                response_data = {"error": "backendError", "code": self.mode}
+            else:
+                response_data = {
+                    "error": self.mode
+                    if isinstance(self.mode, str)
+                    else "unauthorized_client",
+                    "code": self.mode,
+                }
+            error = RefreshError(
+                "synthetic provider payload",
+                response_data,
+                retryable=self.mode == "retryable",
+            )
             raise error
         self.token = "new-access"
         self.expiry = datetime.now(UTC) + timedelta(hours=1)
         if self.mode != "omitted":
-            self.granted_scopes = ("https://www.googleapis.com/auth/gmail.readonly",)
+            self.granted_scopes = self.scopes
         else:
             self.refresh_token = None
 
@@ -78,14 +94,25 @@ def test_refresh_inherits_omitted_refresh_token_and_scopes():
     assert result.scopes is None
 
 
+def test_target_refresh_preserves_target_policy_scope_evidence():
+    _Credentials.mode = "success"
+    target_scopes = ScopeSet(
+        frozenset({ScopeName.GMAIL_READONLY, ScopeName.GMAIL_INSERT})
+    )
+    result = refresh_google(Role.TARGET, _secret(), target_scopes)
+    assert result.scopes == target_scopes
+
+
 @pytest.mark.parametrize(
     ("mode", "expected"),
     (
         ("invalid_grant", ErrorCode.SOURCE_AUTH_REQUIRED),
+        ("invalid_scope", ErrorCode.SCOPE_REQUIRED),
         (401, ErrorCode.SOURCE_AUTH_REQUIRED),
         (403, ErrorCode.SOURCE_AUTH_REQUIRED),
         (429, ErrorCode.SOURCE_RATE_LIMITED),
         (500, ErrorCode.NETWORK_UNAVAILABLE),
+        ("retryable", ErrorCode.NETWORK_UNAVAILABLE),
     ),
 )
 def test_refresh_maps_provider_failures_without_raw_payload(mode, expected):

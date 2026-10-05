@@ -119,6 +119,43 @@ def test_runtime_rejects_credential_lineage_before_provider_services(
         owner.close()
 
 
+def test_runtime_refresh_failure_precedes_epoch_or_h0_creation(
+    trusted_state_parent, monkeypatch
+):
+    owner, config, _, _, _ = _manager(trusted_state_parent, monkeypatch)
+    factory = _Factory(None)
+    factory.supports_refresh = True
+    checkpoints_before = owner.session._connection.execute(
+        "SELECT COUNT(*) FROM history_checkpoints"
+    ).fetchone()
+    calls = []
+
+    def fail_refresh(self, role, exchange, profile=None):
+        del self, exchange, profile
+        calls.append(role)
+        raise StorageFailure(ErrorCode.SOURCE_AUTH_REQUIRED)
+
+    monkeypatch.setattr(
+        "facet.gmail.credentials.CredentialManager.ensure_current", fail_refresh
+    )
+    try:
+        with pytest.raises(StorageFailure) as caught:
+            run_foreground_once(owner, config, factory, _Admission())
+        assert caught.value.code is ErrorCode.SOURCE_AUTH_REQUIRED
+        assert calls == [Role.SOURCE]
+        assert owner.session._connection.execute(
+            "SELECT COUNT(*) FROM epochs"
+        ).fetchone() == (0,)
+        assert (
+            owner.session._connection.execute(
+                "SELECT COUNT(*) FROM history_checkpoints"
+            ).fetchone()
+            == checkpoints_before
+        )
+    finally:
+        owner.close()
+
+
 @pytest.fixture
 def trusted_state_parent():
     for candidate in (Path.cwd(), Path(f"/run/user/{os.geteuid()}")):

@@ -36,15 +36,41 @@ def _refresh_error_code(error: BaseException, role: Role) -> ErrorCode:
 
     response = getattr(error, "response", None) or getattr(error, "resp", None)
     status = getattr(response, "status", None)
+    response_data = next(
+        (value for value in getattr(error, "args", ()) if isinstance(value, dict)),
+        None,
+    )
+    if response_data is not None:
+        status = response_data.get("status", response_data.get("code", status))
+        provider_error = response_data.get("error")
+        provider_reason = response_data.get("reason")
+    else:
+        provider_error = None
+        provider_reason = None
     if isinstance(status, str) and status.isdigit():
         status = int(status)
     content = getattr(error, "content", b"")
     if not isinstance(content, bytes):
         content = b""
-    if b"invalid_grant" in content.lower():
+    markers = " ".join(
+        value for value in (provider_error, provider_reason) if isinstance(value, str)
+    ).lower()
+    if any(value in markers for value in ("invalid_scope", "insufficient_scope")):
+        return ErrorCode.SCOPE_REQUIRED
+    if "invalid_grant" in markers or b"invalid_grant" in content.lower():
         return _role_auth(role)
     if type(status) is int:
+        if status == 403 and any(
+            value in markers for value in ("rate_limit", "ratelimit", "quota")
+        ):
+            return classify_http_status(429, role)
         return classify_http_status(status, role, body=content)
+    if any(value in markers for value in ("rate_limit", "ratelimit", "quota")):
+        return classify_http_status(429, role)
+    if any(value in markers for value in ("backend", "temporarily_unavailable")):
+        return ErrorCode.NETWORK_UNAVAILABLE
+    if getattr(error, "retryable", False):
+        return ErrorCode.NETWORK_UNAVAILABLE
     return _role_auth(role)
 
 
@@ -91,9 +117,9 @@ def refresh_google(role: Role, secret: ProviderSecret, scopes: ScopeSet):
         refresh_token = credentials.refresh_token or secret.refresh_token.value
         if not isinstance(refresh_token, str) or not refresh_token:
             raise ValueError
+        # ``Credentials.scopes`` is the requested set, not provider evidence.
+        # Missing ``granted_scopes`` therefore means inherited scopes.
         granted = getattr(credentials, "granted_scopes", None)
-        if granted is None:
-            granted = getattr(credentials, "scopes", None)
         scope_set = None
         if granted is not None:
             names = {url: scope for scope, url in _SCOPE_URLS.items()}
