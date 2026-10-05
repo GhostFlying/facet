@@ -41,6 +41,8 @@ export FACET_IMAGE=ghcr.io/ghostflying/facet:<full-commit-sha>
 export FACET_OAUTH_CLIENT=/private/path/google-client.json
 export FACET_SETUP_REQUEST_ID=rq1_<uuid4-hex>_<uuid4-hex>
 export FACET_OAUTH_PORT=18080
+# Optional: unset defaults to 900; accepted values are ASCII digits 60..1800.
+export FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS=900
 bash scripts/check-compose-image-ref.sh
 docker compose --profile setup run --rm --service-ports facet-setup
 ```
@@ -56,8 +58,13 @@ The setup profile maps only `127.0.0.1:${FACET_OAUTH_PORT}` to the container
 callback port and exits after setup. Inside that short-lived container only,
 the explicit bind address is `0.0.0.0` so Docker can deliver the mapped
 loopback connection; the host publication remains loopback-only. Direct host
-invocation keeps the default `127.0.0.1` bind. The normal `facet` service never
-publishes the OAuth port. It mounts the persistent parent at `/var/lib/facet`; the
+invocation keeps the default `127.0.0.1` bind. The setup-only environment
+`FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS` defaults to 900 when unset and accepts
+only ASCII decimal digits whose value is 60 through 1800. An explicitly empty,
+whitespace-padded, plus-prefixed, underscore-containing, malformed, or
+out-of-range value fails closed before the listener starts. The normal `facet`
+service never publishes the OAuth port. It mounts the persistent parent at
+`/var/lib/facet`; the
 first-run `/var/lib/facet/production` child is created only after the terminal
 confirmation. The default named volume is initialized for UID/GID `10001` with
 mode `0700`. For a bind mount, provision the parent explicitly with numeric

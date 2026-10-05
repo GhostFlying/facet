@@ -176,6 +176,7 @@ class OAuthAuthorizer(Protocol):
         port: int,
         bind_address: str = "127.0.0.1",
         strict_setup: bool = False,
+        callback_timeout_seconds: int = 300,
     ) -> OAuthResult:
         """Exchange one explicit role's loopback consent for private secrets."""
 
@@ -192,6 +193,7 @@ class GoogleOAuthAuthorizer:
         port: int,
         bind_address: str = "127.0.0.1",
         strict_setup: bool = False,
+        callback_timeout_seconds: int = 300,
     ) -> OAuthResult:
         if (
             type(role) is not Role
@@ -201,6 +203,8 @@ class GoogleOAuthAuthorizer:
             or not 1024 <= port <= 65535
             or bind_address not in {"127.0.0.1", "0.0.0.0"}
             or type(strict_setup) is not bool
+            or type(callback_timeout_seconds) is not int
+            or not 60 <= callback_timeout_seconds <= 1800
         ):
             _fail(ErrorCode.INVALID_INPUT)
         try:
@@ -235,7 +239,7 @@ class GoogleOAuthAuthorizer:
                     + auth_url,
                     file=sys.stderr,
                 )
-                server.timeout = 300
+                server.timeout = callback_timeout_seconds
                 server.handle_request()
                 if wsgi_app.last_request_uri is None or not _valid_callback(
                     wsgi_app.last_request_uri,
