@@ -9,10 +9,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
 
-from facet.config import initial_template
+from facet.config import ConfigError, dump_config, initial_template
 from facet.contracts import (
     ErrorCode,
     LocalId,
@@ -22,6 +23,7 @@ from facet.contracts import (
     Sha256Hex,
     Timestamp,
 )
+from facet.db import command_store
 from facet.db.codecs import StorageFailure
 from facet.db.models import CredentialChangeRow
 from facet.db.repositories import credentials as credential_repository
@@ -162,6 +164,40 @@ class Profiles:
                 role,
             ),
         )
+
+
+def _verified_cli_state(trusted_state_parent, monkeypatch):
+    from facet.cli import bootstrap
+
+    config = initial_template("source@example.invalid", "target@example.invalid")
+    raw = dump_config(config)
+    state_path = trusted_state_parent / "state"
+    owner = StateOwner.create(state_path, config, raw)
+    (state_path / "config.yaml").write_bytes(raw)
+    (state_path / "config.yaml").chmod(0o600)
+    _write_credentials(owner)
+    manager = CredentialManager(owner.state_dir, config, owner)
+    monkeypatch.setattr(credentials_module, "_owner_now", lambda: FUTURE)
+    manager.verify_and_publish(Profiles())
+    owner.close()
+
+    class TTY:
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(bootstrap.sys, "stdin", TTY())
+    monkeypatch.setattr(bootstrap.sys, "stdout", TTY())
+    monkeypatch.setattr(bootstrap.sys, "stderr", TTY())
+    options = SimpleNamespace(
+        role="source",
+        oauth_client="synthetic-client.json",
+        fake=False,
+        yes=True,
+        request_id="00000000000040008000000000000021",
+        port=8080,
+        state_dir=str(state_path),
+    )
+    return bootstrap, config, state_path, options
 
 
 def test_verify_rejects_expired_envelope_before_profile_or_publish(
@@ -403,6 +439,194 @@ def test_refresh_records_explicit_scope_evidence(trusted_state_parent, monkeypat
         ).fetchone() == ("committed", "refresh_explicit", "gmail_readonly")
     finally:
         owner.close()
+
+
+def test_reauthorize_refresh_keeps_binding_and_records_explicit_lineage(
+    trusted_state_parent, monkeypatch
+):
+    owner, config, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
+    request_nonce = LocalId("00000000000040008000000000000020")
+    try:
+        manager.verify_and_publish(Profiles())
+        with owner.session.transaction() as uow:
+            operation_id = command_store.authorize_operation(
+                uow,
+                config.projection.id,
+                Role.SOURCE,
+                request_nonce,
+                command_store.LocalCommandKind.AUTH_REAUTHORIZE,
+            )
+
+        snapshot = manager.refresh(
+            Role.SOURCE,
+            lambda role, old: RefreshResult(
+                _future_secret("reauthorized-token"),
+                policy_scopes(ScopePolicy.SOURCE_READONLY, Role.SOURCE),
+            ),
+            operation_id=operation_id,
+            grant_kind=GrantEvidenceKind.AUTHORIZATION_EXPLICIT,
+        )
+        assert snapshot.credential_revision == Revision(2)
+        binding = owner.bindings()[Role.SOURCE]
+        assert binding.binding_revision == Revision(1)
+        assert binding.credential_revision == Revision(2)
+        row = owner.session._connection.execute(
+            "SELECT kind,phase,operation_id,grant_kind,grant_parent_revision "
+            "FROM credential_changes"
+        ).fetchone()
+        assert row == (
+            "refresh",
+            "committed",
+            operation_id.value,
+            "authorization_explicit",
+            None,
+        )
+        with owner.session.transaction() as uow:
+            command_store.complete_authorize_operation(
+                uow,
+                config.projection.id,
+                operation_id,
+                command_store.LocalCommandKind.AUTH_REAUTHORIZE,
+            )
+        assert owner.session._connection.execute(
+            "SELECT command,state FROM operations WHERE operation_id=?",
+            (operation_id.value,),
+        ).fetchone() == ("auth_reauthorize", "completed")
+        assert "reauthorized-token" not in owner.database_path.read_bytes().decode(
+            "utf-8", "ignore"
+        )
+    finally:
+        owner.close()
+
+
+def test_cli_reauthorizes_verified_role_with_fresh_operation(
+    trusted_state_parent, monkeypatch
+):
+    from facet.gmail.oauth import OAuthResult
+
+    bootstrap, config, state_path, options = _verified_cli_state(
+        trusted_state_parent, monkeypatch
+    )
+
+    class Authorizer:
+        calls = 0
+
+        def authorize(self, role, client, scopes, *, port):
+            assert role is Role.SOURCE
+            assert client == "synthetic-client"
+            assert scopes == policy_scopes(ScopePolicy.SOURCE_READONLY, Role.SOURCE)
+            assert port == 8080
+            self.calls += 1
+            return OAuthResult(
+                _future_secret("reauthorized-cli-token"),
+                scopes,
+            )
+
+    class Factory:
+        def profile_account(self, role, secret):
+            assert role is Role.SOURCE
+            assert secret.access_token.value == "reauthorized-cli-token"
+            return AccountAddress("source@example.invalid")
+
+    authorizer = Authorizer()
+    monkeypatch.setattr("facet.gmail.oauth.GoogleOAuthAuthorizer", lambda: authorizer)
+    monkeypatch.setattr(
+        "facet.gmail.oauth.read_desktop_client", lambda _: "synthetic-client"
+    )
+    monkeypatch.setattr(
+        "facet.gmail.service_factory.GoogleGmailServiceFactory", Factory
+    )
+    data, warnings = bootstrap._auth_authorize_oauth(options)
+    assert data == {"role": "source", "binding_state": "verified"}
+    assert warnings == ()
+    assert authorizer.calls == 1
+
+    reopened = StateOwner.open(state_path, config)
+    try:
+        assert reopened.bindings()[Role.SOURCE].credential_revision == Revision(2)
+        row = reopened.session._connection.execute(
+            "SELECT command,state FROM operations WHERE command='auth_reauthorize'"
+        ).fetchone()
+        assert row == ("auth_reauthorize", "completed")
+    finally:
+        reopened.close()
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    (
+        ("callback", ErrorCode.SOURCE_AUTH_REQUIRED),
+        ("expired", ErrorCode.SOURCE_AUTH_REQUIRED),
+        ("scope", ErrorCode.SCOPE_REQUIRED),
+        ("account", ErrorCode.BINDING_MISMATCH),
+    ),
+)
+def test_cli_reauthorize_rejects_prepublication_failure_and_replays_code(
+    trusted_state_parent, monkeypatch, failure, expected
+):
+    from facet.gmail.oauth import OAuthResult
+
+    bootstrap, config, state_path, options = _verified_cli_state(
+        trusted_state_parent, monkeypatch
+    )
+    expected_scopes = policy_scopes(ScopePolicy.SOURCE_READONLY, Role.SOURCE)
+
+    class Authorizer:
+        def authorize(self, role, client, scopes, *, port):
+            if failure == "callback":
+                raise StorageFailure(ErrorCode.SOURCE_AUTH_REQUIRED)
+            secret = _future_secret("failed-prepublication")
+            if failure == "expired":
+                secret = ProviderSecret(
+                    secret.client_id,
+                    secret.client_secret,
+                    secret.access_token,
+                    secret.refresh_token,
+                    Timestamp(FUTURE.value - timedelta(seconds=1)),
+                )
+            return OAuthResult(
+                secret,
+                expected_scopes
+                if failure == "account"
+                else policy_scopes(ScopePolicy.TARGET_DEFAULT, Role.TARGET),
+            )
+
+    class Factory:
+        def profile_account(self, role, secret):
+            return AccountAddress("wrong@example.invalid")
+
+    monkeypatch.setattr("facet.gmail.oauth.GoogleOAuthAuthorizer", Authorizer)
+    monkeypatch.setattr("facet.gmail.oauth.read_desktop_client", lambda _: "client")
+    monkeypatch.setattr(
+        "facet.gmail.service_factory.GoogleGmailServiceFactory", Factory
+    )
+    with pytest.raises(ConfigError) as caught:
+        bootstrap._auth_authorize_oauth(options)
+    assert caught.value.code is expected
+
+    reopened = StateOwner.open(state_path, config)
+    try:
+        row = reopened.session._connection.execute(
+            "SELECT command,state,code FROM operations WHERE command='auth_reauthorize'"
+        ).fetchone()
+        assert row == ("auth_reauthorize", "rejected", expected.value)
+        assert (
+            reopened.session._connection.execute(
+                "SELECT COUNT(*) FROM credential_changes"
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        reopened.close()
+
+    class ReplayAuthorizer:
+        def authorize(self, *args, **kwargs):
+            raise AssertionError("rejected request must not reopen OAuth")
+
+    monkeypatch.setattr("facet.gmail.oauth.GoogleOAuthAuthorizer", ReplayAuthorizer)
+    with pytest.raises(ConfigError) as replay:
+        bootstrap._auth_authorize_oauth(options)
+    assert replay.value.code is expected
 
 
 def test_refresh_rejects_reduced_explicit_scope_evidence(

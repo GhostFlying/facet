@@ -777,10 +777,28 @@ class CredentialManager:
             self._attention(role, change_id, error.code)
             raise
 
-    def refresh(self, role: Role, exchange):
+    def refresh(
+        self,
+        role: Role,
+        exchange,
+        operation_id=None,
+        grant_kind: GrantEvidenceKind | None = None,
+    ):
         """Single-flight one synthetic/provider-mediated refresh and publish it."""
 
-        if type(role) is not Role or not callable(exchange):
+        if (
+            type(role) is not Role
+            or not callable(exchange)
+            or (operation_id is not None and type(operation_id) is not LocalId)
+            or (
+                grant_kind is not None
+                and grant_kind is not GrantEvidenceKind.AUTHORIZATION_EXPLICIT
+            )
+            or (
+                operation_id is not None
+                and grant_kind is not GrantEvidenceKind.AUTHORIZATION_EXPLICIT
+            )
+        ):
             _fail(ErrorCode.INVALID_INPUT)
         with self._flight_condition:
             flight = self._flights.get(role)
@@ -798,7 +816,7 @@ class CredentialManager:
             flight = _RefreshFlight(threading.get_ident())
             self._flights[role] = flight
         try:
-            result = self._refresh_once(role, exchange)
+            result = self._refresh_once(role, exchange, operation_id, grant_kind)
         except StorageFailure as error:
             self._finish_flight(role, flight, error=error.code)
             raise
@@ -823,7 +841,9 @@ class CredentialManager:
             self._flights.pop(role, None)
             self._flight_condition.notify_all()
 
-    def _refresh_once(self, role: Role, exchange) -> AccessSnapshot:
+    def _refresh_once(
+        self, role: Role, exchange, operation_id, grant_kind
+    ) -> AccessSnapshot:
         old = self._load_envelope(role)
         binding = self._owner.bindings()[role]
         if (
@@ -848,7 +868,7 @@ class CredentialManager:
             new_revision,
             old.binding_revision,
             old.scope_policy_revision,
-            None,
+            operation_id,
             None,
             None,
             old.scope_policy.value,
@@ -885,6 +905,11 @@ class CredentialManager:
             else:
                 _fail(ErrorCode.INVALID_INPUT)
             expected_scopes = policy_scopes(old.scope_policy, role)
+            if (
+                grant_kind is GrantEvidenceKind.AUTHORIZATION_EXPLICIT
+                and explicit_scopes is None
+            ):
+                _fail(ErrorCode.SCOPE_REQUIRED)
             if explicit_scopes is not None and explicit_scopes != expected_scopes:
                 _fail(ErrorCode.SCOPE_REQUIRED)
             if refreshed_secret.expires_at.value <= observed.value:
@@ -898,7 +923,8 @@ class CredentialManager:
                 credential_revision=new_revision,
                 change_id=change_id,
                 grant=GrantEvidence(
-                    (
+                    grant_kind
+                    or (
                         GrantEvidenceKind.REFRESH_EXPLICIT
                         if explicit_scopes is not None
                         else GrantEvidenceKind.REFRESH_OMITTED_INHERITED
@@ -910,9 +936,15 @@ class CredentialManager:
                     if explicit_scopes is not None
                     else old.grant.requested,
                     observed,
-                    old.credential_revision,
+                    None
+                    if grant_kind is GrantEvidenceKind.AUTHORIZATION_EXPLICIT
+                    else old.credential_revision,
                 ),
-                profile_verified_at=old.profile_verified_at,
+                profile_verified_at=(
+                    observed
+                    if grant_kind is GrantEvidenceKind.AUTHORIZATION_EXPLICIT
+                    else old.profile_verified_at
+                ),
                 secret=refreshed_secret,
             )
             raw = encode_envelope(candidate)
