@@ -970,7 +970,14 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
                     uow, config.projection.id, operation_id, operation_command
                 )
             return {"role": role.value, "binding_state": "verified"}, ()
-        client = read_desktop_client(options.oauth_client)
+        try:
+            client = read_desktop_client(options.oauth_client)
+        except StorageFailure as error:
+            reject_before_publication(error.code)
+            raise ConfigError(error.code) from None
+        except Exception:
+            reject_before_publication(ErrorCode.INVALID_INPUT)
+            raise ConfigError(ErrorCode.INVALID_INPUT) from None
         try:
             oauth_result = GoogleOAuthAuthorizer().authorize(
                 role,
@@ -989,7 +996,22 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
             )
             reject_before_publication(code)
             raise ConfigError(code) from None
-        factory = GoogleGmailServiceFactory()
+        try:
+            factory = GoogleGmailServiceFactory()
+        except StorageFailure as error:
+            reject_before_publication(error.code)
+            raise ConfigError(error.code) from None
+        except Exception:
+            reject_before_publication(
+                ErrorCode.SOURCE_AUTH_REQUIRED
+                if role is Role.SOURCE
+                else ErrorCode.TARGET_AUTH_REQUIRED
+            )
+            raise ConfigError(
+                ErrorCode.SOURCE_AUTH_REQUIRED
+                if role is Role.SOURCE
+                else ErrorCode.TARGET_AUTH_REQUIRED
+            ) from None
 
         class OAuthProfileProbe:
             def get_profile(self, probe_role, secret):
