@@ -1,4 +1,13 @@
-# Authentication trust boundary (M1-06)
+# Authentication trust boundary (M1-06) — superseded
+
+This historical design is superseded by the user's explicit 2026-10-05
+decision. Facet no longer performs source-path attestation or sender-authentication
+verification as an automatic-admission gate. Gmail owns SMTP authentication and
+classification; the active contract is documented in `product-contract.md` and
+`gmail-projection-spec.md`. The former implementation and its tests were deleted.
+
+The remainder of this file is retained only as historical review evidence and is
+not an active requirement or Phase 1 acceptance gate.
 
 Status: implemented source-provider contract; live Gmail evidence is still
 required before the Phase 1 trust gate can be closed.

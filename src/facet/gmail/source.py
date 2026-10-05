@@ -15,10 +15,8 @@ from enum import StrEnum
 
 from facet.contracts import (
     ErrorCode,
-    PolicyVersion,
     ProviderId,
     ProviderPageToken,
-    Revision,
     Role,
     Timestamp,
     Visibility,
@@ -26,13 +24,9 @@ from facet.contracts import (
 from facet.db.codecs import PrivateAddress
 from facet.projection.actions import ActionMessageFact, PrivateActionLabelMap
 from facet.projection.admission import DiscoveryCandidate
-from facet.projection.authenticity import VerifiedSourceEvidence, assess_evidence
 from facet.projection.rules import RuleInputError, normalize_sender
 
 from .retry import ProviderFailure, execute
-from .source_auth import SourceAuthProvider, UnknownSourceAuthProvider
-
-_AUTH_POLICY = PolicyVersion("auth-v1")
 
 __all__ = (
     "SourceProfile",
@@ -227,15 +221,9 @@ class SourceAdapter:
         service,
         *,
         source_account: PrivateAddress | None = None,
-        binding_revision: Revision | None = None,
-        credential_revision: Revision | None = None,
-        auth_provider: SourceAuthProvider | None = None,
     ) -> None:
         self._service = service
         self._source_account = source_account
-        self._binding_revision = binding_revision
-        self._credential_revision = credential_revision
-        self._auth_provider = auth_provider or UnknownSourceAuthProvider()
 
     def profile(self) -> SourceProfile:
         value = execute(self._service.users().getProfile(userId="me"), self.role)
@@ -295,9 +283,6 @@ class SourceAdapter:
         window_end: datetime,
         page_token: ProviderPageToken | None = None,
         source_account: PrivateAddress | None = None,
-        binding_revision: Revision | None = None,
-        credential_revision: Revision | None = None,
-        auth_provider: SourceAuthProvider | None = None,
     ) -> CandidatePage:
         """Discover one closed candidate result for every listed message.
 
@@ -306,45 +291,16 @@ class SourceAdapter:
         represented per item so a selected message is never silently dropped.
         """
         if (
-            (
-                self._source_account is not None
-                and source_account is not None
-                and source_account != self._source_account
-            )
-            or (
-                self._binding_revision is not None
-                and binding_revision is not None
-                and binding_revision != self._binding_revision
-            )
-            or (
-                self._credential_revision is not None
-                and credential_revision is not None
-                and credential_revision != self._credential_revision
-            )
+            self._source_account is not None
+            and source_account is not None
+            and source_account != self._source_account
         ):
             raise ProviderFailure(ErrorCode.BINDING_MISMATCH, self.role)
         account = (
             self._source_account if self._source_account is not None else source_account
         )
-        binding = (
-            self._binding_revision
-            if self._binding_revision is not None
-            else binding_revision
-        )
-        credential = (
-            self._credential_revision
-            if self._credential_revision is not None
-            else credential_revision
-        )
         if type(account) is not PrivateAddress:
             raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
-        if type(binding) is not Revision or type(credential) is not Revision:
-            raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
-        if binding.value < 1 or credential.value < 1:
-            raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
-        provider = auth_provider or self._auth_provider
-        if not hasattr(provider, "attest"):
-            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
 
         try:
             listed = self.discover(
@@ -360,9 +316,6 @@ class SourceAdapter:
                 self._candidate_result(
                     item,
                     account,
-                    binding,
-                    credential,
-                    provider,
                 )
             )
         return CandidatePage(tuple(results), listed.next_page_token)
@@ -376,27 +329,17 @@ class SourceAdapter:
         """
         if type(item) is not DiscoveryItem:
             raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
-        if (
-            type(self._source_account) is not PrivateAddress
-            or type(self._binding_revision) is not Revision
-            or type(self._credential_revision) is not Revision
-        ):
+        if type(self._source_account) is not PrivateAddress:
             raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
         return self._candidate_result(
             item,
             self._source_account,
-            self._binding_revision,
-            self._credential_revision,
-            self._auth_provider,
         )
 
     def _candidate_result(
         self,
         item: DiscoveryItem,
         account: PrivateAddress,
-        binding: Revision,
-        credential: Revision,
-        provider: SourceAuthProvider,
     ) -> CandidateResult:
         try:
             value = execute(
@@ -448,54 +391,6 @@ class SourceAdapter:
             )
         sender, visibility, is_draft = state
         observed_at = Timestamp(datetime.now(UTC))
-        evidence = None
-        try:
-            raw = (
-                self.raw(
-                    item.message_id,
-                    thread_id=item.thread_id,
-                    max_bytes=getattr(provider, "max_raw_bytes", None),
-                )
-                if getattr(provider, "requires_raw", False)
-                else None
-            )
-            proposed = provider.attest(
-                source_account=account,
-                message_id=item.message_id,
-                observed_at=observed_at,
-                binding_revision=binding,
-                credential_revision=credential,
-                expected_sender=sender,
-                raw=raw,
-            )
-        except ProviderFailure:
-            return CandidateResult(
-                attention=CandidateAttention(
-                    CandidateAttentionReason.PROVIDER_FAILURE,
-                    item.message_id,
-                    item.thread_id,
-                )
-            )
-        except Exception:
-            return CandidateResult(
-                attention=CandidateAttention(
-                    CandidateAttentionReason.PROVIDER_FAILURE,
-                    item.message_id,
-                    item.thread_id,
-                )
-            )
-        if type(proposed) is VerifiedSourceEvidence:
-            assessment = assess_evidence(
-                proposed,
-                source_account=account,
-                message_id=item.message_id,
-                now=observed_at,
-                binding_revision=binding,
-                credential_revision=credential,
-                policy_version=_AUTH_POLICY,
-            )
-            if assessment.trusted:
-                evidence = proposed
         return CandidateResult(
             candidate=DiscoveryCandidate(
                 source_message_id=item.message_id,
@@ -505,7 +400,6 @@ class SourceAdapter:
                 visibility=visibility,
                 is_draft=is_draft,
                 observed_at=observed_at,
-                evidence=evidence,
             )
         )
 

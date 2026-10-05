@@ -258,8 +258,6 @@ def normalize_rules(
         )
     ):
         raise RuleInputError()
-    if config.authenticity != "require_trusted_auth":
-        raise RuleInputError()
     selected = policy or load_rule_policy()
     senders = _dedupe(
         tuple(

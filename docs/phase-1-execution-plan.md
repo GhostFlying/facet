@@ -77,7 +77,7 @@ target，AI agents 只连接 target。Facet 自身的 source OAuth 仍是邮箱�
 
 | 类别 | 必须达到的结果 | 必需证明证据 | 已有 gate / CLI / 工作包 |
 | --- | --- | --- | --- |
-| A1 披露与授权 | 完整 thread 持续授权、固定六个月 discovery、未来规则/显式历史扩展、可信 automatic admission、stop/BlackList 正确；unmanaged target 仅报告 | 合成认证/域名/effective_at/legacy/stop 反例；preview→start 与零隐式 insert；获准范围的真实 admission/action 结果 | G1/G2/G4；CLI-01/03/05；M1-06、M2、M4 |
+| A1 披露与授权 | 完整 thread 持续授权、固定六个月 discovery、未来规则/显式历史扩展、metadata/rule admission、stop/BlackList 正确；unmanaged target 仅报告 | 域名/effective_at/legacy/stop 反例；认证 header 不改变匹配 candidate；preview→start 与零隐式 insert；获准范围的真实 admission/action 结果 | G1/G2/G4；CLI-01/03/05；M1-06、M2、M4 |
 | A2 Gmail 保真和可见性 | 原 raw 不重序列化；内容/MIME/附件、有效 Date/可解释降级、实际 target thread 集合正确；默认 All Mail，不镜像读/星/Inbox/Sent 状态 | 版本化 semantic/MIME/附件 digest 与 Date/thread 合成测试；限定 live Gmail API 回读和 UI 检查；fallback 只处理确认 threading 错误 | G2/G6；CLI-02；M2-02/05、M6-08 |
 | A3 连续同步与恢复 | H0/discovery/History 全分页接续，gap/reconcile 不扩大授权；intent/unknown、restart、取消/故障可恢复或明确 attention，选中工作不静默消失 | Cursor/intent/insert/map/stop/restart/disk 故障注入；初始化交错、History expiry 与归属反例；范围内 live 恢复、未知 gap 显式 range 决定 | G2/G3/G4；CLI-02/03/04；M2、M3、M4 |
 | A4 隐私和输出边界 | DB 仅必要 metadata，raw 仅内存、不落文件；logs/CI/images 无邮件内容或凭据，许可的私密 state/backup owner-only；HTTP/DOM/frontend/URL/export 无邮件与内部私密字段 | DB/journal/log/files 和 CLI private/public 分层 sentinels；Web network/DOM/浏览器检查；image/context/layers/artifacts 扫描与 owner-only 文件检查 | G1/G4/G6；CLI-08；P1-02、M1-05、M4-04/05、M6-03 至 M6-06 |
@@ -266,20 +266,20 @@ unknown/unavailable 语义，内部 doctor 与 Web DTO 分离。验收：synthet
 subject、IDs、fingerprints、raw exceptions、paths、tokens 注入后不进入公共输出；
 DEBUG 同样受限；DB audit 不成为自由文本内容仓库。此时可测试模型，不宣称 HTTP 已实现。
 
-**M1-06 规则基础、authentication ADR 与 G1 集成**
+**M1-06 规则基础与 G1 集成（source attestation gate 已按 2026-10-05 用户决定移除）**
 
 依赖：M1-01 至 M1-05、P1-02。Owner：安全设计 A + 集成 S；review：独立 A。
-文件：`docs/implementation-plans/adrs/authentication-trust.md`、
-`projection/rules.py`、`authenticity.py`、`cli/init.py`、`doctor.py`、合成认证 tests。
+文件：`projection/rules.py`、`projection/admission.py`、`cli/init.py`、`doctor.py`、metadata admission tests。
 
-交付：sender/domain 规范化、点边界、公共后缀拒绝、PSL/IDNA 版本，以及可信 Gmail
-接收路径/From alignment 的 ADR。Doctor/init 检查 profile、scope、权限、schema、
-target unmanaged 普通邮件/草稿/Spam/Trash 和 missing action labels；不复制邮件。
+交付：sender/domain 规范化、点边界、公共后缀拒绝、PSL/IDNA 版本，以及 Gmail
+负责 SMTP 认证/分类、Facet 不独立声明 sender authenticity 的边界。Doctor/init 检查
+profile、scope、权限、schema、target unmanaged 普通邮件/草稿/Spam/Trash 和 missing
+action labels；不复制邮件。
 
-验收：同名 authserv-id、任意追加 `Authentication-Results`、duplicate/conflict、
-forward/ARC 与伪造 From 都不会凭文本变为可信 pass；每个 accept 分支有可说明的来源
-依据和 policy 版本。未知→review。G1 关闭基础与设计 gate；G3 启用真实自动 admission
-仍须有范围内证据，不能把 parser 测试当信任证明。用户不需要先确认银行名单才能继续 M1。
+验收：认证 headers、DKIM/SPF/DMARC 文本和其缺失都不改变匹配 metadata candidate 的
+规则决策；格式歧义、账号/权限不匹配和 provider 故障仍进入 attention。G1 关闭基础与
+设计 gate；不建立 Facet 侧 sender-authentication evidence gate。用户不需要先确认银行
+名单才能继续 M1。
 
 ### M2：thread 投影、保真和未知结果恢复
 
@@ -347,18 +347,18 @@ API/UI 日期、会话、附件证据分开记录。
 
 ### 第一交付组成：规则、生效时间和六个月发现（工作包 ID M3-01..04，归入 M2/G2）
 
-**M3-01 Admission policy 与 review**
+**M3-01 Admission policy 与 review（metadata/rule admission）**
 
 依赖：M2-01、M1-06、M2-04。Owner：规则 agent，S；review：A。
-文件：`projection/admission.py`、`rules.py`、`authenticity.py`、policy tests。
+文件：`projection/admission.py`、`rules.py`、policy tests。
 
-交付：blacklist→allow match→trusted auth→admit/review 的决策、规则 effective_at 和
+交付：blacklist→allow match→metadata eligibility→admit/review 的决策、规则 effective_at 和
 action-label 触发的当前/未来 admission，
 规则 effective_at。验收：公共后缀/相似恶意域名/多 From/未知 auth 不能 admission；
 Spam/Trash/drafts 不引起新自动纳入；动态新增仅未来与 action-label/规则命中的当前
 thread；删除 allow
-不停止已 tracked thread。真实 automatic accept 在 authentication ADR 证据未闭合前关闭；
-不再把逐个 explicit thread approval 作为第一期入口。
+不停止已 tracked thread。认证 header 不参与 admission；不再把逐个 explicit thread
+approval 作为第一期入口。
 
 **M3-02 固定六个月 discovery、H0 与 durable backfill**
 

@@ -6,9 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from facet.contracts import (
-    PolicyVersion,
     ProviderId,
-    Revision,
     RuleKind,
     RuleRef,
     Timestamp,
@@ -16,25 +14,16 @@ from facet.contracts import (
 )
 from facet.db.codecs import PrivateAddress
 
-from .authenticity import (
-    EvidenceReason,
-    VerifiedSourceEvidence,
-    assess_evidence,
-)
 from .rules import CanonicalSender, NormalizedRule, RuleInputError, domain_matches
-
-_DEFAULT_EVIDENCE_POLICY = PolicyVersion("auth-v1")
 
 
 class AdmissionAttentionReason(StrEnum):
     SOURCE_STATE_INELIGIBLE = "source_state_ineligible"
+    SOURCE_ACCOUNT_MISMATCH = "source_account_mismatch"
     DRAFT = "draft"
     NO_RULE = "no_rule"
     BLACKLISTED = "blacklisted"
     RULE_NOT_EFFECTIVE = "rule_not_effective"
-    AUTHENTICITY_MISSING = "authenticity_missing"
-    AUTHENTICITY_UNTRUSTED = "authenticity_untrusted"
-    AUTHENTICITY_STALE = "authenticity_stale"
     CANDIDATE_INVALID = "candidate_invalid"
 
 
@@ -47,7 +36,6 @@ class DiscoveryCandidate:
     visibility: Visibility
     is_draft: bool
     observed_at: Timestamp
-    evidence: VerifiedSourceEvidence | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -58,7 +46,6 @@ class DiscoveryCandidate:
             or type(self.visibility) is not Visibility
             or type(self.is_draft) is not bool
             or type(self.observed_at) is not Timestamp
-            or type(self.evidence) not in {VerifiedSourceEvidence, type(None)}
         ):
             raise ValueError("invalid_input")
 
@@ -129,26 +116,16 @@ class AdmissionEvaluator:
         rules: tuple[AdmissionRule, ...],
         *,
         source_account: PrivateAddress,
-        binding_revision: Revision,
-        credential_revision: Revision,
-        evidence_policy: PolicyVersion = _DEFAULT_EVIDENCE_POLICY,
     ) -> None:
         if (
             type(rules) is not tuple
             or any(type(rule) is not AdmissionRule for rule in rules)
             or len(rules) > 1000
             or type(source_account) is not PrivateAddress
-            or type(binding_revision) is not Revision
-            or type(credential_revision) is not Revision
-            or type(evidence_policy) is not PolicyVersion
-            or evidence_policy is not _DEFAULT_EVIDENCE_POLICY
         ):
             raise ValueError("invalid_input")
         self._rules = rules
         self._source_account = source_account
-        self._binding_revision = binding_revision
-        self._credential_revision = credential_revision
-        self._evidence_policy = evidence_policy
 
     def evaluate(
         self, candidate: DiscoveryCandidate, now: Timestamp
@@ -160,14 +137,9 @@ class AdmissionEvaluator:
         if candidate.is_draft:
             return _attention(AdmissionAttentionReason.DRAFT)
         if candidate.source_account != self._source_account:
-            return _attention(AdmissionAttentionReason.AUTHENTICITY_UNTRUSTED)
+            return _attention(AdmissionAttentionReason.SOURCE_ACCOUNT_MISMATCH)
         if candidate.observed_at.value > now.value:
             return _attention(AdmissionAttentionReason.CANDIDATE_INVALID)
-        if candidate.evidence is not None and (
-            candidate.observed_at.value < candidate.evidence.observed_at.value
-            or candidate.observed_at.value >= candidate.evidence.expires_at.value
-        ):
-            return _attention(AdmissionAttentionReason.AUTHENTICITY_STALE)
 
         enabled = tuple(rule for rule in self._rules if rule.enabled)
         for rule in enabled:
@@ -190,24 +162,6 @@ class AdmissionEvaluator:
         )
         if candidate.observed_at.value < selected.effective_at.value:
             return _attention(AdmissionAttentionReason.RULE_NOT_EFFECTIVE)
-        assessment = assess_evidence(
-            candidate.evidence,
-            source_account=self._source_account,
-            message_id=candidate.source_message_id,
-            now=now,
-            binding_revision=self._binding_revision,
-            credential_revision=self._credential_revision,
-            policy_version=self._evidence_policy,
-        )
-        if not assessment.trusted:
-            if assessment.reason is EvidenceReason.MISSING:
-                return _attention(AdmissionAttentionReason.AUTHENTICITY_MISSING)
-            if assessment.reason in {
-                EvidenceReason.EXPIRED,
-                EvidenceReason.NOT_YET_VALID,
-            }:
-                return _attention(AdmissionAttentionReason.AUTHENTICITY_STALE)
-            return _attention(AdmissionAttentionReason.AUTHENTICITY_UNTRUSTED)
         return AdmissionResult(True, selected.ref)
 
 

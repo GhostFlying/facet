@@ -1,4 +1,7 @@
-# Fake production-path attestation closure
+# Fake production-path attestation closure — superseded
+
+> Superseded on 2026-10-05. The supported fake production path now exercises
+> metadata/rule admission without a synthetic authentication proof.
 
 Status: implemented and accepted at main merge
 `8c241c8d62c92426815664a9957cdfadbd2bec36`; implementation candidate was

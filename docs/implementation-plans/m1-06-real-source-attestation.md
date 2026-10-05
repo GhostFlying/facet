@@ -1,4 +1,9 @@
-# M1-06 real source-path attestation
+# M1-06 real source-path attestation — superseded
+
+> Superseded on 2026-10-05 by an explicit product decision: Facet does not
+> implement source-path attestation or sender-authentication admission. Gmail
+> owns SMTP authentication and classification. This historical plan is retained
+> for review provenance only and is not an active dependency or acceptance gate.
 
 Status: independently reviewed and approved for implementation. Base candidate is
 `origin/main` at

@@ -19,8 +19,9 @@ insert.
   adapters, `BackfillProducer` preview/start/discovery primitives,
   `ForegroundSync`, durable jobs/events/H0/intent/mapping repositories, and the
   reviewed runtime composition seam.
-- Missing for the live product path: real OAuth/profile binding, verified
-  source-Gmail-path attestation, and the provider-bound admission path. The
+- Missing for the live product path: real OAuth/profile binding and the
+  controlled live Gmail operation. Source-path attestation is not a Facet
+  requirement; the active admission path is metadata plus exact rules. The
   synthetic CLI consumer and subprocess restart path are now implemented and
   tested; they do not provide live Gmail evidence.
 
@@ -28,7 +29,7 @@ insert.
 
 One implementation path will own OAuth/binding, persisted rules, preview/start,
 runtime dispatch, and the fake-Gmail subprocess harness. Keep raw mail in memory,
-unknown authenticity in attention, preview write-free, explicit backfill start,
+metadata/provider errors in attention, preview write-free, explicit backfill start,
 durable ordering, unknown-insert recovery, stopped generations, single writer,
 credential ownership, account/scope checks, and aggregate-only output.
 
@@ -45,8 +46,8 @@ safety, and a subprocess E2E using only fake OAuth/Gmail transport. The fake may
 replace provider interactions but may not write credentials, verified bindings,
 rules, epochs, or readiness directly to SQLite. Real Gmail account selection,
 scope changes, live writes/repair, deployment, and release remain separately
-authorized. Automatic admission must use a real source-path attestation
-producer; fake evidence is test-only and cannot close that live gate.
+authorized. Fake transport replaces only Gmail/OAuth interactions and does not
+seed readiness, bindings, rules, epochs or mappings.
 
 This is a minimal revision to the next execution-plan ordering, not a new Phase
 1 contract or a waiver of M1–M6 acceptance gates.
@@ -63,10 +64,9 @@ this without database readiness seeding. The focused closure/credential/
 command-operation tests passed 67 cases, and the complete offline suite passed
 2495 tests.
 
-This does not close live automatic admission. The non-fake authorization path
-still returns `source_auth_required`, and the fake runner uses test-only source
-attestation evidence. A real OAuth flow and verified Gmail source-path
-attestation remain the next external/provider-bound implementation gap.
+This does not close live Gmail verification. A real OAuth/profile operation and
+the separately authorized mailbox test remain external gates; source-path
+attestation is not part of the Facet admission contract.
 
 ### Minimal candidate revision after implementation review
 

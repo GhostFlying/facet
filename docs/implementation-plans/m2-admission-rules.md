@@ -1,14 +1,15 @@
 # M2 Admission, Rules and Readonly Action Consumer
 
-Status: amended after independent plan-review BLOCK; awaiting nonauthor
+Status: historical plan superseded by the 2026-10-05 metadata/rule admission decision;
+implementation is now recorded in the current source/admission tests. The old
+authentication-specific text below is retained for review provenance only.
+Previous status: amended after independent plan-review BLOCK; awaiting nonauthor
 re-review. This plan is based on exact `origin/main`
 SHA `a854cb61b282ad102f61f54be532128bdd21c0f5` and authorizes no code,
 credential operation, Gmail request, deployment, publication or merge.
 
-This is the policy slice for the first automatic discovery/backfill and normal
-History path. It supplies deterministic sender/domain rules, blacklist
-precedence, fixed offline PSL/IDNA normalization, an admission result that
-routes untrusted or unknown authenticity to attention, and the concrete typed
+This historical policy slice supplied deterministic sender/domain rules, blacklist
+precedence, fixed offline PSL/IDNA normalization, and the concrete typed
 consumer of the existing readonly `AI/AddSender`, `AI/AddDomain` and
 `AI/BlackList` action producer. It does not add a per-thread product selector,
 source mutation, convenience-label cleanup, or a generic provider/plugin

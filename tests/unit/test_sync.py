@@ -149,7 +149,7 @@ class _RetryAction:
         raise StorageFailure(ErrorCode.SOURCE_AUTH_REQUIRED)
 
 
-def test_source_candidate_admission_keeps_authentication_typed():
+def test_source_candidate_admission_uses_metadata_and_rules_only():
     candidate = DiscoveryCandidate(
         ProviderId("m-candidate"),
         ProviderId("thread-candidate"),
@@ -158,7 +158,6 @@ def test_source_candidate_admission_keeps_authentication_typed():
         Visibility.NORMAL,
         False,
         Timestamp(datetime(2026, 4, 1, tzinfo=UTC)),
-        None,
     )
 
     class CandidateSource:
@@ -176,14 +175,12 @@ def test_source_candidate_admission_keeps_authentication_typed():
             ),
         ),
         source_account=PrivateAddress("source@example.com"),
-        binding_revision=Revision(1),
-        credential_revision=Revision(1),
     )
     result = SourceCandidateAdmission(CandidateSource(), policy).evaluate(
         DiscoveryItem(ProviderId("m-candidate"), ProviderId("thread-candidate")),
         object(),
     )
-    assert result.attention is ErrorCode.SOURCE_AUTH_REQUIRED
+    assert result.admit is True
 
 
 @pytest.fixture
