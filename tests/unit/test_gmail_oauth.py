@@ -82,10 +82,20 @@ def test_container_secret_contract_allows_readable_non_private_parent(
     path.write_text(json.dumps(_client()))
     path.chmod(0o440)
     monkeypatch.setattr(oauth_module, "_CONTAINER_SECRET_PARENT", parent)
+    monkeypatch.setattr(oauth_module.os, "geteuid", lambda: 4242)
     assert read_desktop_client(path).client_id.value == "synthetic-client"
     path.chmod(0o460)
     with pytest.raises(StorageFailure) as caught:
         read_desktop_client(path)
+    assert caught.value.code is ErrorCode.SCOPE_REQUIRED
+    ordinary = tmp_path / "ordinary"
+    ordinary.mkdir()
+    ordinary.chmod(0o700)
+    ordinary_path = ordinary / "client.json"
+    ordinary_path.write_text(json.dumps(_client()))
+    ordinary_path.chmod(0o600)
+    with pytest.raises(StorageFailure) as caught:
+        read_desktop_client(ordinary_path)
     assert caught.value.code is ErrorCode.SCOPE_REQUIRED
 
 
