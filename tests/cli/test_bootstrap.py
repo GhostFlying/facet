@@ -487,6 +487,17 @@ def test_gmail_auth_status_is_offline_metadata_only(tmp_path):
     assert "source@example.com" not in json.dumps(status)
     assert "target@example.com" not in json.dumps(status)
 
+    public = invoke("gmail", "auth-status", "--public")
+    assert set(public["data"]["roles"][0]) == {
+        "role",
+        "mode",
+        "auth_state",
+        "last_verified_at",
+        "freshness",
+    }
+    assert "expires_at" not in json.dumps(public)
+    assert "maintenance_required" not in json.dumps(public)
+
     with sqlite3.connect(state / "facet.db") as connection:
         connection.execute(
             "UPDATE projections SET binding_state='verification_pending'"

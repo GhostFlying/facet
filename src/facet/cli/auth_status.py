@@ -99,10 +99,11 @@ def _has_open_change(
     return bool(rows)
 
 
-def _base(binding):
+def _base(binding, config, role: Role):
     result = {
         "role": binding.role.value,
         "binding_state": binding.state.value,
+        "scope_policy": _expected_policy(config, role).value,
         "unresolved_change": False,
     }
     if binding.verified_at is not None:
@@ -119,7 +120,7 @@ def _role_status(
     role: Role,
     sampled_at: Timestamp,
 ):
-    result = _base(binding)
+    result = _base(binding, config, role)
     projection = config.projection.id.value
     if _has_open_change(connection, projection, role):
         return {
@@ -211,9 +212,26 @@ def _role_status(
             else "verified"
         ),
         "code": None,
-        "scope_policy": envelope.scope_policy.value,
         "profile_verified_at": _time(envelope.profile_verified_at),
         "expires_at": _time(envelope.secret.expires_at),
+    }
+
+
+def _public_role(item: dict) -> dict:
+    """Project one role onto the existing public RoleStatus boundary."""
+
+    policy_to_mode = {
+        "source_readonly": "source_readonly",
+        "source_convenience": "source_convenience",
+        "target_default": "target_insert_readonly",
+        "target_labels": "target_insert_readonly_labels",
+    }
+    return {
+        "role": item["role"],
+        "mode": policy_to_mode[item["scope_policy"]],
+        "auth_state": item["binding_state"],
+        "last_verified_at": item.get("binding_verified_at"),
+        "freshness": "stale",
     }
 
 
@@ -275,7 +293,9 @@ def read_auth_status(options) -> dict:
                     if role is Role.SOURCE
                     else config.projection.target_email
                 )
-            roles.append(item)
+            roles.append(
+                _public_role(item) if getattr(options, "public", False) else item
+            )
         connection.rollback()
         return {
             "offline": True,
