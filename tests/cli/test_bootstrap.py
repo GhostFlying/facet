@@ -5,6 +5,8 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,7 +14,7 @@ import pytest
 
 from facet.cli import bootstrap
 from facet.config import ConfigError
-from facet.contracts import ErrorCode, Role
+from facet.contracts import ErrorCode, Role, Timestamp
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = b"""projection:
@@ -438,6 +440,159 @@ def test_fake_cli_sync_closure_survives_restart_without_duplicate_insert(tmp_pat
         assert connection.execute(
             "SELECT COUNT(*) FROM insert_attempts WHERE state='verified'"
         ).fetchone() == (1,)
+
+
+def test_gmail_auth_status_is_offline_metadata_only(tmp_path):
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    trusted_root = Path(
+        tempfile.mkdtemp(prefix="facet-auth-status-", dir=f"/run/user/{os.geteuid()}")
+    )
+    state = trusted_root / "state"
+
+    def invoke(*arguments):
+        result = run(tmp_path, env, "--state-dir", str(state), *arguments)
+        assert result.returncode == 0, result.stderr + result.stdout
+        return json.loads(result.stdout)
+
+    invoke(
+        "init",
+        "--source",
+        "source@example.com",
+        "--target",
+        "target@example.com",
+        "--yes",
+        "--request-id",
+        "rq1_00000000000040008000000000000041_00000000000040008000000000000042",
+    )
+    pending = invoke("gmail", "auth-status")
+    assert {item["credential_state"] for item in pending["data"]["roles"]} == {
+        "pending"
+    }
+    invoke(
+        "auth",
+        "authorize",
+        "--fake",
+        "--yes",
+        "--request-id",
+        "00000000000040008000000000000043",
+    )
+    status = invoke("gmail", "auth-status")
+    data = status["data"]
+    assert data["offline"] is True
+    assert data["live_health"] == "unknown"
+    assert {item["credential_state"] for item in data["roles"]} == {"verified"}
+    assert all("address" not in item for item in data["roles"])
+    assert "source@example.com" not in json.dumps(status)
+    assert "target@example.com" not in json.dumps(status)
+
+    public = invoke("gmail", "auth-status", "--public")
+    assert set(public["data"]["roles"][0]) == {
+        "role",
+        "mode",
+        "auth_state",
+        "last_verified_at",
+        "freshness",
+    }
+    assert "expires_at" not in json.dumps(public)
+    assert "maintenance_required" not in json.dumps(public)
+
+    with sqlite3.connect(state / "facet.db") as connection:
+        connection.execute(
+            "UPDATE projections SET binding_state='verification_pending'"
+        )
+        connection.commit()
+    inconsistent = run(
+        tmp_path,
+        env,
+        "--state-dir",
+        str(state),
+        "--json",
+        "gmail",
+        "auth-status",
+    )
+    assert inconsistent.returncode == 7
+    assert json.loads(inconsistent.stdout)["code"] == "consistency_failure"
+    with sqlite3.connect(state / "facet.db") as connection:
+        connection.execute("UPDATE projections SET binding_state='verified'")
+        connection.commit()
+
+    private = invoke("gmail", "auth-status", "--private-metadata")
+    assert {item["address"] for item in private["data"]["roles"]} == {
+        "source@example.com",
+        "target@example.com",
+    }
+
+    from facet.gmail.credential_codec import decode_envelope, encode_envelope
+
+    source = state / "credentials" / "source.json"
+    envelope = decode_envelope(source.read_bytes())
+    expired = replace(
+        envelope,
+        secret=replace(
+            envelope.secret,
+            expires_at=Timestamp(datetime.now(UTC) - timedelta(minutes=1)),
+        ),
+    )
+    expired_raw = encode_envelope(expired)
+    source.write_bytes(expired_raw)
+    with sqlite3.connect(state / "facet.db") as connection:
+        connection.execute(
+            "UPDATE credential_changes SET envelope_digest=?,expires_at=? "
+            "WHERE role='source' AND phase='committed'",
+            (
+                hashlib.sha256(expired_raw).hexdigest(),
+                int(expired.secret.expires_at.value.timestamp() * 1_000_000),
+            ),
+        )
+        connection.commit()
+    expired_status = invoke("gmail", "auth-status")
+    source_status = next(
+        item for item in expired_status["data"]["roles"] if item["role"] == "source"
+    )
+    assert source_status["credential_state"] == "expired"
+
+    source.write_bytes(b"invalid credential sentinel")
+    malformed = invoke("gmail", "auth-status")
+    source_status = next(
+        item for item in malformed["data"]["roles"] if item["role"] == "source"
+    )
+    assert source_status["credential_state"] == "attention"
+    assert source_status["code"] == "invalid_input"
+
+    with sqlite3.connect(state / "facet.db") as connection:
+        connection.execute(
+            "UPDATE credential_changes SET phase='attention',"
+            "error='maintenance_required' WHERE role='source' "
+            "AND phase='committed'"
+        )
+        connection.commit()
+    unresolved = invoke("gmail", "auth-status")
+    source_status = next(
+        item for item in unresolved["data"]["roles"] if item["role"] == "source"
+    )
+    assert source_status["credential_state"] == "attention"
+    assert source_status["unresolved_change"] is True
+
+    (state / "credentials" / "target.json").unlink()
+    missing = invoke("gmail", "auth-status")
+    target_status = next(
+        item for item in missing["data"]["roles"] if item["role"] == "target"
+    )
+    assert target_status["credential_state"] == "missing"
+    assert target_status["code"] == "target_auth_required"
+
+    with sqlite3.connect(state / "facet.db") as connection:
+        connection.execute("UPDATE bindings SET state='mismatch' WHERE role='target'")
+        connection.execute("UPDATE projections SET binding_state='auth_required'")
+        connection.commit()
+    mismatch = invoke("gmail", "auth-status")
+    target_status = next(
+        item for item in mismatch["data"]["roles"] if item["role"] == "target"
+    )
+    assert target_status["credential_state"] == "attention"
+    assert target_status["code"] == "binding_mismatch"
 
 
 def test_fake_cli_tampered_raw_stops_before_target_insert(tmp_path, monkeypatch):
