@@ -1,6 +1,6 @@
 # Dedicated target-account deployment constraint
 
-Date: 2026-10-05. Revision: 3. Status: awaiting independent plan review.
+Date: 2026-10-05. Revision: 4. Status: awaiting independent plan review.
 Base: `1398549` (current `origin/main`).
 
 ## Goal
@@ -59,6 +59,15 @@ real account or mailbox is inspected.
   fail closed on an unexpected target, while target audit reports unmanaged
   content and repair remains explicit and bounded. Do not invent a new
   mutation command, auto-cleanup flag, or mailbox ownership mechanism.
+- `docs/phase-1-execution-plan.md`, `docs/development-status.md`, and
+  `docs/project-plan.md`: update the authoritative/current deployment and
+  milestone passages that still describe unmanaged target content as a
+  warning that may remain. Replace them with the same sequencing and boundary:
+  operator attestation before OAuth; target OAuth followed by read-only
+  account/content checks before first projection/insert; unexpected content or
+  mismatch blocks/report-only; no automatic claim, delete, cleanup, or
+  migration. Historical evidence may remain explicitly labeled historical,
+  but current acceptance text must not contradict the new prerequisite.
 
 ## Contract details to preserve
 
@@ -97,6 +106,10 @@ real account or mailbox is inspected.
   examples only; it does not call OAuth consent a mailbox write.
 - `cli-spec.md` (if updated) matches the same fail-closed setup/deployment and
   report-only audit semantics without introducing a cleanup or claim command.
+- `phase-1-execution-plan.md`, `development-status.md`, and `project-plan.md`
+  contain no current operational passage that permits unmanaged target content
+  to pass setup/deployment; any retained older wording is explicitly marked
+  historical and linked to the current contract.
 - Documentation review finds no contradictory instruction that allows
   automatic target deletion, adoption, relabeling, or silent cleanup. Links,
   headings, and Markdown formatting remain valid; `git diff --check` and the
