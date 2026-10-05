@@ -1,7 +1,7 @@
 # Container deployment and OAuth setup verification
 
-Date: 2026-10-05. Revision: 4. Status: awaiting independent plan review.
-Base: `b139ca94564cc4fb439fcd6e759585c8b1572df4`.
+Date: 2026-10-05. Revision: 6. Status: awaiting independent plan review.
+Base: `56a4f26` (current `origin/main`).
 
 ## Goal
 
@@ -73,7 +73,15 @@ The existing empty `.facet/production` tree remains untouched.
   internal bind-address argument to the setup/OAuth call; permit only
   `127.0.0.1` and `0.0.0.0`, defaulting to `127.0.0.1`, and never infer a
   wildcard bind from the host port publication. The Compose setup profile is
-  the only documented caller of the internal `0.0.0.0` value.
+  the only documented caller of the internal `0.0.0.0` value. Add the
+  `FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS` environment input only to the
+  supported setup OAuth path: absent means 900 seconds; a base-10 integer is
+  accepted only in the inclusive 60..1800-second range. Empty, non-integer,
+  negative, zero, or out-of-range values fail closed during setup preflight
+  before the authorizer/listener is called. Pass the validated value through
+  an explicit internal argument rather than reading the environment in the
+  generic authorizer, and do not alter other auth commands, OAuth scopes,
+  credential ownership, or listener exposure.
 - `tests/unit/test_gmail_oauth.py`, `tests/cli/test_setup.py`, and a focused
   container/Compose test module: synthetic mounted-secret and state-root
   fixtures, final-root ownership/mode checks, trusted host-ancestor fixtures
@@ -88,7 +96,9 @@ The existing empty `.facet/production` tree remains untouched.
   named-volume versus explicitly provisioned bind ownership/mode expectations,
   immutable `FACET_IMAGE`, the exact setup-profile loopback mapping and
   container-internal bind address, and
-  explicit stop gates. State clearly that offline tests do
+  explicit stop gates. Document the timeout environment input, its default and
+  bounds, and that expiration requires a new setup request after checking
+  uninitialized state. State clearly that offline tests do
   not prove Google consent, mailbox ownership, live Gmail, image publication,
   or host deployment.
 
@@ -119,7 +129,9 @@ The existing empty `.facet/production` tree remains untouched.
   host loopback, explicit container bind, invalid-bind refusal, and no network
   calls. Docker daemon/build and live
    OAuth checks are recorded only when externally available and are not
-   claimed by this unit.
+   claimed by this unit. Add focused tests for the default, valid bounded
+   override, malformed/empty/negative/zero/too-small/too-large values, and
+   proof that invalid values do not call the authorizer or create state.
 
 ## Risks and stop gates
 
@@ -127,6 +139,11 @@ The existing empty `.facet/production` tree remains untouched.
   material outside manager-owned paths, or relax no-follow and final-root
   ownership checks. If Docker's secret UID/mode behavior cannot satisfy the
   exact reader contract, stop and report the smallest contract decision.
+- Keep `FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS` limited to setup OAuth. Do not
+  turn it into a general runtime setting, silently coerce invalid values, or
+  use it to change callback bind addresses, scopes, credentials, or state
+  ownership. Any need to change the 60..1800-second bounds or apply the input
+  to another auth path requires a new plan revision.
 - Do not use a host path, real Google client, real account, OAuth browser,
   network, registry, image publication, host deployment, permission rewrite,
   or `.facet/production` contents as test evidence. No live operation is
