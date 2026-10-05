@@ -99,6 +99,19 @@ def _backup_fsync(path: Path, *, directory: bool = False) -> None:
         os.close(descriptor)
 
 
+def _stat_security_fields(info) -> tuple[int, int, int, int, int, int, int]:
+    """Return stat fields relevant to credential identity and access safety."""
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_uid,
+        info.st_gid,
+        info.st_nlink,
+        info.st_size,
+    )
+
+
 def _request_parts(request_id: str | None) -> tuple[LocalId, LocalId]:
     if request_id is None:
         return _new_id(), _new_id()
@@ -556,11 +569,29 @@ class StateOwner:
                 descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
                 try:
                     before = os.fstat(descriptor)
-                    if before != source.lstat() or before.st_size > 1048576:
+                    try:
+                        before_path = source.lstat()
+                    except OSError:
+                        _invalid(ErrorCode.SCOPE_REQUIRED)
+                    if (
+                        _stat_security_fields(before)
+                        != _stat_security_fields(before_path)
+                        or before.st_size > 1048576
+                    ):
                         _invalid(ErrorCode.SCOPE_REQUIRED)
                     with os.fdopen(descriptor, "rb", closefd=False) as stream:
                         content = stream.read(1048577)
-                    if len(content) > 1048576 or os.fstat(descriptor) != before:
+                    after = os.fstat(descriptor)
+                    try:
+                        after_path = source.lstat()
+                    except OSError:
+                        _invalid(ErrorCode.SCOPE_REQUIRED)
+                    if (
+                        len(content) > 1048576
+                        or _stat_security_fields(after) != _stat_security_fields(before)
+                        or _stat_security_fields(after_path)
+                        != _stat_security_fields(before)
+                    ):
                         _invalid(ErrorCode.SCOPE_REQUIRED)
                 finally:
                     os.close(descriptor)
