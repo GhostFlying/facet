@@ -44,13 +44,18 @@ def effective(connection, projection_id: ProjectionId) -> dict[ActionKind, str]:
 
 
 def mutate(
-    owner, request_id: LocalId, kind: ActionKind, name: str | None, now: Timestamp
+    owner,
+    request_id: LocalId,
+    kind: ActionKind,
+    name: str | None,
+    now: Timestamp,
+    config_bytes: bytes,
 ):
     if type(request_id) is not LocalId or type(kind) is not ActionKind:
         raise StorageFailure(ErrorCode.INVALID_INPUT)
     if name is not None:
         _valid_name(name)
-    owner.ensure_action_label_schema()
+    owner.ensure_action_label_schema(request_id, config_bytes)
     connection = owner._connection
     prior = connection.execute(
         "SELECT action_kind,operation,label_name,revision FROM action_label_receipts "

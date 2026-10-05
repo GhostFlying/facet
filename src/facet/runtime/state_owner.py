@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import sqlite3
 import stat
 from contextlib import contextmanager, suppress
@@ -473,7 +474,9 @@ class StateOwner:
             _invalid(ErrorCode.OWNER_UNAVAILABLE)
         return self._session
 
-    def ensure_action_label_schema(self) -> None:
+    def ensure_action_label_schema(
+        self, request_id: LocalId, config_bytes: bytes
+    ) -> None:
         """Upgrade an owned v2 database to the closed v3 label catalogue."""
         from facet.db.migrations import (
             _FRESH_V2_MANIFEST,
@@ -483,12 +486,40 @@ class StateOwner:
         )
         from facet.db.schema import _inspect_manifest
 
+        if type(request_id) is not LocalId or type(config_bytes) is not bytes:
+            _invalid(ErrorCode.INVALID_INPUT)
         connection = self._connection
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version == 3:
             return
         if version != 2:
             _invalid(ErrorCode.MAINTENANCE_REQUIRED)
+        backup_root = self._state_dir / "backups"
+        bundle = backup_root / f"action-label-v3-{request_id.value}"
+        temporary = backup_root / f".action-label-v3-{request_id.value}.tmp"
+        try:
+            backup_root.mkdir(mode=0o700, exist_ok=True)
+            if bundle.exists() or temporary.exists():
+                _invalid(ErrorCode.REQUEST_CONFLICT)
+            temporary.mkdir(mode=0o700)
+            (temporary / "config.yaml").write_bytes(config_bytes)
+            os.chmod(temporary / "config.yaml", 0o600)
+            for name in ("source.json", "target.json"):
+                source = self._state_dir / "credentials" / name
+                if not source.is_file() or source.is_symlink():
+                    _invalid(ErrorCode.MAINTENANCE_REQUIRED)
+                shutil.copyfile(source, temporary / name)
+                os.chmod(temporary / name, 0o600)
+            snapshot = sqlite3.connect(temporary / "facet.db", autocommit=True)
+            try:
+                connection.backup(snapshot)
+            finally:
+                snapshot.close()
+            os.replace(temporary, bundle)
+        except BaseException:
+            if temporary.exists():
+                shutil.rmtree(temporary, ignore_errors=True)
+            raise
         _inspect_manifest(connection, _FRESH_V2_MANIFEST)
         connection.execute("BEGIN IMMEDIATE")
         try:

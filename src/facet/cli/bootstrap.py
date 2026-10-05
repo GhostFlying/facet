@@ -1396,7 +1396,9 @@ def _rules_action_label(options: object) -> tuple[dict, tuple[str, ...]]:
     owner = StateOwner.open(paths.root, config)
     try:
         owner.verify_config_artifact(raw)
-        result = mutate(owner, request_id, kind, name, Timestamp(datetime.now(UTC)))
+        result = mutate(
+            owner, request_id, kind, name, Timestamp(datetime.now(UTC)), raw
+        )
         return {"kind": kind.value, "name": name or DEFAULTS[kind], **result}, ()
     finally:
         owner.close()
