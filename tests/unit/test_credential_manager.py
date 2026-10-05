@@ -556,6 +556,7 @@ def test_cli_reauthorizes_verified_role_with_fresh_operation(
     ("failure", "expected"),
     (
         ("callback", ErrorCode.SOURCE_AUTH_REQUIRED),
+        ("expired", ErrorCode.SOURCE_AUTH_REQUIRED),
         ("scope", ErrorCode.SCOPE_REQUIRED),
         ("account", ErrorCode.BINDING_MISMATCH),
     ),
@@ -574,8 +575,17 @@ def test_cli_reauthorize_rejects_prepublication_failure_and_replays_code(
         def authorize(self, role, client, scopes, *, port):
             if failure == "callback":
                 raise StorageFailure(ErrorCode.SOURCE_AUTH_REQUIRED)
+            secret = _future_secret("failed-prepublication")
+            if failure == "expired":
+                secret = ProviderSecret(
+                    secret.client_id,
+                    secret.client_secret,
+                    secret.access_token,
+                    secret.refresh_token,
+                    Timestamp(FUTURE.value - timedelta(seconds=1)),
+                )
             return OAuthResult(
-                _future_secret("failed-prepublication"),
+                secret,
                 expected_scopes
                 if failure == "account"
                 else policy_scopes(ScopePolicy.TARGET_DEFAULT, Role.TARGET),

@@ -800,7 +800,7 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
         RefreshResult,
         policy_scopes,
     )
-    from facet.gmail.credentials import CredentialManager
+    from facet.gmail.credentials import CredentialManager, _owner_now
     from facet.gmail.oauth import GoogleOAuthAuthorizer, read_desktop_client
     from facet.gmail.service_factory import GoogleGmailServiceFactory
     from facet.private_paths import read_managed_config
@@ -1022,6 +1022,20 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
 
         probe = OAuthProfileProbe()
         if reauthorize:
+            try:
+                secret_expiry = oauth_result.secret.expires_at
+                expired = secret_expiry.value <= _owner_now().value
+            except Exception:
+                reject_before_publication(ErrorCode.INVALID_INPUT)
+                raise ConfigError(ErrorCode.INVALID_INPUT) from None
+            if expired:
+                code = (
+                    ErrorCode.SOURCE_AUTH_REQUIRED
+                    if role is Role.SOURCE
+                    else ErrorCode.TARGET_AUTH_REQUIRED
+                )
+                reject_before_publication(code)
+                raise ConfigError(code)
             try:
                 evidence = probe.get_profile(role, oauth_result.secret)
             except StorageFailure as error:
