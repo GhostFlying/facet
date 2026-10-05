@@ -96,6 +96,17 @@ def build_parser() -> _Parser:
     _mutations(init)
     init.add_argument("--source")
     init.add_argument("--target")
+    setup = commands.add_parser(
+        "setup",
+        add_help=False,
+        allow_abbrev=False,
+        help="authorize and bind a new production projection interactively",
+    )
+    _common(setup)
+    setup.add_argument("--oauth-client", required=True)
+    setup.add_argument("--port", type=int, default=8080)
+    setup.add_argument("--request-id", required=True)
+    setup.add_argument("--yes", action="store_true")
     config = commands.add_parser(
         "config",
         add_help=False,
@@ -859,6 +870,143 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
         owner.close()
 
 
+def _setup_command(options: object) -> tuple[dict, tuple[str, ...]]:
+    """Bind a new projection through two explicit interactive OAuth grants."""
+
+    if (
+        getattr(options, "config_path", None) is not None
+        or getattr(options, "json", False)
+        or getattr(options, "public", False)
+        or getattr(options, "private_metadata", False)
+        or not sys.stdin.isatty()
+        or not sys.stdout.isatty()
+        or not sys.stderr.isatty()
+    ):
+        raise ConfigError(ErrorCode.CONFIRMATION_REQUIRED)
+    try:
+        from facet.db.command_records import RequestId
+
+        request_id = RequestId(options.request_id)
+        parts = request_id.value.split("_")
+        request_nonce = LocalId(parts[2])
+        port = int(options.port)
+    except (TypeError, ValueError):
+        raise ConfigError(ErrorCode.INVALID_INPUT) from None
+    if not 1024 <= port <= 65535:
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+
+    paths = select_paths(getattr(options, "state_dir", None), None)
+    try:
+        if inspect_state_root(paths.root):
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        parent = paths.root.parent.stat(follow_symlinks=False)
+    except FileNotFoundError:
+        raise ConfigError(ErrorCode.OWNER_UNAVAILABLE) from None
+    if (
+        not stat.S_ISDIR(parent.st_mode)
+        or parent.st_uid != os.geteuid()
+        or stat.S_IMODE(parent.st_mode) & 0o77
+    ):
+        raise ConfigError(ErrorCode.SCOPE_REQUIRED)
+
+    from facet.db import command_store
+    from facet.gmail.credential_models import ScopeName, ScopeSet
+    from facet.gmail.credentials import CredentialManager, ProfileEvidence
+    from facet.gmail.oauth import GoogleOAuthAuthorizer, read_desktop_client
+    from facet.gmail.service_factory import GoogleGmailServiceFactory
+    from facet.runtime.state_owner import StateOwner
+
+    source_scopes = ScopeSet(frozenset({ScopeName.GMAIL_READONLY}))
+    target_scopes = ScopeSet(
+        frozenset({ScopeName.GMAIL_INSERT, ScopeName.GMAIL_READONLY})
+    )
+    expected = {Role.SOURCE: source_scopes, Role.TARGET: target_scopes}
+    client = read_desktop_client(options.oauth_client)
+    authorizer = GoogleOAuthAuthorizer()
+    factory = GoogleGmailServiceFactory()
+    grants = {}
+    profiles = {}
+    for role in (Role.SOURCE, Role.TARGET):
+        result = authorizer.authorize(
+            role,
+            client,
+            expected[role],
+            port=port,
+            strict_setup=True,
+        )
+        if result.scopes != expected[role]:
+            raise ConfigError(ErrorCode.SCOPE_REQUIRED)
+        account = factory.profile_account(role, result.secret)
+        profile = ProfileEvidence(account, result.scopes)
+        grants[role] = result.secret
+        profiles[role] = profile
+    if (
+        profiles[Role.SOURCE].account.value.casefold()
+        == profiles[Role.TARGET].account.value.casefold()
+    ):
+        raise ConfigError(ErrorCode.BINDING_MISMATCH)
+
+    config = initial_template(
+        profiles[Role.SOURCE].account.value,
+        profiles[Role.TARGET].account.value,
+        getattr(options, "projection", None) or "gmail-default",
+    )
+    raw = dump_config(config)
+    print(
+        "Facet will bind the discovered source and target accounts with the default "
+        "read/insert scopes. Setup performs no Gmail message or label writes and "
+        "does not start preview, backfill, or sync.",
+        file=sys.stderr,
+    )
+    print(
+        f"setup request: {request_id.value}; source role key: "
+        f"{_auth_role_nonce(request_nonce, Role.SOURCE).value}; target role key: "
+        f"{_auth_role_nonce(request_nonce, Role.TARGET).value}",
+        file=sys.stderr,
+    )
+    print(
+        f"source={profiles[Role.SOURCE].account.value} "
+        f"target={profiles[Role.TARGET].account.value}",
+        file=sys.stderr,
+    )
+    print("Type 'confirm' to create the local binding:", file=sys.stderr)
+    if sys.stdin.readline().strip() != "confirm":
+        raise ConfigError(ErrorCode.CONFIRMATION_REQUIRED)
+    if inspect_state_root(paths.root):
+        raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+
+    owner = StateOwner.create(paths.root, config, raw, request_id.value)
+    try:
+        _write_config(paths.config, raw)
+        manager = CredentialManager(owner.state_dir, config, owner)
+        operation_ids = {}
+        for role in (Role.SOURCE, Role.TARGET):
+            role_nonce = _auth_role_nonce(request_nonce, role)
+            with owner.session.transaction() as uow:
+                operation_ids[role] = command_store.authorize_operation(
+                    uow, config.projection.id, role, role_nonce
+                )
+
+            class OAuthProfileProbe:
+                def get_profile(self, probe_role, secret):
+                    account = factory.profile_account(probe_role, secret)
+                    return ProfileEvidence(account, profiles[probe_role].scopes)
+
+            manager.authorize_role(
+                role,
+                grants[role],
+                OAuthProfileProbe(),
+                operation_ids[role],
+            )
+            with owner.session.transaction() as uow:
+                command_store.complete_authorize_operation(
+                    uow, config.projection.id, operation_ids[role]
+                )
+    finally:
+        owner.close()
+    return {"state_initialized": True, "binding_state": "verified"}, ()
+
+
 def _auth_authorize(options: object) -> tuple[dict, tuple[str, ...]]:
     if not getattr(options, "fake", False):
         return _auth_authorize_oauth(options)
@@ -1588,6 +1736,10 @@ def main(argv: list[str] | None = None) -> int:
             command = "init"
             data, warnings = _init_command(options)
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
+        if options.family == "setup":
+            command = "setup"
+            data, warnings = _setup_command(options)
+            return _emit(command, data=data, warnings=warnings, json_mode=False)
         if options.family == "run":
             command = "run"
             if getattr(options, "once", False):
