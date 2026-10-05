@@ -75,19 +75,12 @@ as active gates.
   with fake Gmail/OAuth transport, followed by a separately authorized
   controlled Gmail run.
 
-- PR #73 is integrated at main `8c241c8d62c92426815664a9957cdfadbd2bec36`.
-  The clean CLI subprocess path now uses the real `DkimSourceAuthProvider`
-  against a deterministic signed fake raw message and public DNS key; the fake
-  runner no longer constructs synthetic `VerifiedSourceEvidence`. Its positive
-  path completed init, fake role authorization, sender rule, write-free
-  preview, explicit start, discovery, DKIM admission, insert/readback,
-  durable mapping, and a second-process zero-duplicate run. A command/runtime
-  negative path mutated only the in-memory fake raw after those commands and
-  recorded `needs_attention` with zero insert attempts and mappings. The exact
-  candidate passed 2546 offline tests, independent implementation review,
-  Python 3.12/3.13 CI, no-publish image build, Ruff/format/lock/safety checks.
-  This is implemented and offline-verified; it is not live-Gmail-verified and
-  does not close G1 or Phase 1.
+- Historical PR #73 (`8c241c8d62c92426815664a9957cdfadbd2bec36`) proved the
+  earlier signed-fake CLI path. Its DKIM/provider-specific admission behavior
+  is superseded by the 2026-10-05 decision and is not a current gate. The
+  durable CLI evidence (init, role authorization, sender rule, write-free
+  preview, explicit start, discovery, insert/readback, mapping and restart
+  continuation) remains valid and is re-tested by the metadata-only candidate.
 
 - Candidate `aa646bb` adds `facet recovery list/show/check`.
   It creates an unknown insert only through the production insert-intent path in
@@ -122,10 +115,10 @@ as active gates.
   `bbddd4c`; the final offline suite passed 2516 tests, focused evidence passed
   52 tests, and candidate Python 3.12/3.13 plus no-publish image CI passed.
   This proves the supported one-process composition and aggregate Dashboard,
-  not live Gmail projection, trusted automatic admission, action-label
+  not live Gmail projection, action-label
   production wiring, or Phase 1 completion.
 - The next product-critical delivery is production action-label consumer wiring
-  plus the remaining source-path admission and recovery boundaries. A real
+  plus the remaining recovery boundaries. A real
   Gmail run still requires explicit live-account/test-scope authorization; no
   such operation was performed by PR #55.
 - PR #57 is integrated at main `5b6097f3f0a6e0ab2a0bf55157a9e9f7518bf5a8`.
@@ -137,7 +130,7 @@ as active gates.
   candidate `d94e4bc715484c7b5fbeaa9fab13318f821defa3`; focused
   adapter/runtime/action tests passed 25 and the full local offline suite
   passed 2519. Candidate CI passed before merge; this still does not prove a
-  live Gmail action event or source-path attestation.
+  live Gmail action event.
 
 - The offline maintenance CLI unit is integrated in PR #59 at main merge
   `2033be505e36217da7dbaf2b547caeef5819260b` (implementation candidate
@@ -154,7 +147,7 @@ as active gates.
   passed. SQLite's normal `-wal`/`-shm` coordination sidecars may appear on a
   read snapshot; no business rows, config, credentials or mail content are
   written. This closes only the offline status/doctor unit, not the complete
-  CLI, source-path attestation, live Gmail, recovery, deployment or Phase 1
+  CLI, live Gmail, recovery, deployment or Phase 1
   gates.
 
 - The exact domain-rule mutation is integrated in PR #61 at main merge
@@ -166,8 +159,8 @@ as active gates.
   tests, 105 related rule/admission/action tests, 2530 full offline tests,
   Ruff/format/safety, wheel import/help smoke, independent implementation
   review, and Python 3.12/3.13 plus no-publish image CI. This adds maintenance
-  rule control only; it does not resolve source-path attestation, automatic
-  production admission, live Gmail, recovery, or final Phase 1 gates.
+  rule control only; it does not resolve live Gmail, recovery, or final Phase 1
+  gates.
 
 - The explainable backfill-preview unit is integrated in PR #63 at main merge
   `440b0de` (implementation candidate `3d62c21`; plan:
@@ -178,8 +171,7 @@ as active gates.
   CLI/status tests, 46 backfill/epoch/sync tests, 2530 full offline tests,
   Ruff/format/safety, wheel help smoke, independent review, and Python
   3.12/3.13 plus no-publish image CI. This closes preview explainability only;
-  it does not resolve source-path attestation, automatic production admission,
-  live Gmail, recovery, deployment, or final Phase 1 gates.
+  it does not resolve live Gmail, recovery, deployment, or final Phase 1 gates.
 
 - The aggregate maintenance-view unit is integrated in PR #65 at main merge
   `535e096` (implementation candidate `4835a42`; plan:
@@ -308,18 +300,16 @@ as active gates.
   `4c07766` and `a61c474`; both Python lanes passed for the follow-up. The
   remaining non-gate hardening note is cleanup of a manager-owned `.pending`
   temp file after a pre-replace write/fsync failure.
-- M2 PR #36 is integrated at main `28077e4`. It delivers only the fixed,
+- Historical M2 PR #36 is integrated at main `28077e4`. It delivered only the fixed,
   offline policy/rules and typed attention-first admission seam: exact sender/
   domain matching, bundled PSL/IDNA, blacklist/effective-at boundaries, and
-  lineage-bound `auth-v1` evidence checks. Its final implementation review
+  lineage-bound `auth-v1` rule-token checks. Its final implementation review
   approved exact `6b13ca7` as bounded pure preparation only; focused 39 tests
   passed and candidate Python 3.12/3.13 CI passed.
-- This is not automatic admission, G2, or the first runnable production sync.
-  PR #39 now supplies the reviewed typed adapter boundary. A separately
-  verified real source-path producer remains open; the current action-label
-  consumer is intentionally limited to its injected typed reader, while
-  production History/Backfill wiring remains open. No Gmail, target write, DB
-  mapping, or live-account operation was performed by this unit.
+- This historical preparation was not automatic admission, G2, or the first
+  runnable production sync. The current action-label consumer and production
+  History/Backfill wiring are tracked separately. No Gmail, target write, DB
+  mapping, or live-account operation was performed by that unit.
 - PR #41 is the first integrated durable action-label consumer on main at
   `fbb9fc8048239ae10a7620ddf7e179fa09172eb8`. Synthetic SQLite/WAL tests cover
   AddSender, AddDomain, BlackList, draft-only attention, retryable source
@@ -491,7 +481,8 @@ as active gates.
   and M6-01 r2 designs
   are also independently approved preparation only, not implemented consumers or
   permission to skip their dependencies. Production authentication remains
-  unknown/review until the declared trusted source-path evidence gate closes.
+  metadata/rule admission is now the active contract; controlled live Gmail
+  verification remains separately authorized.
 - M1-05 [Issue #14](https://github.com/GhostFlying/facet/issues/14) / [PR #16](https://github.com/GhostFlying/facet/pull/16)
   early pure-model/catalogue/serializer/logging unit received independent source
   acceptance at `c455f71ae63fa435c9bb02b82767aff4a032c30c`. Local verification passed
@@ -734,9 +725,9 @@ production role-specific loopback authorization path with TTY-only URL output,
 actual-grant scopes, profile/account verification, and durable role publication.
 The candidate received independent approval; its focused tests passed 73 cases
 and the complete offline suite passed 2501 tests. No live OAuth/Gmail evidence
-is claimed. The fake runner still uses test-only source-path evidence; real
-source-path attestation and controlled Gmail verification remain provider-bound
-gates. Dashboard, Compose, Actions, scheduling and remaining maintenance commands
+  is claimed. The fake runner exercises metadata/rule admission; controlled
+  Gmail verification remains a separately authorized external gate. Dashboard,
+  Compose, Actions, scheduling and remaining maintenance commands
 remain outside these closure units.
 
 ## Production CLI sync-path wiring handoff (2026-10-04)
@@ -750,23 +741,20 @@ factory to obtain the source profile fence and persist H0/epoch. Non-fake
 dispatches `ForegroundSync` through the reviewed production composition. The
 receipt exposes aggregate counts only.
 
-The default source-auth provider is still `UnknownSourceAuthProvider`, so an
-unknown candidate cannot be admitted or inserted into target. No Gmail network
+The current production path performs metadata/rule admission without a
+source-auth provider, raw fetch for admission, or DNS lookup. No Gmail network
 call, OAuth exchange, target write, deployment, or release was performed by
 this unit. Focused CLI/runtime tests and the complete offline suite (2512
 tests) passed, as did Ruff/format and repository safety. This is
-implemented/offline-verified only; a separately verified source-Gmail-path
-attestation and controlled live Gmail run remain external gates.
+implemented/offline-verified only; a controlled live Gmail run remains a
+separately authorized external gate.
 
-## Historical next-unit note
+## Historical next-unit note (superseded)
 
-The next product-bearing unit is the smallest integration that can turn the
-pure M2 seam into a real discovery decision: release M1-06's verified
-source-Gmail-path evidence producer and the adapter-owned typed candidate
-extension, then independently review their exact contract before wiring the
-existing action/repository and BackfillProducer owners. Do not synthesize
-sender/auth facts from ID-only History records, and do not claim automatic
-admission until those dependencies are integrated. Ordinary phase-internal
+This old note proposed a source-Gmail-path evidence producer; the 2026-10-05
+user decision superseded it. The current product-bearing work is the smallest
+integration that exercises metadata/rule discovery through the existing
+adapter, action/repository and BackfillProducer owners. Ordinary phase-internal
 plans/engineering PRs advance under the approved autonomous gates; material
 product/privacy/authority changes return to the user. The complete M1/M2
 foundations and their remaining runtime/provider consumers remain open. M1's
@@ -781,8 +769,8 @@ minimum scope is:
 4. Establish private OAuth/token handling and synthetic tests; require separate
    authorization for real account setup or additional scopes.
 5. Define Dashboard response models and privacy sentinels before exposing HTTP.
-6. Establish conservative authentication-evidence parsing/tests. Do not enable
-   automatic admission using the spike's pass counters.
+6. Keep Gmail authentication/classification provider-owned; test that
+   authentication headers do not become a Facet admission gate.
 
 Production live copying, bulk backfill and deployment require their recorded
 scope/target decisions. Dependency-ready offline engineering can proceed while
@@ -798,7 +786,7 @@ actual verification scope instead of marking a partial gate complete.
 - Target may contain unmanaged or old experiment mail. Initialization reports it
   without deleting, adopting mappings, or assuming All Mail is empty.
 - AI connector retrieval is an AI-product responsibility, not a Facet gate.
-- Real bank domains/credible authentication evidence, live account/test scope,
+- Real bank domains, live account/test scope,
   dogfood host/local volume/Nginx entry, license and formal version release remain
   undecided. GHCR/package public visibility, main full-SHA publication, public
   anonymous pulling, and the first multi-arch artifact are verified above;
