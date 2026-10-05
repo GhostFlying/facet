@@ -33,7 +33,7 @@ from .read_views import (
     _close_permit,
     _consume_permit,
 )
-from .schema import _inspect, _pristine
+from .schema import _inspect, _inspect_v1, _pristine
 from .transactions import UnitOfWork
 
 
@@ -279,13 +279,19 @@ def _attach_view(
             raise StorageFailure(ErrorCode.INVALID_INPUT)
         # Provenance is consumed first, but unsupported v2 never configures a
         # read connection or becomes a ReadSession through generic inspection.
-        _inspect(connection)
+        if connection.execute("PRAGMA user_version").fetchone()[0] == 3:
+            _inspect(connection)
+        else:
+            _inspect_v1(connection)
         # These are connection-local defenses, never journal/checkpoint PRAGMAs.
         connection.execute("PRAGMA query_only=ON")
         connection.execute("PRAGMA trusted_schema=OFF")
         connection.execute("PRAGMA foreign_keys=ON")
         connection.row_factory = None
-        _inspect(connection)
+        if connection.execute("PRAGMA user_version").fetchone()[0] == 3:
+            _inspect(connection)
+        else:
+            _inspect_v1(connection)
         if connection.execute(
             "SELECT state_instance_id FROM projections"
         ).fetchone() != (expected_instance.value,):
