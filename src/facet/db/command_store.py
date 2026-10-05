@@ -188,7 +188,9 @@ def _backfill_digest(operation, payload):
     return Sha256Hex(hashlib.sha256(encoded).hexdigest())
 
 
-def authorize_operation(owner, projection_id, role, request_nonce):
+def authorize_operation(
+    owner, projection_id, role, request_nonce, command=LocalCommandKind.AUTH_AUTHORIZE
+):
     """Register one stable-keyed authorization operation before OAuth work."""
 
     from .repositories.base import _get
@@ -199,6 +201,12 @@ def authorize_operation(owner, projection_id, role, request_nonce):
         or type(projection_id) is not ProjectionId
         or type(role) is not Role
         or type(request_nonce) is not LocalId
+        or type(command) is not LocalCommandKind
+        or command
+        not in {
+            LocalCommandKind.AUTH_AUTHORIZE,
+            LocalCommandKind.AUTH_REAUTHORIZE,
+        }
     ):
         _fail(ErrorCode.INVALID_INPUT)
     projection = _get(owner, projection_id, "projections", ())
@@ -215,8 +223,13 @@ def authorize_operation(owner, projection_id, role, request_nonce):
         "FROM operations o JOIN operation_auth a ON "
         "a.projection_id=o.projection_id AND a.operation_id=o.operation_id "
         "WHERE o.projection_id=? AND o.request_namespace=? AND "
-        "o.request_nonce=? AND o.command='auth_authorize' LIMIT 2",
-        (projection_id.value, projection.request_namespace.value, request_nonce.value),
+        "o.request_nonce=? AND o.command=? LIMIT 2",
+        (
+            projection_id.value,
+            projection.request_namespace.value,
+            request_nonce.value,
+            command.value,
+        ),
     )
     if len(existing) > 1:
         _fail(ErrorCode.CONSISTENCY_FAILURE)
@@ -234,7 +247,7 @@ def authorize_operation(owner, projection_id, role, request_nonce):
         ):
             recovery = _owner_fetchall(
                 owner,
-                "SELECT c.phase FROM credential_changes c "
+                "SELECT c.phase,c.kind FROM credential_changes c "
                 "JOIN operation_auth a ON a.projection_id=c.projection_id "
                 "AND a.operation_id=c.operation_id WHERE c.projection_id=? "
                 "AND c.operation_id=? AND c.role=? LIMIT 2",
@@ -248,6 +261,12 @@ def authorize_operation(owner, projection_id, role, request_nonce):
                 and row[5] == expected_policy.value
                 and len(recovery) == 1
                 and recovery[0][0] in {"validated", "committed"}
+                and recovery[0][1]
+                == (
+                    "refresh"
+                    if command is LocalCommandKind.AUTH_REAUTHORIZE
+                    else "authorize"
+                )
             ):
                 _fail(ErrorCode.REQUEST_CONFLICT)
         return LocalId(row[0])
@@ -255,7 +274,11 @@ def authorize_operation(owner, projection_id, role, request_nonce):
     accepted = _owner_now()
     digest = Sha256Hex(
         hashlib.sha256(
-            b"facet-auth-v1\x00"
+            (
+                b"facet-auth-v1\x00"
+                if command is LocalCommandKind.AUTH_AUTHORIZE
+                else b"facet-reauth-v1\x00"
+            )
             + projection_id.value.encode()
             + b"\x00"
             + role.value.encode()
@@ -268,7 +291,7 @@ def authorize_operation(owner, projection_id, role, request_nonce):
         operation_id,
         projection.request_namespace,
         request_nonce,
-        LocalCommandKind.AUTH_AUTHORIZE,
+        command,
         1,
         1,
         digest,
@@ -312,7 +335,12 @@ def authorize_operation(owner, projection_id, role, request_nonce):
     return operation_id
 
 
-def complete_authorize_operation(owner, projection_id, operation_id):
+def complete_authorize_operation(
+    owner,
+    projection_id,
+    operation_id,
+    command=LocalCommandKind.AUTH_AUTHORIZE,
+):
     """Record the durable effect of a completed authorization probe."""
 
     from .transactions import UnitOfWork
@@ -321,6 +349,9 @@ def complete_authorize_operation(owner, projection_id, operation_id):
         type(owner) is not UnitOfWork
         or type(projection_id) is not ProjectionId
         or type(operation_id) is not LocalId
+        or type(command) is not LocalCommandKind
+        or command
+        not in {LocalCommandKind.AUTH_AUTHORIZE, LocalCommandKind.AUTH_REAUTHORIZE}
     ):
         _fail(ErrorCode.INVALID_INPUT)
     rows = _owner_fetchall(
@@ -331,8 +362,8 @@ def complete_authorize_operation(owner, projection_id, operation_id):
     )
     if len(rows) != 1:
         _fail(ErrorCode.REQUEST_CONFLICT)
-    command, state, revision = rows[0]
-    if command != LocalCommandKind.AUTH_AUTHORIZE.value:
+    row_command, state, revision = rows[0]
+    if row_command != command.value:
         _fail(ErrorCode.REQUEST_CONFLICT)
     if state == OperationState.COMPLETED.value:
         return

@@ -9,10 +9,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
 
-from facet.config import initial_template
+from facet.config import dump_config, initial_template
 from facet.contracts import (
     ErrorCode,
     LocalId,
@@ -22,6 +23,7 @@ from facet.contracts import (
     Sha256Hex,
     Timestamp,
 )
+from facet.db import command_store
 from facet.db.codecs import StorageFailure
 from facet.db.models import CredentialChangeRow
 from facet.db.repositories import credentials as credential_repository
@@ -403,6 +405,142 @@ def test_refresh_records_explicit_scope_evidence(trusted_state_parent, monkeypat
         ).fetchone() == ("committed", "refresh_explicit", "gmail_readonly")
     finally:
         owner.close()
+
+
+def test_reauthorize_refresh_keeps_binding_and_records_explicit_lineage(
+    trusted_state_parent, monkeypatch
+):
+    owner, config, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
+    request_nonce = LocalId("00000000000040008000000000000020")
+    try:
+        manager.verify_and_publish(Profiles())
+        with owner.session.transaction() as uow:
+            operation_id = command_store.authorize_operation(
+                uow,
+                config.projection.id,
+                Role.SOURCE,
+                request_nonce,
+                command_store.LocalCommandKind.AUTH_REAUTHORIZE,
+            )
+
+        snapshot = manager.refresh(
+            Role.SOURCE,
+            lambda role, old: RefreshResult(
+                _future_secret("reauthorized-token"),
+                policy_scopes(ScopePolicy.SOURCE_READONLY, Role.SOURCE),
+            ),
+            operation_id=operation_id,
+            grant_kind=GrantEvidenceKind.AUTHORIZATION_EXPLICIT,
+        )
+        assert snapshot.credential_revision == Revision(2)
+        binding = owner.bindings()[Role.SOURCE]
+        assert binding.binding_revision == Revision(1)
+        assert binding.credential_revision == Revision(2)
+        row = owner.session._connection.execute(
+            "SELECT kind,phase,operation_id,grant_kind,grant_parent_revision "
+            "FROM credential_changes"
+        ).fetchone()
+        assert row == (
+            "refresh",
+            "committed",
+            operation_id.value,
+            "authorization_explicit",
+            None,
+        )
+        with owner.session.transaction() as uow:
+            command_store.complete_authorize_operation(
+                uow,
+                config.projection.id,
+                operation_id,
+                command_store.LocalCommandKind.AUTH_REAUTHORIZE,
+            )
+        assert owner.session._connection.execute(
+            "SELECT command,state FROM operations WHERE operation_id=?",
+            (operation_id.value,),
+        ).fetchone() == ("auth_reauthorize", "completed")
+        assert "reauthorized-token" not in owner.database_path.read_bytes().decode(
+            "utf-8", "ignore"
+        )
+    finally:
+        owner.close()
+
+
+def test_cli_reauthorizes_verified_role_with_fresh_operation(
+    trusted_state_parent, monkeypatch
+):
+    from facet.cli import bootstrap
+    from facet.gmail.oauth import OAuthResult
+
+    config = initial_template("source@example.invalid", "target@example.invalid")
+    raw = dump_config(config)
+    state_path = trusted_state_parent / "state"
+    owner = StateOwner.create(state_path, config, raw)
+    (state_path / "config.yaml").write_bytes(raw)
+    (state_path / "config.yaml").chmod(0o600)
+    _write_credentials(owner)
+    manager = CredentialManager(owner.state_dir, config, owner)
+    manager.verify_and_publish(Profiles())
+    owner.close()
+
+    class TTY:
+        def isatty(self):
+            return True
+
+    class Authorizer:
+        calls = 0
+
+        def authorize(self, role, client, scopes, *, port):
+            assert role is Role.SOURCE
+            assert client == "synthetic-client"
+            assert scopes == policy_scopes(ScopePolicy.SOURCE_READONLY, Role.SOURCE)
+            assert port == 8080
+            self.calls += 1
+            return OAuthResult(
+                _future_secret("reauthorized-cli-token"),
+                scopes,
+            )
+
+    class Factory:
+        def profile_account(self, role, secret):
+            assert role is Role.SOURCE
+            assert secret.access_token.value == "reauthorized-cli-token"
+            return AccountAddress("source@example.invalid")
+
+    authorizer = Authorizer()
+    monkeypatch.setattr(bootstrap.sys, "stdin", TTY())
+    monkeypatch.setattr(bootstrap.sys, "stdout", TTY())
+    monkeypatch.setattr(bootstrap.sys, "stderr", TTY())
+    monkeypatch.setattr("facet.gmail.oauth.GoogleOAuthAuthorizer", lambda: authorizer)
+    monkeypatch.setattr(
+        "facet.gmail.oauth.read_desktop_client", lambda _: "synthetic-client"
+    )
+    monkeypatch.setattr(
+        "facet.gmail.service_factory.GoogleGmailServiceFactory", Factory
+    )
+    monkeypatch.setattr(credentials_module, "_owner_now", lambda: FUTURE)
+    options = SimpleNamespace(
+        role="source",
+        oauth_client="synthetic-client.json",
+        fake=False,
+        yes=True,
+        request_id="00000000000040008000000000000021",
+        port=8080,
+        state_dir=str(state_path),
+    )
+    data, warnings = bootstrap._auth_authorize_oauth(options)
+    assert data == {"role": "source", "binding_state": "verified"}
+    assert warnings == ()
+    assert authorizer.calls == 1
+
+    reopened = StateOwner.open(state_path, config)
+    try:
+        assert reopened.bindings()[Role.SOURCE].credential_revision == Revision(2)
+        row = reopened.session._connection.execute(
+            "SELECT command,state FROM operations WHERE command='auth_reauthorize'"
+        ).fetchone()
+        assert row == ("auth_reauthorize", "completed")
+    finally:
+        reopened.close()
 
 
 def test_refresh_rejects_reduced_explicit_scope_evidence(

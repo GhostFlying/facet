@@ -794,7 +794,12 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
     if not 1024 <= port <= 65535:
         raise ConfigError(ErrorCode.INVALID_INPUT)
     from facet.db import command_store
-    from facet.gmail.credential_models import policy_scopes
+    from facet.db.codecs import StorageFailure
+    from facet.gmail.credential_models import (
+        GrantEvidenceKind,
+        RefreshResult,
+        policy_scopes,
+    )
     from facet.gmail.credentials import CredentialManager
     from facet.gmail.oauth import GoogleOAuthAuthorizer, read_desktop_client
     from facet.gmail.service_factory import GoogleGmailServiceFactory
@@ -808,6 +813,7 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
     owner = StateOwner.open(paths.root, config)
     try:
         owner.verify_config_artifact(raw)
+        binding = owner.bindings()[role]
         with owner.session.transaction() as uow:
             rule_collision = uow._execute(
                 "SELECT 1 FROM rules WHERE projection_id=? AND rule_id=? LIMIT 1",
@@ -826,12 +832,34 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
                     request_nonce.value,
                 ),
             ).fetchall()
-        if any(command != "auth_authorize" for command, _state in existing_rows):
+        desired_reauthorize = binding.state.value == "verified"
+        existing_command = existing_rows[0][0] if existing_rows else None
+        if existing_rows and any(
+            command != existing_command for command, _state in existing_rows
+        ):
             raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        if existing_command is not None and existing_command not in {
+            command_store.LocalCommandKind.AUTH_AUTHORIZE.value,
+            command_store.LocalCommandKind.AUTH_REAUTHORIZE.value,
+        }:
+            raise ConfigError(ErrorCode.REQUEST_CONFLICT)
+        reauthorize = (
+            existing_command == command_store.LocalCommandKind.AUTH_REAUTHORIZE.value
+            or (desired_reauthorize and existing_command is None)
+        )
+        operation_command = (
+            command_store.LocalCommandKind.AUTH_REAUTHORIZE
+            if reauthorize
+            else command_store.LocalCommandKind.AUTH_AUTHORIZE
+        )
         existing = bool(existing_rows)
         with owner.session.transaction() as uow:
             operation_id = command_store.authorize_operation(
-                uow, config.projection.id, role, request_nonce
+                uow,
+                config.projection.id,
+                role,
+                request_nonce,
+                operation_command,
             )
             row = uow._execute(
                 "SELECT state FROM operations WHERE projection_id=? "
@@ -842,7 +870,40 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
             raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
         if row[0][0] == "completed":
             return {"role": role.value, "binding_state": "verified"}, ()
-        if existing and owner.bindings()[role].state.value != "verified":
+        if existing and reauthorize:
+            from facet.db.repositories import credentials as credential_rows
+
+            with owner.session.transaction() as uow:
+                changes = uow._execute(
+                    "SELECT change_id FROM credential_changes WHERE "
+                    "projection_id=? AND operation_id=? AND role=? LIMIT 2",
+                    (
+                        config.projection.id.value,
+                        operation_id.value,
+                        role.value,
+                    ),
+                ).fetchall()
+                change = (
+                    credential_rows.get_change(
+                        uow,
+                        config.projection.id,
+                        role,
+                        LocalId(changes[0][0]),
+                    )
+                    if len(changes) == 1
+                    else None
+                )
+                if change is None:
+                    raise ConfigError(ErrorCode.REQUEST_OUTCOME_UNKNOWN)
+                if change.phase == "validated":
+                    credential_rows.commit_change(uow, config.projection.id, change)
+                elif change.phase != "committed":
+                    raise ConfigError(ErrorCode.MAINTENANCE_REQUIRED)
+                command_store.complete_authorize_operation(
+                    uow, config.projection.id, operation_id, operation_command
+                )
+            return {"role": role.value, "binding_state": "verified"}, ()
+        if existing and not reauthorize:
             with owner.session.transaction() as uow:
                 changes = uow._execute(
                     "SELECT phase FROM credential_changes WHERE "
@@ -856,7 +917,7 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
             if changes:
                 raise ConfigError(ErrorCode.MAINTENANCE_REQUIRED)
             raise ConfigError(ErrorCode.REQUEST_OUTCOME_UNKNOWN)
-        if owner.bindings()[role].state.value == "verified":
+        if owner.bindings()[role].state.value == "verified" and not reauthorize:
             from facet.db.repositories import credentials as credential_rows
 
             with owner.session.transaction() as uow:
@@ -889,7 +950,7 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
                         uow, config.projection.id, change
                     )
                 command_store.complete_authorize_operation(
-                    uow, config.projection.id, operation_id
+                    uow, config.projection.id, operation_id, operation_command
                 )
             return {"role": role.value, "binding_state": "verified"}, ()
         client = read_desktop_client(options.oauth_client)
@@ -908,15 +969,46 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
 
                 return ProfileEvidence(account, oauth_result.scopes)
 
-        CredentialManager(owner.state_dir, config, owner).authorize_role(
-            role,
-            oauth_result.secret,
-            OAuthProfileProbe(),
-            operation_id,
-        )
+        probe = OAuthProfileProbe()
+        if reauthorize:
+            try:
+                evidence = probe.get_profile(role, oauth_result.secret)
+            except StorageFailure:
+                raise
+            except Exception:
+                raise ConfigError(
+                    ErrorCode.SOURCE_AUTH_REQUIRED
+                    if role is Role.SOURCE
+                    else ErrorCode.TARGET_AUTH_REQUIRED
+                ) from None
+            expected_scopes = policy_scopes(_policy(config, role), role)
+            configured = (
+                config.projection.source_email
+                if role is Role.SOURCE
+                else config.projection.target_email
+            )
+            if evidence.scopes != expected_scopes:
+                raise ConfigError(ErrorCode.SCOPE_REQUIRED)
+            if evidence.account.value.casefold() != configured.casefold():
+                raise ConfigError(ErrorCode.BINDING_MISMATCH)
+            CredentialManager(owner.state_dir, config, owner).refresh(
+                role,
+                lambda _role, _old: RefreshResult(
+                    oauth_result.secret, oauth_result.scopes
+                ),
+                operation_id=operation_id,
+                grant_kind=GrantEvidenceKind.AUTHORIZATION_EXPLICIT,
+            )
+        else:
+            CredentialManager(owner.state_dir, config, owner).authorize_role(
+                role,
+                oauth_result.secret,
+                probe,
+                operation_id,
+            )
         with owner.session.transaction() as uow:
             command_store.complete_authorize_operation(
-                uow, config.projection.id, operation_id
+                uow, config.projection.id, operation_id, operation_command
             )
         return {"role": role.value, "binding_state": "verified"}, ()
     finally:
