@@ -14,7 +14,7 @@ import sqlite3
 import stat
 import threading
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
@@ -783,6 +783,7 @@ class CredentialManager:
         exchange,
         operation_id=None,
         grant_kind: GrantEvidenceKind | None = None,
+        profile=None,
     ):
         """Single-flight one synthetic/provider-mediated refresh and publish it."""
 
@@ -798,6 +799,7 @@ class CredentialManager:
                 operation_id is not None
                 and grant_kind is not GrantEvidenceKind.AUTHORIZATION_EXPLICIT
             )
+            or (profile is not None and not callable(profile))
         ):
             _fail(ErrorCode.INVALID_INPUT)
         with self._flight_condition:
@@ -816,7 +818,9 @@ class CredentialManager:
             flight = _RefreshFlight(threading.get_ident())
             self._flights[role] = flight
         try:
-            result = self._refresh_once(role, exchange, operation_id, grant_kind)
+            result = self._refresh_once(
+                role, exchange, operation_id, grant_kind, profile
+            )
         except StorageFailure as error:
             self._finish_flight(role, flight, error=error.code)
             raise
@@ -842,7 +846,7 @@ class CredentialManager:
             self._flight_condition.notify_all()
 
     def _refresh_once(
-        self, role: Role, exchange, operation_id, grant_kind
+        self, role: Role, exchange, operation_id, grant_kind, profile
     ) -> AccessSnapshot:
         old = self._load_envelope(role)
         binding = self._owner.bindings()[role]
@@ -918,6 +922,32 @@ class CredentialManager:
                     if role is Role.SOURCE
                     else ErrorCode.TARGET_AUTH_REQUIRED
                 )
+            if profile is not None:
+                try:
+                    evidence = profile(
+                        role,
+                        refreshed_secret,
+                        explicit_scopes or old.grant.granted,
+                    )
+                except StorageFailure:
+                    raise
+                except Exception:
+                    _fail(
+                        ErrorCode.SOURCE_AUTH_REQUIRED
+                        if role is Role.SOURCE
+                        else ErrorCode.TARGET_AUTH_REQUIRED
+                    )
+                if type(evidence) is not ProfileEvidence:
+                    _fail(ErrorCode.INVALID_INPUT)
+                if evidence.scopes != (explicit_scopes or old.grant.granted):
+                    _fail(ErrorCode.SCOPE_REQUIRED)
+                configured = (
+                    self._config.projection.source_email
+                    if role is Role.SOURCE
+                    else self._config.projection.target_email
+                )
+                if evidence.account.value.casefold() != configured.casefold():
+                    _fail(ErrorCode.BINDING_MISMATCH)
             candidate = replace(
                 old,
                 credential_revision=new_revision,
@@ -995,6 +1025,23 @@ class CredentialManager:
             # The original failure remains authoritative; an unavailable
             # owner/database is already a durable stop condition.
             return
+
+    def ensure_current(self, role, exchange, profile=None, *, threshold_seconds=300):
+        """Refresh a verified role at or below the fixed five-minute threshold."""
+
+        if (
+            type(role) is not Role
+            or not callable(exchange)
+            or (profile is not None and not callable(profile))
+            or threshold_seconds != 300
+        ):
+            _fail(ErrorCode.INVALID_INPUT)
+        envelope = self._load_envelope(role)
+        if envelope.secret.expires_at.value - _owner_now().value > timedelta(
+            seconds=threshold_seconds
+        ):
+            return self.snapshot(role)
+        return self.refresh(role, exchange, profile=profile)
 
     def _attention(self, role: Role, change_id: LocalId, code: ErrorCode) -> None:
         from facet.db.repositories import credentials as repository

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -404,6 +405,43 @@ def test_refresh_uses_only_the_owner_clock(trusted_state_parent, monkeypatch):
         owner.close()
 
 
+@pytest.mark.parametrize(
+    ("remaining", "calls"),
+    (
+        (timedelta(seconds=301), 0),
+        (timedelta(seconds=300), 1),
+        (timedelta(seconds=299), 1),
+    ),
+)
+def test_ensure_current_uses_inclusive_owner_clock_threshold(
+    trusted_state_parent, monkeypatch, remaining, calls
+):
+    owner, _, manager, source, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+        manager.verify_and_publish(Profiles())
+        current = replace(
+            source,
+            secret=replace(
+                source.secret,
+                expires_at=Timestamp(FUTURE.value + remaining),
+            ),
+        )
+        path = Path(owner.state_dir) / "credentials" / "source.json"
+        path.write_bytes(encode_envelope(current))
+        path.chmod(0o600)
+        observed = []
+
+        def exchange(role, old):
+            observed.append((role, old.access_token.value))
+            return _future_secret("owner-clock-refresh")
+
+        snapshot = manager.ensure_current(Role.SOURCE, exchange)
+        assert len(observed) == calls
+        assert snapshot.credential_revision == Revision(2 if calls else 1)
+    finally:
+        owner.close()
+
+
 def test_refresh_preserves_typed_exchange_failure(trusted_state_parent, monkeypatch):
     owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
     try:
@@ -437,6 +475,32 @@ def test_refresh_records_explicit_scope_evidence(trusted_state_parent, monkeypat
         assert owner.session._connection.execute(
             "SELECT phase,grant_kind,granted_scopes FROM credential_changes"
         ).fetchone() == ("committed", "refresh_explicit", "gmail_readonly")
+    finally:
+        owner.close()
+
+
+def test_refresh_profile_mismatch_abandons_before_publication(
+    trusted_state_parent, monkeypatch
+):
+    owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+        manager.verify_and_publish(Profiles())
+
+        def wrong_profile(role, secret, scopes):
+            del role, secret
+            return ProfileEvidence(AccountAddress("wrong@example.invalid"), scopes)
+
+        with pytest.raises(StorageFailure) as caught:
+            manager.refresh(
+                Role.SOURCE,
+                lambda role, old: _future_secret("profile-mismatch"),
+                profile=wrong_profile,
+            )
+        assert caught.value.code is ErrorCode.BINDING_MISMATCH
+        assert owner.bindings()[Role.SOURCE].credential_revision == Revision(1)
+        assert owner.session._connection.execute(
+            "SELECT phase,error FROM credential_changes"
+        ).fetchone() == ("abandoned", "binding_mismatch")
     finally:
         owner.close()
 

@@ -31,6 +31,8 @@ class GmailServiceFactory(Protocol):
 class GoogleGmailServiceFactory:
     """Build Google Gmail clients without retaining or passing refresh tokens."""
 
+    supports_refresh = True
+
     def profile_account(self, role: Role, secret: ProviderSecret) -> AccountAddress:
         if type(role) is not Role or type(secret) is not ProviderSecret:
             raise StorageFailure(ErrorCode.INVALID_INPUT)

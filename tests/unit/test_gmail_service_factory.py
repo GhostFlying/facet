@@ -60,6 +60,7 @@ def test_profile_malformed_payload_is_typed_error(monkeypatch, value):
 
 def test_invalid_factory_inputs_are_typed_and_mismatched_service_is_rejected():
     factory = GoogleGmailServiceFactory()
+    assert factory.supports_refresh is True
     with pytest.raises(StorageFailure) as caught:
         factory.profile_account("source", _secret())
     assert caught.value.code is ErrorCode.INVALID_INPUT
