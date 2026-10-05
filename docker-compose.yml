@@ -28,7 +28,8 @@ services:
     volumes:
       - facet-state:/var/lib/facet
     secrets:
-      - google-client
+      - source: google-client
+        target: google-client.json
     read_only: true
     tmpfs:
       - /tmp
