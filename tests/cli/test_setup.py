@@ -63,10 +63,12 @@ def _install_fake_transport(monkeypatch):
             port,
             bind_address="127.0.0.1",
             strict_setup=False,
+            callback_timeout_seconds=300,
         ):
             assert port == 8080
             assert bind_address == "127.0.0.1"
             assert strict_setup is True
+            assert callback_timeout_seconds == 900
             return OAuthResult(_secret(role), scopes)
 
     class Factory:
@@ -81,6 +83,68 @@ def _install_fake_transport(monkeypatch):
     monkeypatch.setattr(
         "facet.gmail.service_factory.GoogleGmailServiceFactory", Factory
     )
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    ((None, 900), ("60", 60), ("1800", 1800), ("00060", 60)),
+)
+def test_setup_callback_timeout_accepts_unset_and_bounded_ascii_digits(
+    monkeypatch, raw, expected
+):
+    if raw is None:
+        monkeypatch.delenv("FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS", raising=False)
+    else:
+        monkeypatch.setenv("FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS", raw)
+    assert bootstrap._setup_oauth_callback_timeout() == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ("", " 60", "60 ", "+60", "1_800", "59", "1801", "-1", "0"),
+)
+def test_setup_callback_timeout_rejects_invalid_values(monkeypatch, raw):
+    monkeypatch.setenv("FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS", raw)
+    with pytest.raises(ConfigError) as caught:
+        bootstrap._setup_oauth_callback_timeout()
+    assert caught.value.code is ErrorCode.INVALID_INPUT
+
+
+def test_setup_callback_timeout_invalid_value_stops_before_authorizer_or_state(
+    monkeypatch, tmp_path
+):
+    calls = []
+
+    class Authorizer:
+        def authorize(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            raise AssertionError("invalid timeout must stop before OAuth")
+
+    monkeypatch.setattr("facet.gmail.oauth.GoogleOAuthAuthorizer", Authorizer)
+    monkeypatch.setenv("FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS", "")
+    monkeypatch.setattr(bootstrap.sys, "stdin", _TTY("confirm\n"))
+    monkeypatch.setattr(bootstrap.sys, "stdout", _TTY())
+    monkeypatch.setattr(bootstrap.sys, "stderr", _TTY())
+    client = tmp_path / "client.json"
+    client.write_text(_client_document())
+    client.chmod(0o600)
+    tmp_path.chmod(0o700)
+    options = bootstrap.build_parser().parse_args(
+        [
+            "setup",
+            "--state-dir",
+            str(tmp_path / "state"),
+            "--oauth-client",
+            str(client),
+            "--request-id",
+            REQUEST,
+        ]
+    )
+    with pytest.raises(ConfigError) as caught:
+        bootstrap._setup_command(options)
+    assert caught.value.code is ErrorCode.INVALID_INPUT
+    assert calls == []
+    assert not (tmp_path / "state").exists()
 
 
 def test_setup_binds_discovered_roles_through_production_owner(monkeypatch):

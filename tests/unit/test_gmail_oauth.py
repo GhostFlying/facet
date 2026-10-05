@@ -99,7 +99,10 @@ def test_container_secret_contract_allows_readable_non_private_parent(
     assert caught.value.code is ErrorCode.SCOPE_REQUIRED
 
 
-def test_google_oauth_exchange_is_typed_and_uses_fixed_scopes(monkeypatch):
+@pytest.mark.parametrize("callback_timeout_seconds", (300, 900))
+def test_google_oauth_exchange_uses_explicit_callback_timeout(
+    monkeypatch, callback_timeout_seconds
+):
     from google_auth_oauthlib.flow import InstalledAppFlow
 
     from facet.gmail import oauth as oauth_module
@@ -159,6 +162,7 @@ def test_google_oauth_exchange_is_typed_and_uses_fixed_scopes(monkeypatch):
         client,
         ScopeSet(frozenset({ScopeName.GMAIL_READONLY})),
         port=8080,
+        callback_timeout_seconds=callback_timeout_seconds,
     )
     assert secret.secret.access_token.value == "access-token"
     assert secret.secret.refresh_token.value == "refresh-token"
@@ -167,7 +171,7 @@ def test_google_oauth_exchange_is_typed_and_uses_fixed_scopes(monkeypatch):
     assert observed["host"] == "127.0.0.1"
     assert observed["authorization"]["prompt"] == "consent"
     assert observed["fetch"]["authorization_response"].startswith("https://")
-    assert observed["server_timeout"] == 300
+    assert observed["server_timeout"] == callback_timeout_seconds
     assert observed["closed"] is True
     assert type(secret.secret.expires_at) is Timestamp
 

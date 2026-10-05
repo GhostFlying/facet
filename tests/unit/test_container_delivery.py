@@ -24,6 +24,13 @@ def test_compose_uses_immutable_image_and_setup_only_oauth_listener():
     assert 'user: "10001:10001"' in compose
     assert "backfill start" not in compose
     assert ".facet/production" not in compose
+    setup = compose.split("  facet-setup:\n", 1)[1].split("\nvolumes:\n", 1)[0]
+    normal = compose.split("  facet:\n", 1)[1].split("\n\n  facet-setup:", 1)[0]
+    assert (
+        'FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS: "${'
+        'FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS-900}"' in setup
+    )
+    assert "FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS" not in normal
 
 
 def test_dockerfile_only_provisions_state_parent():

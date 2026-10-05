@@ -42,6 +42,33 @@ class _InputError(Exception):
     pass
 
 
+_SETUP_OAUTH_CALLBACK_TIMEOUT_ENV = "FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS"
+_SETUP_OAUTH_CALLBACK_TIMEOUT_DEFAULT = 900
+_SETUP_OAUTH_CALLBACK_TIMEOUT_MIN = 60
+_SETUP_OAUTH_CALLBACK_TIMEOUT_MAX = 1800
+
+
+def _setup_oauth_callback_timeout() -> int:
+    """Return the bounded setup-only callback wait from its environment input."""
+
+    raw = os.environ.get(_SETUP_OAUTH_CALLBACK_TIMEOUT_ENV)
+    if raw is None:
+        return _SETUP_OAUTH_CALLBACK_TIMEOUT_DEFAULT
+    if not raw or any(character not in "0123456789" for character in raw):
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+    try:
+        timeout = int(raw)
+    except ValueError:
+        raise ConfigError(ErrorCode.INVALID_INPUT) from None
+    if not (
+        _SETUP_OAUTH_CALLBACK_TIMEOUT_MIN
+        <= timeout
+        <= _SETUP_OAUTH_CALLBACK_TIMEOUT_MAX
+    ):
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+    return timeout
+
+
 class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
         # argparse's message can contain private paths/values or the entire argv.
@@ -898,6 +925,7 @@ def _setup_command(options: object) -> tuple[dict, tuple[str, ...]]:
         raise ConfigError(ErrorCode.INVALID_INPUT)
     if bind_address not in {"127.0.0.1", "0.0.0.0"}:
         raise ConfigError(ErrorCode.INVALID_INPUT)
+    callback_timeout_seconds = _setup_oauth_callback_timeout()
 
     paths = select_paths(getattr(options, "state_dir", None), None)
 
@@ -946,6 +974,7 @@ def _setup_command(options: object) -> tuple[dict, tuple[str, ...]]:
             port=port,
             bind_address=bind_address,
             strict_setup=True,
+            callback_timeout_seconds=callback_timeout_seconds,
         )
         if result.scopes != expected[role]:
             raise ConfigError(ErrorCode.SCOPE_REQUIRED)
