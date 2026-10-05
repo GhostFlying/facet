@@ -487,6 +487,26 @@ def test_gmail_auth_status_is_offline_metadata_only(tmp_path):
     assert "source@example.com" not in json.dumps(status)
     assert "target@example.com" not in json.dumps(status)
 
+    with sqlite3.connect(state / "facet.db") as connection:
+        connection.execute(
+            "UPDATE projections SET binding_state='verification_pending'"
+        )
+        connection.commit()
+    inconsistent = run(
+        tmp_path,
+        env,
+        "--state-dir",
+        str(state),
+        "--json",
+        "gmail",
+        "auth-status",
+    )
+    assert inconsistent.returncode == 7
+    assert json.loads(inconsistent.stdout)["code"] == "consistency_failure"
+    with sqlite3.connect(state / "facet.db") as connection:
+        connection.execute("UPDATE projections SET binding_state='verified'")
+        connection.commit()
+
     private = invoke("gmail", "auth-status", "--private-metadata")
     assert {item["address"] for item in private["data"]["roles"]} == {
         "source@example.com",
@@ -554,6 +574,7 @@ def test_gmail_auth_status_is_offline_metadata_only(tmp_path):
 
     with sqlite3.connect(state / "facet.db") as connection:
         connection.execute("UPDATE bindings SET state='mismatch' WHERE role='target'")
+        connection.execute("UPDATE projections SET binding_state='auth_required'")
         connection.commit()
     mismatch = invoke("gmail", "auth-status")
     target_status = next(

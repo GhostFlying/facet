@@ -229,12 +229,17 @@ def read_auth_status(options) -> dict:
         _check_config_artifact(connection, projection, raw)
         _check_addresses(connection, config, projection)
         projection_rows = connection.execute(
-            "SELECT state_instance_id FROM projections WHERE projection_id=? LIMIT 2",
+            "SELECT state_instance_id,binding_state FROM projections "
+            "WHERE projection_id=? LIMIT 2",
             (projection,),
         ).fetchall()
         if len(projection_rows) != 1:
             raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
-        state_instance_id = projection_rows[0][0]
+        state_instance_id, projection_binding_state = projection_rows[0]
+        try:
+            projection_binding_state = BindingState(projection_binding_state)
+        except (TypeError, ValueError):
+            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE) from None
         binding_rows = connection.execute(
             "SELECT "
             + ",".join(COLUMNS["bindings"])
@@ -246,6 +251,11 @@ def read_auth_status(options) -> dict:
             for binding in (_decode_binding(row) for row in binding_rows)
         }
         if set(bindings) != {Role.SOURCE, Role.TARGET}:
+            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+        ready_bindings = all(
+            binding.state is BindingState.VERIFIED for binding in bindings.values()
+        )
+        if (projection_binding_state is BindingState.VERIFIED) != ready_bindings:
             raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
         sampled_at = Timestamp(datetime.now(UTC))
         roles = []
