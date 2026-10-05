@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from facet.config import dump_config, initial_template
+from facet.config import ConfigError, dump_config, initial_template
 from facet.contracts import (
     ErrorCode,
     LocalId,
@@ -164,6 +164,40 @@ class Profiles:
                 role,
             ),
         )
+
+
+def _verified_cli_state(trusted_state_parent, monkeypatch):
+    from facet.cli import bootstrap
+
+    config = initial_template("source@example.invalid", "target@example.invalid")
+    raw = dump_config(config)
+    state_path = trusted_state_parent / "state"
+    owner = StateOwner.create(state_path, config, raw)
+    (state_path / "config.yaml").write_bytes(raw)
+    (state_path / "config.yaml").chmod(0o600)
+    _write_credentials(owner)
+    manager = CredentialManager(owner.state_dir, config, owner)
+    monkeypatch.setattr(credentials_module, "_owner_now", lambda: FUTURE)
+    manager.verify_and_publish(Profiles())
+    owner.close()
+
+    class TTY:
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(bootstrap.sys, "stdin", TTY())
+    monkeypatch.setattr(bootstrap.sys, "stdout", TTY())
+    monkeypatch.setattr(bootstrap.sys, "stderr", TTY())
+    options = SimpleNamespace(
+        role="source",
+        oauth_client="synthetic-client.json",
+        fake=False,
+        yes=True,
+        request_id="00000000000040008000000000000021",
+        port=8080,
+        state_dir=str(state_path),
+    )
+    return bootstrap, config, state_path, options
 
 
 def test_verify_rejects_expired_envelope_before_profile_or_publish(
@@ -468,23 +502,11 @@ def test_reauthorize_refresh_keeps_binding_and_records_explicit_lineage(
 def test_cli_reauthorizes_verified_role_with_fresh_operation(
     trusted_state_parent, monkeypatch
 ):
-    from facet.cli import bootstrap
     from facet.gmail.oauth import OAuthResult
 
-    config = initial_template("source@example.invalid", "target@example.invalid")
-    raw = dump_config(config)
-    state_path = trusted_state_parent / "state"
-    owner = StateOwner.create(state_path, config, raw)
-    (state_path / "config.yaml").write_bytes(raw)
-    (state_path / "config.yaml").chmod(0o600)
-    _write_credentials(owner)
-    manager = CredentialManager(owner.state_dir, config, owner)
-    manager.verify_and_publish(Profiles())
-    owner.close()
-
-    class TTY:
-        def isatty(self):
-            return True
+    bootstrap, config, state_path, options = _verified_cli_state(
+        trusted_state_parent, monkeypatch
+    )
 
     class Authorizer:
         calls = 0
@@ -507,25 +529,12 @@ def test_cli_reauthorizes_verified_role_with_fresh_operation(
             return AccountAddress("source@example.invalid")
 
     authorizer = Authorizer()
-    monkeypatch.setattr(bootstrap.sys, "stdin", TTY())
-    monkeypatch.setattr(bootstrap.sys, "stdout", TTY())
-    monkeypatch.setattr(bootstrap.sys, "stderr", TTY())
     monkeypatch.setattr("facet.gmail.oauth.GoogleOAuthAuthorizer", lambda: authorizer)
     monkeypatch.setattr(
         "facet.gmail.oauth.read_desktop_client", lambda _: "synthetic-client"
     )
     monkeypatch.setattr(
         "facet.gmail.service_factory.GoogleGmailServiceFactory", Factory
-    )
-    monkeypatch.setattr(credentials_module, "_owner_now", lambda: FUTURE)
-    options = SimpleNamespace(
-        role="source",
-        oauth_client="synthetic-client.json",
-        fake=False,
-        yes=True,
-        request_id="00000000000040008000000000000021",
-        port=8080,
-        state_dir=str(state_path),
     )
     data, warnings = bootstrap._auth_authorize_oauth(options)
     assert data == {"role": "source", "binding_state": "verified"}
@@ -541,6 +550,73 @@ def test_cli_reauthorizes_verified_role_with_fresh_operation(
         assert row == ("auth_reauthorize", "completed")
     finally:
         reopened.close()
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    (
+        ("callback", ErrorCode.SOURCE_AUTH_REQUIRED),
+        ("scope", ErrorCode.SCOPE_REQUIRED),
+        ("account", ErrorCode.BINDING_MISMATCH),
+    ),
+)
+def test_cli_reauthorize_rejects_prepublication_failure_and_replays_code(
+    trusted_state_parent, monkeypatch, failure, expected
+):
+    from facet.gmail.oauth import OAuthResult
+
+    bootstrap, config, state_path, options = _verified_cli_state(
+        trusted_state_parent, monkeypatch
+    )
+    expected_scopes = policy_scopes(ScopePolicy.SOURCE_READONLY, Role.SOURCE)
+
+    class Authorizer:
+        def authorize(self, role, client, scopes, *, port):
+            if failure == "callback":
+                raise StorageFailure(ErrorCode.SOURCE_AUTH_REQUIRED)
+            return OAuthResult(
+                _future_secret("failed-prepublication"),
+                expected_scopes
+                if failure == "account"
+                else policy_scopes(ScopePolicy.TARGET_DEFAULT, Role.TARGET),
+            )
+
+    class Factory:
+        def profile_account(self, role, secret):
+            return AccountAddress("wrong@example.invalid")
+
+    monkeypatch.setattr("facet.gmail.oauth.GoogleOAuthAuthorizer", Authorizer)
+    monkeypatch.setattr("facet.gmail.oauth.read_desktop_client", lambda _: "client")
+    monkeypatch.setattr(
+        "facet.gmail.service_factory.GoogleGmailServiceFactory", Factory
+    )
+    with pytest.raises(ConfigError) as caught:
+        bootstrap._auth_authorize_oauth(options)
+    assert caught.value.code is expected
+
+    reopened = StateOwner.open(state_path, config)
+    try:
+        row = reopened.session._connection.execute(
+            "SELECT command,state,code FROM operations WHERE command='auth_reauthorize'"
+        ).fetchone()
+        assert row == ("auth_reauthorize", "rejected", expected.value)
+        assert (
+            reopened.session._connection.execute(
+                "SELECT COUNT(*) FROM credential_changes"
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        reopened.close()
+
+    class ReplayAuthorizer:
+        def authorize(self, *args, **kwargs):
+            raise AssertionError("rejected request must not reopen OAuth")
+
+    monkeypatch.setattr("facet.gmail.oauth.GoogleOAuthAuthorizer", ReplayAuthorizer)
+    with pytest.raises(ConfigError) as replay:
+        bootstrap._auth_authorize_oauth(options)
+    assert replay.value.code is expected
 
 
 def test_refresh_rejects_reduced_explicit_scope_evidence(

@@ -862,7 +862,7 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
                 operation_command,
             )
             row = uow._execute(
-                "SELECT state FROM operations WHERE projection_id=? "
+                "SELECT state,code FROM operations WHERE projection_id=? "
                 "AND operation_id=? LIMIT 2",
                 (config.projection.id.value, operation_id.value),
             ).fetchall()
@@ -870,6 +870,23 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
             raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
         if row[0][0] == "completed":
             return {"role": role.value, "binding_state": "verified"}, ()
+        if row[0][0] == "rejected":
+            try:
+                rejected_code = ErrorCode(row[0][1])
+            except (TypeError, ValueError):
+                raise ConfigError(ErrorCode.CONSISTENCY_FAILURE) from None
+            raise ConfigError(rejected_code)
+
+        def reject_before_publication(code):
+            with owner.session.transaction() as uow:
+                command_store.reject_authorize_operation(
+                    uow,
+                    config.projection.id,
+                    operation_id,
+                    code,
+                    operation_command,
+                )
+
         if existing and reauthorize:
             from facet.db.repositories import credentials as credential_rows
 
@@ -954,12 +971,24 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
                 )
             return {"role": role.value, "binding_state": "verified"}, ()
         client = read_desktop_client(options.oauth_client)
-        oauth_result = GoogleOAuthAuthorizer().authorize(
-            role,
-            client,
-            policy_scopes(_policy(config, role), role),
-            port=port,
-        )
+        try:
+            oauth_result = GoogleOAuthAuthorizer().authorize(
+                role,
+                client,
+                policy_scopes(_policy(config, role), role),
+                port=port,
+            )
+        except StorageFailure as error:
+            reject_before_publication(error.code)
+            raise ConfigError(error.code) from None
+        except Exception:
+            code = (
+                ErrorCode.SOURCE_AUTH_REQUIRED
+                if role is Role.SOURCE
+                else ErrorCode.TARGET_AUTH_REQUIRED
+            )
+            reject_before_publication(code)
+            raise ConfigError(code) from None
         factory = GoogleGmailServiceFactory()
 
         class OAuthProfileProbe:
@@ -973,14 +1002,22 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
         if reauthorize:
             try:
                 evidence = probe.get_profile(role, oauth_result.secret)
-            except StorageFailure:
-                raise
+            except StorageFailure as error:
+                reject_before_publication(error.code)
+                raise ConfigError(error.code) from None
             except Exception:
-                raise ConfigError(
+                code = (
                     ErrorCode.SOURCE_AUTH_REQUIRED
                     if role is Role.SOURCE
                     else ErrorCode.TARGET_AUTH_REQUIRED
-                ) from None
+                )
+                reject_before_publication(code)
+                raise ConfigError(code) from None
+            from facet.gmail.credentials import ProfileEvidence
+
+            if type(evidence) is not ProfileEvidence:
+                reject_before_publication(ErrorCode.INVALID_INPUT)
+                raise ConfigError(ErrorCode.INVALID_INPUT)
             expected_scopes = policy_scopes(_policy(config, role), role)
             configured = (
                 config.projection.source_email
@@ -988,8 +1025,10 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
                 else config.projection.target_email
             )
             if evidence.scopes != expected_scopes:
+                reject_before_publication(ErrorCode.SCOPE_REQUIRED)
                 raise ConfigError(ErrorCode.SCOPE_REQUIRED)
             if evidence.account.value.casefold() != configured.casefold():
+                reject_before_publication(ErrorCode.BINDING_MISMATCH)
                 raise ConfigError(ErrorCode.BINDING_MISMATCH)
             CredentialManager(owner.state_dir, config, owner).refresh(
                 role,

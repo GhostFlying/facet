@@ -388,6 +388,59 @@ def complete_authorize_operation(
         _fail(ErrorCode.REQUEST_CONFLICT)
 
 
+def reject_authorize_operation(
+    owner,
+    projection_id,
+    operation_id,
+    code,
+    command=LocalCommandKind.AUTH_AUTHORIZE,
+):
+    """Durably reject an authorization before any credential publication."""
+
+    from .transactions import UnitOfWork
+
+    if (
+        type(owner) is not UnitOfWork
+        or type(projection_id) is not ProjectionId
+        or type(operation_id) is not LocalId
+        or type(code) is not ErrorCode
+        or type(command) is not LocalCommandKind
+        or command
+        not in {LocalCommandKind.AUTH_AUTHORIZE, LocalCommandKind.AUTH_REAUTHORIZE}
+    ):
+        _fail(ErrorCode.INVALID_INPUT)
+    rows = _owner_fetchall(
+        owner,
+        "SELECT command,state FROM operations WHERE projection_id=? "
+        "AND operation_id=? LIMIT 2",
+        (projection_id.value, operation_id.value),
+    )
+    if len(rows) != 1 or rows[0][0] != command.value:
+        _fail(ErrorCode.REQUEST_CONFLICT)
+    if rows[0][1] == OperationState.REJECTED.value:
+        return
+    if rows[0][1] != OperationState.ACCEPTED.value:
+        _fail(ErrorCode.REQUEST_CONFLICT)
+    rejected = _owner_now()
+    cursor = _owner_execute(
+        owner,
+        "UPDATE operations SET state=?,revision=revision+1,updated_at=?,completed_at=?,"
+        "code=?,effect_completed=0 WHERE projection_id=? AND operation_id=? "
+        "AND state=?",
+        (
+            OperationState.REJECTED.value,
+            _scalar(rejected),
+            _scalar(rejected),
+            code.value,
+            projection_id.value,
+            operation_id.value,
+            OperationState.ACCEPTED.value,
+        ),
+    )
+    if cursor.rowcount != 1:
+        _fail(ErrorCode.REQUEST_CONFLICT)
+
+
 def resume_projection(owner, projection_id):
     """Resume a started projection through the single writer boundary."""
 
