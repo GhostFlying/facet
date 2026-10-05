@@ -1,6 +1,6 @@
 # Configurable source action labels
 
-Date: 2026-10-05. Revision: 1. Status: awaiting independent plan review.
+Date: 2026-10-05. Revision: 2. Status: awaiting independent plan review.
 Base: `a888655` (current `origin/main`).
 
 ## Goal
@@ -57,12 +57,15 @@ the scope policy and credential ownership are unchanged.
    existing `AI/AddSender`, `AI/AddDomain`, and `AI/BlackList` names. Existing
    bindings, tokens, scopes, DB mappings, and action history remain valid; no
    OAuth reauth or migration of label IDs is required.
-2. A custom configuration affects only future source-label resolution. Existing
-   durable events store provider label IDs and remain interpretable by the
-   resolved map for the current config; no historical event rewrite or bulk
-   replay is introduced. A config artifact update must use the existing
-   ownership/configuration path and preserve its digest/lock protocol; direct
-   file replacement is not added.
+2. A custom configuration affects source-label resolution after the config
+   artifact is accepted. Existing durable events store provider label IDs, not
+   the resolved action kind/name: already-consumed actions remain durable, but
+   a pending event whose old label ID is no longer configured becomes a typed
+   attention/unknown result and is never silently dropped or replayed under a
+   new action. No historical event rewrite or bulk replay is introduced. A
+   config artifact update must use the existing ownership/configuration path
+   and preserve its digest/lock protocol; direct file replacement is not
+   added.
 3. Missing configured labels retain the current optional behavior: ordinary
    sync continues, while matching action work remains explicit attention. A
    provider response containing duplicate IDs/names or invalid label fields
@@ -86,6 +89,10 @@ the scope policy and credential ownership are unchanged.
 - Existing binding/credential fixtures load and run without reauth or token
   replacement. Docs state the default/custom names, read-only/no-create
   boundary, and migration behavior consistently.
+- Changing configured names with a pending event for an old provider label ID
+  produces typed attention/unknown (or an explicitly blocked configuration
+  change), while already-consumed actions remain durable; no event disappears
+  or changes action kind silently.
 - Focused tests, full offline pytest, Ruff/format, and
   `bash scripts/check-repo-safety.sh` pass. No live Gmail or mailbox data is
   used or claimed.
@@ -101,4 +108,3 @@ the scope policy and credential ownership are unchanged.
   smallest contract decision needed.
 - This unit is offline/synthetic only. Do not copy real label names tied to a
   private account, run Gmail API calls, perform sync/backfill, or deploy.
-
