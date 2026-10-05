@@ -30,6 +30,9 @@ with the same private state-parent mount and loopback binding. Open each
 displayed Google URL in the browser using the forwarded local port. The setup
 listener remains on numeric `127.0.0.1`; it is not a public listener and does
 not add a Dashboard OAuth route. Keep the command's request key private.
+The supported callback waits up to 900 seconds for consent and the forwarded
+callback. If it expires, rerun the setup flow with a new request key after
+checking that the local state remains uninitialized.
 
 The supported container recipe uses an immutable image and a setup-only
 loopback mapping. Set `FACET_IMAGE` to a full-commit tag or digest and provide

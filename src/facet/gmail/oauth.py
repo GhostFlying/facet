@@ -32,6 +32,8 @@ __all__ = (
     "read_desktop_client",
 )
 
+OAUTH_CALLBACK_TIMEOUT_SECONDS = 900
+
 
 def _fail(code: ErrorCode) -> None:
     raise StorageFailure(code)
@@ -235,7 +237,7 @@ class GoogleOAuthAuthorizer:
                     + auth_url,
                     file=sys.stderr,
                 )
-                server.timeout = 300
+                server.timeout = OAUTH_CALLBACK_TIMEOUT_SECONDS
                 server.handle_request()
                 if wsgi_app.last_request_uri is None or not _valid_callback(
                     wsgi_app.last_request_uri,

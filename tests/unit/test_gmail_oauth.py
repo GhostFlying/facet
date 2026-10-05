@@ -167,7 +167,7 @@ def test_google_oauth_exchange_is_typed_and_uses_fixed_scopes(monkeypatch):
     assert observed["host"] == "127.0.0.1"
     assert observed["authorization"]["prompt"] == "consent"
     assert observed["fetch"]["authorization_response"].startswith("https://")
-    assert observed["server_timeout"] == 300
+    assert observed["server_timeout"] == 900
     assert observed["closed"] is True
     assert type(secret.secret.expires_at) is Timestamp
 

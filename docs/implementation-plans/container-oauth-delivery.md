@@ -1,6 +1,6 @@
 # Container deployment and OAuth setup verification
 
-Date: 2026-10-05. Revision: 4. Status: awaiting independent plan review.
+Date: 2026-10-05. Revision: 5. Status: awaiting independent plan review.
 Base: `b139ca94564cc4fb439fcd6e759585c8b1572df4`.
 
 ## Goal
@@ -73,7 +73,10 @@ The existing empty `.facet/production` tree remains untouched.
   internal bind-address argument to the setup/OAuth call; permit only
   `127.0.0.1` and `0.0.0.0`, defaulting to `127.0.0.1`, and never infer a
   wildcard bind from the host port publication. The Compose setup profile is
-  the only documented caller of the internal `0.0.0.0` value.
+  the only documented caller of the internal `0.0.0.0` value. Set the
+  supported loopback OAuth callback wait to a fixed 900-second window so the
+  operator has time to complete Google consent and return through SSH/Docker
+  forwarding; do not add a runtime configuration surface for this timeout.
 - `tests/unit/test_gmail_oauth.py`, `tests/cli/test_setup.py`, and a focused
   container/Compose test module: synthetic mounted-secret and state-root
   fixtures, final-root ownership/mode checks, trusted host-ancestor fixtures
@@ -87,7 +90,7 @@ The existing empty `.facet/production` tree remains untouched.
   up -d`), local loopback/SSH forwarding, `/var/lib/facet/production`,
   named-volume versus explicitly provisioned bind ownership/mode expectations,
   immutable `FACET_IMAGE`, the exact setup-profile loopback mapping and
-  container-internal bind address, and
+  container-internal bind address, the fixed 900-second callback wait, and
   explicit stop gates. State clearly that offline tests do
   not prove Google consent, mailbox ownership, live Gmail, image publication,
   or host deployment.
@@ -116,8 +119,8 @@ The existing empty `.facet/production` tree remains untouched.
    permissions.
 4. The focused tests, offline full suite, Ruff/format, package/wheel smoke,
   and `bash scripts/check-repo-safety.sh` pass. Synthetic tests prove default
-  host loopback, explicit container bind, invalid-bind refusal, and no network
-  calls. Docker daemon/build and live
+  host loopback, explicit container bind, invalid-bind refusal, the fixed
+  callback wait, and no network calls. Docker daemon/build and live
    OAuth checks are recorded only when externally available and are not
    claimed by this unit.
 
