@@ -1,6 +1,6 @@
 # Container deployment and OAuth setup verification
 
-Date: 2026-10-05. Revision: 7. Status: awaiting independent plan review.
+Date: 2026-10-05. Revision: 8. Status: awaiting independent plan review.
 Base: `56a4f26` (current `origin/main`).
 
 ## Goal
@@ -44,10 +44,12 @@ The existing empty `.facet/production` tree remains untouched.
   profile passes `0.0.0.0` only inside the container so Docker can forward the
   callback. The host publication remains `127.0.0.1` only; no default public
   ports or implicit backfill. Map
-  `FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS=${FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS:-900}`
-  only in `facet-setup`; do not inject this variable into the normal `facet`
-  service. The setup process validates the mapped value and fails closed before
-  opening the listener when it is empty, malformed, or outside 60..1800.
+  `FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS=${FACET_OAUTH_CALLBACK_TIMEOUT_SECONDS-900}`
+  only in `facet-setup`; the `-` form defaults only when the host variable is
+  unset, while an explicitly empty value is passed through and rejected. Do
+  not inject this variable into the normal `facet` service. The setup process
+  validates the mapped value and fails closed before opening the listener when
+  it is empty, malformed, or outside 60..1800.
 - State provisioning is explicit. The setup and normal services mount their
   parent at `/var/lib/facet`; the default named volume is initialized from the
   image's parent directory (UID/GID 10001, mode 0700) with no `production`
@@ -140,8 +142,9 @@ The existing empty `.facet/production` tree remains untouched.
    override, malformed/empty/whitespace/plus/underscore/negative/zero/
    too-small/too-large values, and proof that invalid values do not call the
    authorizer or create state. Static Compose assertions must prove the mapping
-   exists only on `facet-setup` and the normal `facet` service receives no
-   timeout variable.
+   exists only on `facet-setup`, preserves an explicitly empty host value for
+   rejection, defaults only an unset host value, and the normal `facet` service
+   receives no timeout variable.
 
 ## Risks and stop gates
 
