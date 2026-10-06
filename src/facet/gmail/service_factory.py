@@ -15,7 +15,13 @@ from .credential_models import (
 )
 from .retry import execute
 
-__all__ = ("GmailServiceFactory", "GoogleGmailServiceFactory")
+__all__ = (
+    "GmailServiceFactory",
+    "GoogleGmailServiceFactory",
+    "PROVIDER_REQUEST_TIMEOUT_SECONDS",
+)
+
+PROVIDER_REQUEST_TIMEOUT_SECONDS = 30
 
 
 class GmailServiceFactory(Protocol):
@@ -59,8 +65,18 @@ class GoogleGmailServiceFactory:
         # to the Google credential object, so this service cannot refresh or
         # write credentials behind the manager's back.
         del role
+        import httplib2
         from google.oauth2.credentials import Credentials
+        from google_auth_httplib2 import AuthorizedHttp
         from googleapiclient.discovery import build
 
         credentials = Credentials(token=access_token)
-        return build("gmail", "v1", credentials=credentials, cache_discovery=False)
+        transport = httplib2.Http(timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS)
+        authorized_http = AuthorizedHttp(credentials, http=transport)
+        return build(
+            "gmail",
+            "v1",
+            http=authorized_http,
+            cache_discovery=False,
+            num_retries=0,
+        )

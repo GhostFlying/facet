@@ -156,6 +156,50 @@ def test_runtime_refresh_failure_precedes_epoch_or_h0_creation(
         owner.close()
 
 
+def test_provider_timeout_preserves_prepared_epoch_and_h0_state(
+    trusted_state_parent, monkeypatch
+):
+    owner = _ready_owner(Path(trusted_state_parent), object(), monkeypatch, seed=False)
+    try:
+        source, target = write_credentials(owner)
+        root = Path(owner.state_dir) / "credentials"
+        for role, value in ((Role.SOURCE, source), (Role.TARGET, target)):
+            path = root / ("source.json" if role is Role.SOURCE else "target.json")
+            path.write_bytes(
+                encode_envelope(replace(value, binding_revision=Revision(2)))
+            )
+            path.chmod(0o600)
+        before = {
+            table: owner.session._connection.execute(
+                f"SELECT * FROM {table} ORDER BY 1, 2"
+            ).fetchall()
+            for table in (
+                "epochs",
+                "history_polls",
+                "history_checkpoints",
+                "epoch_jobs",
+            )
+        }
+
+        class TimeoutFactory(_Factory):
+            def profile_account(self, role, secret):
+                del role, secret
+                raise StorageFailure(ErrorCode.NETWORK_UNAVAILABLE)
+
+        with pytest.raises(StorageFailure) as caught:
+            run_foreground_once(owner, owner.config, TimeoutFactory(None), _Admission())
+        assert caught.value.code is ErrorCode.NETWORK_UNAVAILABLE
+        after = {
+            table: owner.session._connection.execute(
+                f"SELECT * FROM {table} ORDER BY 1, 2"
+            ).fetchall()
+            for table in before
+        }
+        assert after == before
+    finally:
+        owner.close()
+
+
 @pytest.fixture
 def trusted_state_parent():
     for candidate in (Path.cwd(), Path(f"/run/user/{os.geteuid()}")):
