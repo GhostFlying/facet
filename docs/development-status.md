@@ -776,6 +776,18 @@ timed out before fetching the pinned base; the runtime check therefore used a
 cached local diagnostic base with only the committed source overlaid and is not
 an image-publication or Dockerfile-build claim.
 
+That build limitation is now resolved for this candidate: Tailscale SSH to
+sgbox allowed the unchanged Dockerfile to build against its pinned base digest
+and locked dependencies. The image was streamed back with `docker save/load`
+and verified locally as
+`sha256:9cf1757ae273353ab860fb33551f2e2375fc19e7e30ed82336c5c56ac81ce086`.
+The same Compose command path passed again using this freshly built image and
+a separate synthetic volume: first run projected one, second run projected
+zero, both with zero attention. The stopped DB confirmed one mapping and one
+verified insert attempt; image source and lockfile checksums match the local
+candidate. This is a local Dockerfile/Compose acceptance, not GHCR publication,
+multi-architecture acceptance, deployment to real state, or live Gmail evidence.
+
 ## Historical next-unit note (superseded)
 
 This old note proposed a source-Gmail-path evidence producer; the 2026-10-05
