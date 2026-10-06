@@ -26,7 +26,7 @@ from facet.projection.actions import ActionMessageFact, PrivateActionLabelMap
 from facet.projection.admission import DiscoveryCandidate
 from facet.projection.rules import RuleInputError, normalize_sender
 
-from .retry import ProviderFailure, execute
+from .retry import ProviderFailure, ProviderStage, execute
 
 __all__ = (
     "SourceProfile",
@@ -226,7 +226,11 @@ class SourceAdapter:
         self._source_account = source_account
 
     def profile(self) -> SourceProfile:
-        value = execute(self._service.users().getProfile(userId="me"), self.role)
+        value = execute(
+            self._service.users().getProfile(userId="me"),
+            self.role,
+            provider_stage=ProviderStage.PROFILE_PROBE,
+        )
         account = value.get("emailAddress")
         if not isinstance(account, str):
             raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
@@ -266,7 +270,11 @@ class SourceAdapter:
         }
         if page_token is not None:
             args["pageToken"] = page_token.value
-        value = execute(self._service.users().messages().list(**args), self.role)
+        value = execute(
+            self._service.users().messages().list(**args),
+            self.role,
+            provider_stage=ProviderStage.MESSAGE_LIST,
+        )
         return DiscoveryPage(
             tuple(
                 DiscoveryItem(_id(item["id"]), _id(item["threadId"]))
@@ -347,6 +355,7 @@ class SourceAdapter:
                 .messages()
                 .get(userId="me", id=item.message_id.value, format="metadata"),
                 self.role,
+                provider_stage=ProviderStage.MESSAGE_GET,
             )
         except ProviderFailure:
             return CandidateResult(
@@ -419,7 +428,11 @@ class SourceAdapter:
         }
         if page_token is not None:
             args["pageToken"] = page_token.value
-        value = execute(self._service.users().history().list(**args), self.role)
+        value = execute(
+            self._service.users().history().list(**args),
+            self.role,
+            provider_stage=ProviderStage.HISTORY_LIST,
+        )
         records = tuple(_history_record(record) for record in value.get("history", ()))
         return HistoryPage(
             _id(value.get("historyId", cursor.value)),
@@ -433,6 +446,7 @@ class SourceAdapter:
             .messages()
             .get(userId="me", id=message_id.value, format="metadata"),
             self.role,
+            provider_stage=ProviderStage.MESSAGE_GET,
         )
         return _message(value)
 
@@ -442,6 +456,7 @@ class SourceAdapter:
             .threads()
             .get(userId="me", id=thread_id.value, format="metadata"),
             self.role,
+            provider_stage=ProviderStage.MESSAGE_GET,
         )
         try:
             return ThreadMetadata(
@@ -470,6 +485,7 @@ class SourceAdapter:
             .messages()
             .get(userId="me", id=message_id.value, format="raw"),
             self.role,
+            provider_stage=ProviderStage.MESSAGE_GET,
         )
         try:
             if not isinstance(value, dict):
@@ -504,7 +520,11 @@ class SourceAdapter:
             ActionKind.ADD_DOMAIN: "AI/AddDomain",
             ActionKind.BLACKLIST: "AI/BlackList",
         }
-        value = execute(self._service.users().labels().list(userId="me"), self.role)
+        value = execute(
+            self._service.users().labels().list(userId="me"),
+            self.role,
+            provider_stage=ProviderStage.LABEL_LIST,
+        )
         found = {}
         for label in value.get("labels", ()):
             if not isinstance(label, dict):

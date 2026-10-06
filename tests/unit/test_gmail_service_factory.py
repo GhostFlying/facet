@@ -13,7 +13,7 @@ from facet.gmail.credential_models import (
     SecretText,
     Timestamp,
 )
-from facet.gmail.retry import ProviderFailure
+from facet.gmail.retry import ProviderFailure, ProviderStage
 from facet.gmail.service_factory import GoogleGmailServiceFactory
 
 
@@ -82,6 +82,10 @@ def test_profile_transport_timeout_is_typed_network_failure(monkeypatch):
     with pytest.raises(ProviderFailure) as caught:
         GoogleGmailServiceFactory().profile_account(Role.SOURCE, _secret())
     assert caught.value.code is ErrorCode.NETWORK_UNAVAILABLE
+    assert caught.value.provider_stage is ProviderStage.PROFILE_PROBE
+    assert caught.value.timeout_seconds == 30
+    assert caught.value.attempt == 1
+    assert caught.value.observed_at is not None
     assert "synthetic hanging provider" not in repr(caught.value)
 
 
@@ -159,3 +163,29 @@ def test_google_build_uses_only_access_token_and_separate_services(monkeypatch):
     assert all(kwargs["cache_discovery"] is False for _, kwargs in builds)
     assert all(kwargs["num_retries"] == 0 for _, kwargs in builds)
     assert vars(factory) == {}
+
+
+def test_google_discovery_timeout_is_typed_and_stage_bounded(monkeypatch):
+    import googleapiclient.discovery
+
+    monkeypatch.setattr(
+        googleapiclient.discovery,
+        "build",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            TimeoutError("synthetic discovery timeout")
+        ),
+    )
+    snapshot = AccessSnapshot(
+        Role.SOURCE,
+        Revision(1),
+        Revision(1),
+        Revision(1),
+        SecretText("access"),
+        Timestamp(datetime(2100, 1, 1, tzinfo=UTC)),
+    )
+    with pytest.raises(ProviderFailure) as caught:
+        GoogleGmailServiceFactory().service(Role.SOURCE, snapshot)
+    assert caught.value.code is ErrorCode.NETWORK_UNAVAILABLE
+    assert caught.value.provider_stage is ProviderStage.SERVICE_DISCOVERY
+    assert caught.value.timeout_seconds == 30
+    assert "synthetic discovery timeout" not in repr(caught.value)

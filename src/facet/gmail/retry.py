@@ -7,9 +7,25 @@ URLs and exception text never cross into persistence or output layers.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
+from enum import StrEnum
 
-from facet.contracts import ErrorCode, Role
+from facet.contracts import ErrorCode, Role, Timestamp
+
+_PROVIDER_REQUEST_TIMEOUT_SECONDS = 30
+
+
+class ProviderStage(StrEnum):
+    """Bounded in-memory stages used for private provider diagnostics."""
+
+    PROFILE_PROBE = "profile_probe"
+    SERVICE_DISCOVERY = "service_discovery"
+    HISTORY_LIST = "history_list"
+    MESSAGE_LIST = "message_list"
+    MESSAGE_GET = "message_get"
+    LABEL_LIST = "label_list"
+    TARGET_INSERT = "target_insert"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -18,6 +34,10 @@ class ProviderFailure(Exception):
     role: Role
     status: int | None = None
     retry_after_seconds: int | None = None
+    provider_stage: ProviderStage | None = None
+    timeout_seconds: int | None = None
+    attempt: int | None = None
+    observed_at: Timestamp | None = None
 
     def __post_init__(self) -> None:
         if type(self.code) is not ErrorCode or type(self.role) is not Role:
@@ -29,10 +49,32 @@ class ProviderFailure(Exception):
             and type(self.retry_after_seconds) is not int
         ):
             raise ValueError("invalid_input")
+        if (
+            self.provider_stage is not None
+            and type(self.provider_stage) is not ProviderStage
+        ):
+            raise ValueError("invalid_input")
+        if self.timeout_seconds is not None and type(self.timeout_seconds) is not int:
+            raise ValueError("invalid_input")
+        if self.attempt is not None and type(self.attempt) is not int:
+            raise ValueError("invalid_input")
+        if self.attempt is not None and self.attempt != 1:
+            raise ValueError("invalid_input")
+        if self.observed_at is not None and type(self.observed_at) is not Timestamp:
+            raise ValueError("invalid_input")
         Exception.__init__(self, self.code.value)
 
     def __repr__(self) -> str:
         return f"ProviderFailure({self.code.value},{self.role.value})"
+
+    def with_code(
+        self, code: ErrorCode, *, role: Role | None = None
+    ) -> ProviderFailure:
+        """Rewrap while retaining private diagnostics and retry metadata."""
+
+        if type(code) is not ErrorCode or (role is not None and type(role) is not Role):
+            raise ValueError("invalid_input")
+        return replace(self, code=code, role=self.role if role is None else role)
 
 
 def classify_http_status(status: int, role: Role, *, body: bytes = b"") -> ErrorCode:
@@ -74,13 +116,26 @@ def classify_http_status(status: int, role: Role, *, body: bytes = b"") -> Error
     return ErrorCode.INVALID_INPUT
 
 
-def provider_failure(error: BaseException, role: Role) -> ProviderFailure:
+def provider_failure(
+    error: BaseException,
+    role: Role,
+    *,
+    provider_stage: ProviderStage | None = None,
+) -> ProviderFailure:
     """Normalize one Google/transport exception without retaining its payload."""
 
     if type(role) is not Role:
         raise ValueError("invalid_input")
     if isinstance(error, ProviderFailure):
-        return error
+        if provider_stage is None or error.provider_stage is not None:
+            return error
+        return replace(
+            error,
+            provider_stage=provider_stage,
+            timeout_seconds=_PROVIDER_REQUEST_TIMEOUT_SECONDS,
+            attempt=1,
+            observed_at=Timestamp(datetime.now(UTC)),
+        )
     response = getattr(error, "resp", None)
     status = getattr(response, "status", None)
     if isinstance(status, str) and status.isdigit():
@@ -104,13 +159,46 @@ def provider_failure(error: BaseException, role: Role) -> ProviderFailure:
             raw_retry = response.get("retry-after") or response.get("Retry-After")
         if isinstance(raw_retry, str) and raw_retry.isdigit():
             retry_after = int(raw_retry)
-        return ProviderFailure(code, role, status, retry_after)
+        return ProviderFailure(
+            code,
+            role,
+            status,
+            retry_after,
+            provider_stage,
+            _PROVIDER_REQUEST_TIMEOUT_SECONDS if provider_stage is not None else None,
+            1 if provider_stage is not None else None,
+            Timestamp(datetime.now(UTC)) if provider_stage is not None else None,
+        )
     if isinstance(error, (TimeoutError, ConnectionError, OSError)):
-        return ProviderFailure(ErrorCode.NETWORK_UNAVAILABLE, role)
-    return ProviderFailure(ErrorCode.INVALID_INPUT, role)
+        return ProviderFailure(
+            ErrorCode.NETWORK_UNAVAILABLE,
+            role,
+            provider_stage=provider_stage,
+            timeout_seconds=(
+                _PROVIDER_REQUEST_TIMEOUT_SECONDS
+                if provider_stage is not None
+                else None
+            ),
+            attempt=1 if provider_stage is not None else None,
+            observed_at=(
+                Timestamp(datetime.now(UTC)) if provider_stage is not None else None
+            ),
+        )
+    return ProviderFailure(
+        ErrorCode.INVALID_INPUT,
+        role,
+        provider_stage=provider_stage,
+        timeout_seconds=(
+            _PROVIDER_REQUEST_TIMEOUT_SECONDS if provider_stage is not None else None
+        ),
+        attempt=1 if provider_stage is not None else None,
+        observed_at=(
+            Timestamp(datetime.now(UTC)) if provider_stage is not None else None
+        ),
+    )
 
 
-def execute(request, role: Role):
+def execute(request, role: Role, *, provider_stage: ProviderStage | None = None):
     """Execute a fake-compatible request with retries disabled."""
 
     try:
@@ -118,4 +206,4 @@ def execute(request, role: Role):
     except BaseException as error:
         if isinstance(error, KeyboardInterrupt | SystemExit):
             raise
-        raise provider_failure(error, role) from None
+        raise provider_failure(error, role, provider_stage=provider_stage) from None

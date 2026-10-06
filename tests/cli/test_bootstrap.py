@@ -15,6 +15,7 @@ import pytest
 from facet.cli import bootstrap
 from facet.config import ConfigError
 from facet.contracts import ErrorCode, Role, Timestamp
+from facet.gmail.retry import ProviderFailure, ProviderStage
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = b"""projection:
@@ -221,6 +222,52 @@ def test_private_metadata_exact_allowlist_and_public_refusal(tmp_path):
     )
     assert result.returncode == 3
     assert json.loads(result.stdout)["code"] == "scope_required"
+
+
+def test_provider_stage_diagnostic_is_private_allowlisted(monkeypatch, capsys):
+    failure = ProviderFailure(
+        ErrorCode.NETWORK_UNAVAILABLE,
+        Role.SOURCE,
+        provider_stage=ProviderStage.HISTORY_LIST,
+        timeout_seconds=30,
+        attempt=1,
+        observed_at=Timestamp(datetime(2026, 10, 6, tzinfo=UTC)),
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "config_read",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(failure),
+    )
+    private_exit = bootstrap.main(
+        [
+            "config",
+            "show",
+            "--config",
+            "synthetic-config",
+            "--private-metadata",
+            "--json",
+        ]
+    )
+    private = json.loads(capsys.readouterr().out)
+    assert private_exit == 7
+    assert set(private["data"]["provider_failure"]) == {
+        "provider_stage",
+        "role",
+        "error_code",
+        "timeout_seconds",
+        "attempt",
+        "observed_at",
+        "status",
+        "retry_after_seconds",
+    }
+    assert private["data"]["provider_failure"]["provider_stage"] == "history_list"
+
+    public_exit = bootstrap.main(
+        ["config", "show", "--config", "synthetic-config", "--json"]
+    )
+    public = json.loads(capsys.readouterr().out)
+    assert public_exit == 7
+    assert "provider_failure" not in public["data"]
 
 
 @pytest.mark.parametrize(

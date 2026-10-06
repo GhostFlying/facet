@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from facet.contracts import ErrorCode, ProviderId, Role
 from facet.db.codecs import RfcMessageId
 
-from .retry import ProviderFailure, execute
+from .retry import ProviderFailure, ProviderStage, execute
 
 __all__ = (
     "TargetProfile",
@@ -71,7 +71,11 @@ class TargetAdapter:
         self._service = service
 
     def profile(self):
-        value = execute(self._service.users().getProfile(userId="me"), self.role)
+        value = execute(
+            self._service.users().getProfile(userId="me"),
+            self.role,
+            provider_stage=ProviderStage.PROFILE_PROBE,
+        )
         return TargetProfile(
             value["emailAddress"],
             _id(value["historyId"]),
@@ -101,6 +105,7 @@ class TargetAdapter:
                 neverMarkSpam=True,
             ),
             self.role,
+            provider_stage=ProviderStage.TARGET_INSERT,
         )
         try:
             return TargetInsertResult(
@@ -128,6 +133,7 @@ class TargetAdapter:
                 maxResults=100,
             ),
             self.role,
+            provider_stage=ProviderStage.MESSAGE_GET,
         )
         try:
             return tuple(
@@ -144,6 +150,7 @@ class TargetAdapter:
             .messages()
             .get(userId="me", id=message_id.value, format="raw"),
             self.role,
+            provider_stage=ProviderStage.MESSAGE_GET,
         )
         try:
             encoded = value["raw"]
