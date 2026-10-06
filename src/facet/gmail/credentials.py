@@ -47,6 +47,7 @@ from .credential_models import (
     ScopeSet,
     policy_scopes,
 )
+from .retry import ProviderFailure
 
 __all__ = (
     "ProfileEvidence",
@@ -521,6 +522,8 @@ class CredentialManager:
                 )
             try:
                 evidence = reader.get_profile(role, secret)
+            except ProviderFailure:
+                raise
             except StorageFailure:
                 raise
             except Exception:
@@ -668,6 +671,8 @@ class CredentialManager:
             )
         try:
             evidence = reader.get_profile(role, secret)
+        except ProviderFailure:
+            raise
         except StorageFailure:
             raise
         except Exception:
@@ -892,6 +897,8 @@ class CredentialManager:
         try:
             try:
                 refreshed = exchange(role, old.secret)
+            except ProviderFailure:
+                raise
             except StorageFailure:
                 raise
             except Exception:
@@ -929,6 +936,8 @@ class CredentialManager:
                         refreshed_secret,
                         explicit_scopes or old.grant.granted,
                     )
+                except ProviderFailure:
+                    raise
                 except StorageFailure:
                     raise
                 except Exception:
@@ -1089,6 +1098,8 @@ class CredentialManager:
                 )
             try:
                 evidence = reader.get_profile(role, envelope.secret)
+            except ProviderFailure:
+                raise
             except StorageFailure:
                 raise
             except Exception:

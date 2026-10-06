@@ -270,6 +270,36 @@ def test_provider_stage_diagnostic_is_private_allowlisted(monkeypatch, capsys):
     assert "provider_failure" not in public["data"]
 
 
+def test_run_preflight_preserves_profile_stage_for_private_output(monkeypatch, capsys):
+    failure = ProviderFailure(
+        ErrorCode.NETWORK_UNAVAILABLE,
+        Role.SOURCE,
+        provider_stage=ProviderStage.PROFILE_PROBE,
+        timeout_seconds=30,
+        attempt=1,
+        observed_at=Timestamp(datetime(2026, 10, 6, tzinfo=UTC)),
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "_run_preflight",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(failure),
+    )
+    exit_code = bootstrap.main(
+        [
+            "run",
+            "--once",
+            "--state-dir",
+            "synthetic-state",
+            "--private-metadata",
+            "--json",
+        ]
+    )
+    document = json.loads(capsys.readouterr().out)
+    assert exit_code == 7
+    assert document["code"] == "network_unavailable"
+    assert document["data"]["provider_failure"]["provider_stage"] == "profile_probe"
+
+
 @pytest.mark.parametrize(
     "arguments,code,exit_code",
     [

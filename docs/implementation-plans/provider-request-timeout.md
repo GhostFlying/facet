@@ -1,4 +1,4 @@
-# Provider request timeout plan (Rev5)
+# Provider request timeout plan (Rev6)
 
 ## Scope
 
@@ -30,6 +30,13 @@
   `projection/worker.py` 404-to-`source_missing` conversions must retain
   `status`, `retry_after_seconds`, `provider_stage`, `timeout_seconds`,
   `attempt`, and `observed_at` while changing only the intended code/role.
+- Credential/profile verification must preserve a typed `ProviderFailure` from
+  `profile_account`/`ProfileReader.get_profile` through `CredentialManager`
+  verification and the non-fake CLI preflight. Existing error-code semantics
+  remain unchanged (HTTP 401 maps to the role auth code; transport timeout
+  maps to `network_unavailable`); only the private stage/status/retry metadata
+  is retained for explicit diagnostics. No durable error-event or credential
+  schema gains these fields.
 - Keep the existing `error_events` schema and public `Issues`/`Diagnostics`
   DTOs unchanged: they have no stage field, and adding one would require a
   schema/public-version migration. Stage details remain private typed failure
@@ -60,12 +67,21 @@
   replace stale-cursor and source-missing error rewraps with the preserving
   helper, keeping the existing 404/source-missing semantics and all additive
   stage/status metadata.
+- `src/facet/gmail/credentials.py` and `src/facet/cli/bootstrap.py`: preserve
+  typed profile `ProviderFailure` through verify/profile preflight and expose
+  its fixed private diagnostic allowlist when `--private-metadata` is explicit;
+  public/default output continues to expose only the closed error code.
 - Focused provider/runtime tests: fake a hanging request/transport at each
   representative stage and assert bounded invocation, typed stage metadata,
   no raw leakage, and no durable H0/epoch mutation.
 - Focused projection tests: assert stale-cursor 404 and both worker
   source-missing conversions preserve stage metadata, HTTP status, and
   retry-after values; legacy `ProviderFailure` construction remains valid.
+- Focused credential/CLI regression: a synthetic profile timeout retains the
+  `profile_probe` stage, status/retry fields, and `network_unavailable` code
+  through verification; private JSON emits only the allowlist while public
+  JSON omits stage metadata. A synthetic 401 still produces the existing role
+  auth code.
 - No live state, OAuth, Gmail writes, Compose, image, or deployment changes.
 
 ## Acceptance

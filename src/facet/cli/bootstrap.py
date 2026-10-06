@@ -802,6 +802,7 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
     )
     from facet.gmail.credentials import CredentialManager, _owner_now
     from facet.gmail.oauth import GoogleOAuthAuthorizer, read_desktop_client
+    from facet.gmail.retry import ProviderFailure
     from facet.gmail.service_factory import GoogleGmailServiceFactory
     from facet.private_paths import read_managed_config
     from facet.runtime.foreground_runtime import _policy
@@ -1038,6 +1039,9 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
                 raise ConfigError(code)
             try:
                 evidence = probe.get_profile(role, oauth_result.secret)
+            except ProviderFailure as error:
+                reject_before_publication(error.code)
+                raise
             except StorageFailure as error:
                 reject_before_publication(error.code)
                 raise ConfigError(error.code) from None

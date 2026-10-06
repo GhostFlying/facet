@@ -43,6 +43,7 @@ from facet.gmail.credential_models import (
     policy_scopes,
 )
 from facet.gmail.credentials import CredentialManager, ProfileEvidence
+from facet.gmail.retry import ProviderFailure, ProviderStage
 from facet.runtime.state_owner import StateOwner
 
 FUTURE = Timestamp(datetime(2040, 1, 1, tzinfo=UTC))
@@ -243,6 +244,49 @@ def test_verify_rejects_expired_envelope_before_profile_or_publish(
             manager.verify_and_publish(Reader())
         assert caught.value.code is ErrorCode.SOURCE_AUTH_REQUIRED
         assert calls == []
+        assert owner.bindings()[Role.SOURCE].state.value == "verification_pending"
+    finally:
+        owner.close()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ProviderFailure(
+            ErrorCode.NETWORK_UNAVAILABLE,
+            Role.SOURCE,
+            provider_stage=ProviderStage.PROFILE_PROBE,
+            timeout_seconds=30,
+            attempt=1,
+            observed_at=FUTURE,
+        ),
+        ProviderFailure(
+            ErrorCode.SOURCE_AUTH_REQUIRED,
+            Role.SOURCE,
+            401,
+            provider_stage=ProviderStage.PROFILE_PROBE,
+            timeout_seconds=30,
+            attempt=1,
+            observed_at=FUTURE,
+        ),
+    ],
+)
+def test_verify_preserves_typed_profile_provider_failure(
+    trusted_state_parent, monkeypatch, failure
+):
+    owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+
+        class Reader:
+            def get_profile(self, _role, _secret):
+                raise failure
+
+        with pytest.raises(ProviderFailure) as caught:
+            manager.verify_and_publish(Reader())
+        assert caught.value is failure
+        assert caught.value.provider_stage is ProviderStage.PROFILE_PROBE
+        assert caught.value.timeout_seconds == 30
+        assert caught.value.status == failure.status
         assert owner.bindings()[Role.SOURCE].state.value == "verification_pending"
     finally:
         owner.close()
