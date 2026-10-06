@@ -748,6 +748,24 @@ tests) passed, as did Ruff/format and repository safety. This is
 implemented/offline-verified only; a controlled live Gmail run remains a
 separately authorized external gate.
 
+## Product-first recovery correction (2026-10-06)
+
+The bounded correction in `implementation-plans/critical-path-simplification.md`
+is implemented locally and offline-verified. The foreground path now resumes a
+persisted History poll through the real owner transaction after a typed
+provider failure; Gmail system-label changes are filtered before business-event
+creation; untracked message deletions are consumed without false attention;
+and typed provider failures remain retryable while unexpected programming
+failures are no longer converted into permanent attention. The post-dispatch
+unknown-insert recovery path is unchanged.
+
+Focused sync/history/action tests passed 109 cases and the complete offline
+suite passed 2645 tests. This remains synthetic/offline evidence only: no live
+Gmail, OAuth, deployment or target mutation was performed. Removal of unused
+bootstrap/launcher modules and broader exception-taxonomy cleanup are deferred;
+the next product gate is controlled live Gmail sync after this unit is
+committed and reviewed under the existing authorization boundary.
+
 ## Historical next-unit note (superseded)
 
 This old note proposed a source-Gmail-path evidence producer; the 2026-10-05

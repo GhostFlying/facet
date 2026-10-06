@@ -20,6 +20,7 @@ from facet.contracts import (
 )
 from facet.contracts.records import SourceEvent, SourceEventKeyLabelChanged
 from facet.db.codecs import ActionKind, PrivateAddress, StorageFailure
+from facet.gmail.retry import ProviderFailure
 
 if TYPE_CHECKING:
     from facet.gmail.credentials import AccountAddress
@@ -204,10 +205,10 @@ class ActionLabelProducer:
             _fail()
         try:
             facts = source.get_thread_facts(event.source_thread_id)
+        except ProviderFailure:
+            raise
         except StorageFailure:
             raise
-        except Exception:
-            _fail()
         if type(facts) is not tuple:
             _fail()
         if any(type(fact) is not ActionMessageFact for fact in facts):

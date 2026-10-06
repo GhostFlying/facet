@@ -15,12 +15,13 @@ from test_db_repositories import (
 from test_db_repositories import state as state
 from test_db_schema import NOW, P, lid
 
-from facet.contracts import ErrorCode, LabelChange, ProviderId
+from facet.contracts import ErrorCode, LabelChange, ProviderId, Role
 from facet.db.codecs import ActionKind, PrivateAddress, StorageFailure
 from facet.db.keys import event_key
 from facet.db.repositories import jobs, reads
 from facet.db.repositories.base import _insert
 from facet.gmail.credentials import AccountAddress
+from facet.gmail.retry import ProviderFailure
 from facet.projection.action_consumer import ActionEffectConsumer
 from facet.projection.actions import ActionMessageFact, PrivateActionLabelMap
 
@@ -37,6 +38,11 @@ class Source:
 class FailingSource:
     def get_thread_facts(self, source_thread_id):
         raise StorageFailure(ErrorCode.SOURCE_AUTH_REQUIRED)
+
+
+class ProviderFailingSource:
+    def get_thread_facts(self, source_thread_id):
+        raise ProviderFailure(ErrorCode.SOURCE_RATE_LIMITED, Role.SOURCE)
 
 
 @pytest.fixture(autouse=True)
@@ -242,3 +248,21 @@ def test_source_auth_failure_retains_resolve_job_for_retry(state):
         retry = reads.get_job(uow, P, lid(1076))
         assert retry.state.value == "retry_wait"
         assert retry.next_attempt_at.value > datetime.now(UTC)
+
+
+def test_provider_failure_retains_resolve_job_for_retry(state):
+    _, _, session, _ = state
+    labels = PrivateActionLabelMap(
+        ProviderId("add-sender"), ProviderId("add-domain"), ProviderId("blacklist")
+    )
+    row = _event(session, label=labels.add_sender_label_id, n=77)
+    result = ActionEffectConsumer(
+        labels,
+        ProviderFailingSource(),
+        (AccountAddress("source@example.com"),),
+        "source@example.com",
+    ).process(session, P, row.event_id)
+    assert result.receipt is None and result.attention is ErrorCode.SOURCE_RATE_LIMITED
+    with session.transaction() as uow:
+        assert reads.get_event(uow, P, row.event_id).processing.value == "pending"
+        assert reads.get_job(uow, P, lid(1077)).state.value == "retry_wait"

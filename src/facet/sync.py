@@ -30,7 +30,10 @@ from facet.contracts import (
     RuleKind,
     Timestamp,
 )
-from facet.contracts.records import JobSubjectProjectMessage
+from facet.contracts.records import (
+    JobSubjectProjectMessage,
+    SourceEventKeyMessageDeleted,
+)
 from facet.db.codecs import (
     EventProcessing,
     PollOrigin,
@@ -270,10 +273,11 @@ class ForegroundSync:
                     raise StorageFailure(ErrorCode.BINDING_PENDING)
 
     def _recover_pre_dispatch_claims(self) -> int:
-        """Requeue only claims with no remote-dispatch evidence.
+        """Requeue safe claims and materialize orphaned dispatch markers.
 
-        Dispatch-started and pending-recovery attempts are intentionally absent
-        from this transition and remain visible for explicit recovery.
+        Dispatch-started attempts with a live claim remain explicit recovery;
+        only a marker with no claim and no recovery job is materialized into
+        the existing unknown-insert recovery state machine.
         """
         with self._owner.session.transaction() as uow:
             orphaned = _query(
@@ -362,8 +366,14 @@ class ForegroundSync:
         with self._owner.session.transaction() as uow:
             checkpoint = reads.get_checkpoint(uow, self._projection)
             if checkpoint.active_poll_id is not None:
-                poll = reads.get_history_poll(
-                    uow, self._projection, checkpoint.active_poll_id
+                # ``get_history_poll`` is a committed ReadSession facade.  We
+                # are already inside the owner transaction here; use the
+                # typed UoW getter so a resumed poll can actually continue.
+                poll = _get(
+                    uow,
+                    self._projection,
+                    "history_polls",
+                    (("poll_id", checkpoint.active_poll_id),),
                 )
                 if poll is None:
                     raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
@@ -472,6 +482,11 @@ class ForegroundSync:
                     resolved += 1
                 continue
             if key.tag != "message_added":
+                if isinstance(
+                    key, SourceEventKeyMessageDeleted
+                ) and self._ignore_untracked_deletion(job):
+                    resolved += 1
+                    continue
                 self._defer_event_attention(job, ErrorCode.REQUEST_CONFLICT)
                 attention += 1
                 continue
@@ -480,6 +495,73 @@ class ForegroundSync:
             else:
                 attention += 1
         return resolved, attention
+
+    def _ignore_untracked_deletion(self, resolve_job: SyncJobRow) -> bool:
+        """Close a deletion event only when its source thread was never tracked."""
+        with self._owner.session.transaction() as uow:
+            event = _get(
+                uow,
+                self._projection,
+                "source_events",
+                (
+                    (
+                        "event_key",
+                        event_key(self._projection, resolve_job.subject.event_key),
+                    ),
+                ),
+            )
+            job = reads.get_job(uow, self._projection, resolve_job.job_id)
+            if (
+                event is None
+                or job is None
+                or job.state
+                not in {
+                    JobState.QUEUED,
+                    JobState.RETRY_WAIT,
+                }
+            ):
+                return False
+            if event.event.source_thread_id is None:
+                return False
+            if (
+                reads.get_thread(uow, self._projection, event.event.source_thread_id)
+                is not None
+            ):
+                return False
+            now = _now()
+            claim = Claim(
+                _id(),
+                self._owner.owner_info.owner_run_id,
+                now,
+                None,
+                Revision(job.revision.value + 1),
+                ClaimPhase.PREPARING,
+            )
+            jobs.claim(
+                uow,
+                self._projection,
+                job.job_id,
+                claim,
+                RevisionGuard(job.revision),
+                now,
+            )
+            events.classify_event(
+                uow,
+                self._projection,
+                event.event_id,
+                EventProcessing.CONSUMED,
+                None,
+                (),
+                RevisionGuard(event.revision),
+            )
+            completed = reads.get_job(uow, self._projection, job.job_id)
+            jobs.complete_noninsert_job(
+                uow,
+                self._projection,
+                job.job_id,
+                RevisionGuard(completed.revision),
+            )
+            return True
 
     def _defer_event_attention(
         self,

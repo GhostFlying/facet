@@ -15,12 +15,14 @@ from facet.contracts import (
     LocalId,
     ProviderId,
     Revision,
+    Role,
     RuleKind,
     RuleRef,
     Timestamp,
     Visibility,
 )
 from facet.db.codecs import PrivateAddress, StorageFailure
+from facet.gmail.retry import ProviderFailure, ProviderStage
 from facet.gmail.source import (
     DiscoveryItem,
     DiscoveryPage,
@@ -61,11 +63,20 @@ class _Admission:
 
 
 class _Source:
-    def __init__(self, raw, *, discover=False, deleted=False, action=False):
+    def __init__(
+        self,
+        raw,
+        *,
+        discover=False,
+        deleted=False,
+        action=False,
+        system_label=False,
+    ):
         self.raw_bytes = raw
         self.discover_item = discover
         self.deleted = deleted
         self.action = action
+        self.system_label = system_label
         self.discover_calls = 0
         self.history_calls = 0
 
@@ -95,6 +106,11 @@ class _Source:
                 ),
             )
         if self.action:
+            label_id = (
+                ProviderId("UNREAD")
+                if self.system_label
+                else ProviderId("label-action")
+            )
             records = (
                 HistoryRecord(
                     ProviderId("history-action"),
@@ -105,7 +121,7 @@ class _Source:
                             HistoryMessage(
                                 ProviderId("m-action"), ProviderId("thread-1")
                             ),
-                            (ProviderId("label-action"),),
+                            (label_id,),
                         ),
                     ),
                     (),
@@ -335,23 +351,80 @@ def test_foreground_cycle_refuses_paused_owner_before_provider_calls(
             owner.close()
 
 
-def test_unsupported_history_event_becomes_durable_attention(
+def test_untracked_deletion_is_consumed_without_attention(
     trusted_state_parent, monkeypatch
 ):
     with TemporaryDirectory(prefix="facet-sync-", dir=trusted_state_parent) as root:
-        owner = _ready_owner(Path(root), object(), monkeypatch)
+        owner = _ready_owner(
+            Path(root), object(), monkeypatch, seed=False, with_rule=False
+        )
         source = _Source(b"unused", deleted=True)
         try:
             receipt = ForegroundSync(
                 owner, source, _Target(b"unused"), _Admission()
             ).run_once()
-            assert receipt.attention == 1
+            assert receipt.attention == 0
             assert owner._connection.execute(
                 "SELECT state FROM sync_jobs WHERE kind='resolve_event'"
-            ).fetchone() == ("needs_attention",)
+            ).fetchone() == ("completed",)
             assert owner._connection.execute(
                 "SELECT processing FROM source_events"
-            ).fetchone() == ("needs_attention",)
+            ).fetchone() == ("consumed",)
+        finally:
+            owner.close()
+
+
+def test_system_label_changes_do_not_create_resolve_jobs(
+    trusted_state_parent, monkeypatch
+):
+    with TemporaryDirectory(prefix="facet-sync-", dir=trusted_state_parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch)
+        source = _Source(b"unused", action=True, system_label=True)
+        try:
+            receipt = ForegroundSync(
+                owner, source, _Target(b"unused"), _Admission()
+            ).run_once()
+            assert receipt.attention == 0
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM sync_jobs WHERE kind='resolve_event'"
+            ).fetchone() == (0,)
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM source_events"
+            ).fetchone() == (0,)
+        finally:
+            owner.close()
+
+
+def test_active_history_poll_continues_after_restartable_provider_failure(
+    trusted_state_parent, monkeypatch
+):
+    class ResumeSource(_Source):
+        def history(self, cursor, *, page_token=None):
+            self.history_calls += 1
+            if self.history_calls == 1:
+                raise ProviderFailure(
+                    ErrorCode.NETWORK_UNAVAILABLE,
+                    Role.SOURCE,
+                    provider_stage=ProviderStage.HISTORY_LIST,
+                )
+            return HistoryPage(ProviderId("h-resumed"), (), None)
+
+    with TemporaryDirectory(prefix="facet-sync-", dir=trusted_state_parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch)
+        source = ResumeSource(b"unused")
+        sync = ForegroundSync(owner, source, _Target(b"unused"), _Admission())
+        try:
+            with pytest.raises(ProviderFailure):
+                sync.run_once()
+            assert owner._connection.execute(
+                "SELECT active_poll_id FROM history_checkpoints"
+            ).fetchone()[0]
+            receipt = sync.run_once()
+            assert receipt.history_pages == 1
+            assert source.history_calls == 2
+            assert owner._connection.execute(
+                "SELECT active_poll_id FROM history_checkpoints"
+            ).fetchone() == (None,)
         finally:
             owner.close()
 

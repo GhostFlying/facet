@@ -60,6 +60,7 @@ from facet.db.models import (
 )
 from facet.db.repositories import actions, events, jobs, policy, reads
 from facet.db.repositories.base import _get
+from facet.gmail.retry import ProviderFailure
 from facet.projection.actions import (
     ActionActivation,
     ActionAttention,
@@ -288,12 +289,12 @@ class ActionEffectConsumer:
                     prepared,
                     error.code,
                 )
-            except Exception:
+            except ProviderFailure as error:
                 return self._attention(
                     owner,
                     projection_id,
                     prepared,
-                    ErrorCode.OWNER_UNAVAILABLE,
+                    error.code,
                 )
             if isinstance(decision, ActionAttention):
                 return self._attention(
