@@ -189,7 +189,10 @@ Date/internalDate 也不是 target 创建时间。M2-04 insert-attribution ADR �
 首次启动可授权和 preview，不自动复制历史；显式 `backfill start` 创建初始化 epoch。
 
 1. 在任何 discovery 前获取并持久保存 H0 和固定时间 cutoff。
-2. 候选分页发现后本地复核规则与 admission，持续写入持久 thread jobs。
+2. Discovery 只从 sealed ruleset 的 enabled allow sender/domain 生成有界 Gmail
+   candidate query；不做无条件的全 mailbox enumeration。provider query 只是候选
+   superset，仍须本地复核规则与 admission 后才写入持久 thread jobs。没有 enabled
+   allow 时，完成的是 rule-selected empty scope，不代表 mailbox 已检查或为空。
 3. 从 H0 开始消费 History，与 backfill 共享 message 去重和 thread 调度。
 4. Discovery 完成且 History 追到一个明确边界后，标记发现阶段完成；backfill queue 清空后才标记初始投影完成。
 

@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from facet.contracts import (
     Count,
+    EpochState,
     ErrorCode,
     Generation,
     JobKind,
@@ -121,6 +122,20 @@ class BackfillProducer:
                 raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
             if partition.progress.state is PartitionState.COMPLETE:
                 return partition.progress.observed_items.value
+        query_planner = getattr(self._admission, "discovery_query", None)
+        if callable(query_planner):
+            query = query_planner(epoch)
+            if query is None:
+                return self._complete_selected_scope(
+                    owner, projection_id, epoch_id, partition
+                )
+        else:
+            query = None
+        if query is not None and partition.progress.page_token is not None:
+            # A token created by an older unfiltered scan is not valid for a
+            # newly rule-selected query. Hold for explicit maintenance rather
+            # than silently skipping or reusing provider pages.
+            raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
         token = partition.progress.page_token
         observed = partition.progress.observed_items.value
         pages = 0
@@ -129,6 +144,7 @@ class BackfillProducer:
                 window_start=epoch.window_start.value,
                 window_end=epoch.window_end.value,
                 page_token=token,
+                **({"query": query} if query is not None else {}),
             )
             # Candidate metadata/authentication is provider work and must not
             # execute while the SQLite writer transaction is open.
@@ -303,6 +319,67 @@ class BackfillProducer:
                 break
             token = response.next_page_token
         return observed
+
+    def _complete_selected_scope(self, owner, projection_id, epoch_id, known_partition):
+        """Complete an empty sealed admission scope without mailbox claims."""
+
+        with owner.transaction() as uow:
+            epoch = _get(uow, projection_id, "epochs", (("epoch_id", epoch_id),))
+            partition = _get(
+                uow,
+                projection_id,
+                "epoch_partitions",
+                (
+                    ("epoch_id", epoch_id),
+                    ("partition_key", known_partition.partition_key),
+                ),
+            )
+            if epoch is None or partition is None:
+                raise ValueError("invalid_input")
+            if partition.progress.state is PartitionState.NEEDS_ATTENTION:
+                raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+            if epoch.discovery_complete:
+                if (
+                    partition.progress.state is not PartitionState.COMPLETE
+                    or partition.progress.page_token is not None
+                ):
+                    raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+                return 0
+            if not epoch.discovery_complete:
+                progress = partition.progress
+                if progress.state is not PartitionState.COMPLETE or (
+                    progress.page_token is not None
+                ):
+                    progress = replace(
+                        progress,
+                        state=PartitionState.COMPLETE,
+                        page_token=None,
+                    )
+                    updated = replace(
+                        partition,
+                        progress=progress,
+                        revision=Revision(partition.revision.value + 1),
+                    )
+                    epochs.advance_partition(
+                        uow,
+                        projection_id,
+                        updated,
+                        (),
+                        RevisionGuard(partition.revision),
+                    )
+                    epoch = _get(
+                        uow, projection_id, "epochs", (("epoch_id", epoch_id),)
+                    )
+                epochs.advance_epoch(
+                    uow,
+                    projection_id,
+                    epoch_id,
+                    EpochState.CATCHING_UP,
+                    True,
+                    Count(0),
+                    RevisionGuard(epoch.revision),
+                )
+        return 0
 
 
 DiscoveryProducer = BackfillProducer

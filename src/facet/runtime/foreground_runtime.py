@@ -92,6 +92,7 @@ def load_persisted_admission(owner, config):
         return AdmissionEvaluator(
             tuple(rules),
             source_account=PrivateAddress(config.projection.source_email),
+            ruleset_revision=projection.ruleset_revision,
         )
 
 

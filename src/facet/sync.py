@@ -27,6 +27,7 @@ from facet.contracts import (
     RestoreState,
     Revision,
     Role,
+    RuleKind,
     Timestamp,
 )
 from facet.contracts.records import JobSubjectProjectMessage
@@ -43,7 +44,7 @@ from facet.db.repositories import epochs, events, jobs, reads
 from facet.db.repositories.base import _decode, _get, _query
 from facet.db.repositories.serialization import COLUMNS
 from facet.gmail.retry import ProviderFailure
-from facet.gmail.source import CandidateAttentionReason
+from facet.gmail.source import CandidateAttentionReason, DiscoveryQuery
 from facet.projection.action_consumer import ActionEffectConsumer
 from facet.projection.admission import (
     AdmissionEvaluator as PolicyAdmissionEvaluator,
@@ -79,6 +80,42 @@ class SourceCandidateAdmission:
             raise ValueError("invalid_input")
         self._source = source
         self._policy = policy
+
+    def discovery_query(self, epoch=None) -> DiscoveryQuery | None:
+        """Plan one bounded provider query from the sealed allow snapshot."""
+
+        policy_revision = self._policy.ruleset_revision
+        epoch_revision = getattr(
+            getattr(epoch, "decision", None), "ruleset_revision", None
+        )
+        if (
+            epoch is not None
+            and type(policy_revision) is Revision
+            and epoch_revision != policy_revision
+        ):
+            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+        rules = self._policy.enabled_allow_rules
+        if not rules:
+            return None
+        if any(rule.normalized.kind is RuleKind.ALLOW_DOMAIN for rule in rules):
+            # Gmail's broad domain search semantics are not yet accepted as a
+            # complete parent/subdomain candidate superset. Never fall back to
+            # an unfiltered mailbox scan while that evidence gate is closed.
+            raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+        clauses = tuple(
+            sorted(
+                {
+                    'from:"'
+                    + rule.normalized.value.value.replace("\\", "\\\\").replace(
+                        '"', '\\"'
+                    )
+                    + '"'
+                    for rule in rules
+                    if rule.normalized.kind is RuleKind.ALLOW_SENDER
+                }
+            )
+        )
+        return DiscoveryQuery(clauses)
 
     def evaluate(self, item, epoch):
         from facet.projection.backfill import DiscoveryDecision

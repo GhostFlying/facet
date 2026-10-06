@@ -5,7 +5,7 @@ import pytest
 from facet.contracts import ErrorCode
 from facet.db.codecs import ActionKind, PrivateAddress
 from facet.gmail.retry import ProviderFailure
-from facet.gmail.source import CandidateAttentionReason, SourceAdapter
+from facet.gmail.source import CandidateAttentionReason, DiscoveryQuery, SourceAdapter
 
 
 def _list_args():
@@ -153,6 +153,36 @@ def test_page_enumeration_failure_is_not_partial(gmail_controller):
             window_end=datetime(2026, 7, 1, tzinfo=UTC),
         )
     assert getattr(error.value, "code", None).value == "network_unavailable"
+
+
+def test_discovery_query_renders_bounded_sender_clauses(gmail_controller):
+    args = {
+        **_list_args(),
+        "q": (
+            "after:2026/01/01 before:2026/07/01 "
+            '{from:"one@example.invalid" from:"two@example.invalid"}'
+        ),
+    }
+    gmail_controller.script(
+        "source",
+        "messages.list",
+        args,
+        {"messages": [{"id": "m-1", "threadId": "t-1"}]},
+    )
+    page = _adapter(gmail_controller).discover(
+        window_start=datetime(2026, 1, 1, tzinfo=UTC),
+        window_end=datetime(2026, 7, 1, tzinfo=UTC),
+        query=DiscoveryQuery(
+            ('from:"one@example.invalid"', 'from:"two@example.invalid"')
+        ),
+    )
+    assert tuple(item.message_id.value for item in page.items) == ("m-1",)
+
+
+def test_discovery_query_rejects_unbounded_rendering():
+    query = DiscoveryQuery(('from:"' + "a" * 4100 + '"',))
+    with pytest.raises(ValueError, match="invalid_input"):
+        query.render("after:2026/01/01 before:2026/07/01")
 
 
 def test_action_label_map_is_optional_when_fixed_labels_are_absent(gmail_controller):

@@ -30,6 +30,7 @@ from .retry import ProviderFailure, ProviderStage, execute
 
 __all__ = (
     "SourceProfile",
+    "DiscoveryQuery",
     "DiscoveryItem",
     "DiscoveryPage",
     "HistoryPage",
@@ -86,6 +87,30 @@ class SourceProfile:
 class DiscoveryItem:
     message_id: ProviderId
     thread_id: ProviderId
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class DiscoveryQuery:
+    """Bounded provider candidate clauses for one source-window scan."""
+
+    clauses: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.clauses) is not tuple or not self.clauses:
+            raise ValueError("invalid_input")
+        if any(
+            type(clause) is not str
+            or not clause
+            or any(ord(char) < 0x20 for char in clause)
+            for clause in self.clauses
+        ):
+            raise ValueError("invalid_input")
+
+    def render(self, window: str) -> str:
+        query = f"{window} {{{' '.join(self.clauses)}}}"
+        if len(query.encode("utf-8")) > 4096:
+            raise ValueError("invalid_input")
+        return query
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -252,6 +277,7 @@ class SourceAdapter:
         window_start: datetime,
         window_end: datetime,
         page_token: ProviderPageToken | None = None,
+        query: DiscoveryQuery | None = None,
     ) -> DiscoveryPage:
         if (
             window_start.tzinfo is None
@@ -261,10 +287,13 @@ class SourceAdapter:
             raise ValueError("invalid_input")
         start = window_start.astimezone(UTC).strftime("%Y/%m/%d")
         end = window_end.astimezone(UTC).strftime("%Y/%m/%d")
-        query = f"after:{start} before:{end}"
+        window = f"after:{start} before:{end}"
+        if type(query) not in {DiscoveryQuery, type(None)}:
+            raise ValueError("invalid_input")
+        rendered_query = window if query is None else query.render(window)
         args = {
             "userId": "me",
-            "q": query,
+            "q": rendered_query,
             "includeSpamTrash": False,
             "maxResults": 100,
         }
@@ -275,11 +304,16 @@ class SourceAdapter:
             self.role,
             provider_stage=ProviderStage.MESSAGE_LIST,
         )
+        items = []
+        seen = set()
+        for item in value.get("messages", ()):
+            message_id = _id(item["id"])
+            if message_id in seen:
+                continue
+            seen.add(message_id)
+            items.append(DiscoveryItem(message_id, _id(item["threadId"])))
         return DiscoveryPage(
-            tuple(
-                DiscoveryItem(_id(item["id"]), _id(item["threadId"]))
-                for item in value.get("messages", ())
-            ),
+            tuple(items),
             _token(value.get("nextPageToken")),
             value.get("resultSizeEstimate"),
         )

@@ -5,6 +5,7 @@ import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
 from test_projection_worker import _raw, _ready_owner
@@ -181,6 +182,61 @@ def test_source_candidate_admission_uses_metadata_and_rules_only():
         object(),
     )
     assert result.admit is True
+
+
+def test_source_candidate_admission_plans_sender_query_and_no_rule_scope():
+    source = type("CandidateSource", (), {"candidate": lambda self, item: None})()
+    empty = AdmissionEvaluator(
+        (),
+        source_account=PrivateAddress("source@example.com"),
+        ruleset_revision=Revision(1),
+    )
+    assert SourceCandidateAdmission(source, empty).discovery_query() is None
+    policy = AdmissionEvaluator(
+        (
+            AdmissionRule(
+                RuleRef(LocalId("00000000000040008000000000000002"), Revision(1)),
+                normalize_rule(RuleKind.ALLOW_SENDER, "sender@example.com"),
+                Timestamp(datetime(2026, 1, 1, tzinfo=UTC)),
+            ),
+        ),
+        source_account=PrivateAddress("source@example.com"),
+        ruleset_revision=Revision(1),
+    )
+    query = SourceCandidateAdmission(source, policy).discovery_query()
+    assert query is not None
+    assert query.clauses == ('from:"sender@example.com"',)
+
+
+def test_source_candidate_admission_rejects_ruleset_lineage_mismatch():
+    source = type("CandidateSource", (), {"candidate": lambda self, item: None})()
+    policy = AdmissionEvaluator(
+        (),
+        source_account=PrivateAddress("source@example.com"),
+        ruleset_revision=Revision(3),
+    )
+    with pytest.raises(StorageFailure) as error:
+        SourceCandidateAdmission(source, policy).discovery_query(
+            SimpleNamespace(decision=SimpleNamespace(ruleset_revision=Revision(2)))
+        )
+    assert error.value.code is ErrorCode.CONSISTENCY_FAILURE
+
+
+def test_source_candidate_admission_holds_domain_query_until_recall_evidence():
+    source = type("CandidateSource", (), {"candidate": lambda self, item: None})()
+    policy = AdmissionEvaluator(
+        (
+            AdmissionRule(
+                RuleRef(LocalId("00000000000040008000000000000003"), Revision(1)),
+                normalize_rule(RuleKind.ALLOW_DOMAIN, "example.com"),
+                Timestamp(datetime(2026, 1, 1, tzinfo=UTC)),
+            ),
+        ),
+        source_account=PrivateAddress("source@example.com"),
+    )
+    with pytest.raises(StorageFailure) as error:
+        SourceCandidateAdmission(source, policy).discovery_query()
+    assert error.value.code is ErrorCode.MAINTENANCE_REQUIRED
 
 
 @pytest.fixture
