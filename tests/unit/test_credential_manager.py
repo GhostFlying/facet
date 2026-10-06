@@ -652,6 +652,39 @@ def test_reconcile_interrupted_refresh_holds_pending_candidate(
         owner.close()
 
 
+@pytest.mark.parametrize("mismatch", ["swapped", "account", "scope_revision", "state"])
+def test_reconcile_interrupted_refresh_holds_lineage_mismatch(
+    trusted_state_parent, monkeypatch, mismatch
+):
+    owner, config, manager, source, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+        manager.verify_and_publish(Profiles())
+        row = _requesting_refresh(owner, config, source)
+        if mismatch == "swapped":
+            envelope = _envelope(owner, Role.TARGET, "target@example.invalid")
+        else:
+            changes = {
+                "account": {"account": AccountAddress("other@example.invalid")},
+                "scope_revision": {"scope_policy_revision": Revision(99)},
+                "state": {
+                    "state_instance_id": LocalId("00000000000040008000000000000072")
+                },
+            }
+            envelope = replace(source, **changes[mismatch])
+        path = Path(manager._path(Role.SOURCE))
+        path.write_bytes(encode_envelope(envelope))
+        path.chmod(0o600)
+        with pytest.raises(StorageFailure) as caught:
+            manager.reconcile_interrupted_refresh(Role.SOURCE)
+        assert caught.value.code is ErrorCode.MAINTENANCE_REQUIRED
+        assert owner.session._connection.execute(
+            "SELECT phase,error FROM credential_changes WHERE change_id=?",
+            (row.change_id.value,),
+        ).fetchone() == ("requesting", None)
+    finally:
+        owner.close()
+
+
 def test_refresh_records_explicit_scope_evidence(trusted_state_parent, monkeypatch):
     owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
     try:

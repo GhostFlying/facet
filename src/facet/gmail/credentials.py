@@ -478,11 +478,21 @@ class CredentialManager:
         except OSError:
             _fail(ErrorCode.MAINTENANCE_REQUIRED)
         binding = self._owner.bindings().get(role)
+        expected_policy = _expected_policy(self._config, role)
         if (
             binding is None
             or binding.state is not BindingState.VERIFIED
+            or change.state_instance_id != self._owner.owner_info.state_instance_id
+            or change.projection_id != self._config.projection.id
+            or change.role is not role
+            or change.scope_policy != expected_policy.value
+            or change.scope_policy_revision != envelope.scope_policy_revision
             or binding.binding_revision != change.binding_revision
             or binding.credential_revision != change.old_revision
+            or envelope.role is not role
+            or envelope.account.value.casefold()
+            != binding.declared_address.value.casefold()
+            or envelope.scope_policy is not expected_policy
             or envelope.credential_revision != change.old_revision
             or envelope.binding_revision != change.binding_revision
             or envelope.projection_id != self._config.projection.id

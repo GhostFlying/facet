@@ -1,4 +1,4 @@
-# Provider request timeout plan (Rev8)
+# Provider request timeout plan (Rev9)
 
 ## Scope
 
@@ -53,6 +53,12 @@
   non-refresh/requesting shape stays `maintenance_required`/attention; never
   force-reset, initialize an empty DB, or edit state outside the existing
   writer protocol.
+- The coherent-old-envelope predicate must include the role, owner
+  `state_instance_id`, declared-account match, expected scope policy and
+  scope-policy revision, binding revision, and old credential revision; the
+  change row's state-instance and policy lineage must match the owner/config.
+  A swapped-role, wrong-account, wrong-policy/revision, or wrong-state fixture
+  therefore fails closed and remains unresolved.
 - Keep the existing `error_events` schema and public `Issues`/`Diagnostics`
   DTOs unchanged: they have no stage field, and adding one would require a
   schema/public-version migration. Stage details remain private typed failure
@@ -109,7 +115,8 @@
   than `persistence_failure`.
 - Focused startup-recovery fixtures: safe no-candidate requesting refresh is
   abandoned idempotently with the old revision retained; candidate-file,
-  digest/old-envelope mismatch, and uncertain-owner cases remain held for
+  digest/old-envelope mismatch, swapped role/account, scope-policy/revision or
+  state-lineage mismatch, and uncertain-owner cases remain held for
   attention/maintenance without destructive or public/raw output.
 - No live state, OAuth, Gmail writes, Compose, image, or deployment changes.
 
