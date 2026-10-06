@@ -1,4 +1,4 @@
-# Provider request timeout plan (Rev6)
+# Provider request timeout plan (Rev7)
 
 ## Scope
 
@@ -37,6 +37,12 @@
   maps to `network_unavailable`); only the private stage/status/retry metadata
   is retained for explicit diagnostics. No durable error-event or credential
   schema gains these fields.
+- Refresh/profile `ProviderFailure` raised after a durable credential change
+  enters `requesting` must use the existing `_abandon`/`_attention` cleanup
+  with its closed `ErrorCode` before re-raising. The refresh single-flight
+  owner and waiters must retain that same typed code (for example
+  `network_unavailable` or role auth), never convert it to generic
+  `persistence_failure`; no credential revision or binding publication occurs.
 - Keep the existing `error_events` schema and public `Issues`/`Diagnostics`
   DTOs unchanged: they have no stage field, and adding one would require a
   schema/public-version migration. Stage details remain private typed failure
@@ -82,6 +88,11 @@
   through verification; private JSON emits only the allowlist while public
   JSON omits stage metadata. A synthetic 401 still produces the existing role
   auth code.
+- Focused refresh fault regressions: inject a profile/transport
+  `ProviderFailure` after `credential_changes` begins and assert the row is
+  `abandoned`/attention-coded, no new credential revision is published, and
+  concurrent same-flight callers receive the original typed error code rather
+  than `persistence_failure`.
 - No live state, OAuth, Gmail writes, Compose, image, or deployment changes.
 
 ## Acceptance

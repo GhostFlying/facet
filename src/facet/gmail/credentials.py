@@ -829,6 +829,9 @@ class CredentialManager:
         except StorageFailure as error:
             self._finish_flight(role, flight, error=error.code)
             raise
+        except ProviderFailure as error:
+            self._finish_flight(role, flight, error=error.code)
+            raise
         except BaseException:
             self._finish_flight(role, flight, error=ErrorCode.PERSISTENCE_FAILURE)
             raise
@@ -1015,6 +1018,12 @@ class CredentialManager:
             return self._snapshot_verified(
                 role, candidate, self._owner.bindings()[role], observed
             )
+        except ProviderFailure as error:
+            if published:
+                self._attention(role, change_id, error.code)
+            else:
+                self._abandon(role, change_id, error.code)
+            raise
         except StorageFailure as error:
             if published:
                 self._attention(role, change_id, error.code)

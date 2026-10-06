@@ -504,6 +504,84 @@ def test_refresh_preserves_typed_exchange_failure(trusted_state_parent, monkeypa
         owner.close()
 
 
+def test_refresh_provider_failure_abandons_requesting_change(
+    trusted_state_parent, monkeypatch
+):
+    owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
+    failure = ProviderFailure(
+        ErrorCode.NETWORK_UNAVAILABLE,
+        Role.SOURCE,
+        provider_stage=ProviderStage.PROFILE_PROBE,
+        timeout_seconds=30,
+        attempt=1,
+        observed_at=FUTURE,
+    )
+    try:
+        manager.verify_and_publish(Profiles())
+
+        def exchange(_role, _old):
+            raise failure
+
+        with pytest.raises(ProviderFailure) as caught:
+            manager.refresh(Role.SOURCE, exchange)
+        assert caught.value is failure
+        assert owner.bindings()[Role.SOURCE].credential_revision == Revision(1)
+        assert owner.session._connection.execute(
+            "SELECT phase,error FROM credential_changes"
+        ).fetchone() == ("abandoned", "network_unavailable")
+    finally:
+        owner.close()
+
+
+def test_refresh_provider_failure_preserves_code_for_single_flight_waiter(
+    trusted_state_parent, monkeypatch
+):
+    owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
+    release = threading.Event()
+    failure = ProviderFailure(
+        ErrorCode.SOURCE_AUTH_REQUIRED,
+        Role.SOURCE,
+        401,
+        provider_stage=ProviderStage.PROFILE_PROBE,
+        timeout_seconds=30,
+        attempt=1,
+        observed_at=FUTURE,
+    )
+    try:
+        manager.verify_and_publish(Profiles())
+
+        def duplicate_exchange(_role, _old):
+            raise AssertionError("duplicate exchange")
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            holder = {}
+
+            def exchange(_role, _old):
+                holder["second"] = pool.submit(
+                    manager.refresh, Role.SOURCE, duplicate_exchange
+                )
+                for _ in range(100):
+                    with manager._flight_condition:
+                        if manager._flights[Role.SOURCE].waiters == 1:
+                            break
+                        manager._flight_condition.wait(0.01)
+                else:
+                    raise AssertionError("single-flight waiter did not join")
+                release.set()
+                assert release.wait(5)
+                raise failure
+
+            with pytest.raises(ProviderFailure) as first_error:
+                manager.refresh(Role.SOURCE, exchange)
+            with pytest.raises(StorageFailure) as second_error:
+                holder["second"].result(timeout=5)
+        assert first_error.value is failure
+        assert second_error.value.code is ErrorCode.SOURCE_AUTH_REQUIRED
+        assert second_error.value.code is not ErrorCode.PERSISTENCE_FAILURE
+    finally:
+        owner.close()
+
+
 def test_refresh_records_explicit_scope_evidence(trusted_state_parent, monkeypatch):
     owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
     try:
