@@ -1,4 +1,4 @@
-# Provider request timeout plan (Rev7)
+# Provider request timeout plan (Rev8)
 
 ## Scope
 
@@ -43,6 +43,16 @@
   owner and waiters must retain that same typed code (for example
   `network_unavailable` or role auth), never convert it to generic
   `persistence_failure`; no credential revision or binding publication occurs.
+- Add a writer-owned startup reconciliation for an interrupted refresh change:
+  only a `credential_changes` row with `kind=refresh`, `phase=requesting`, no
+  matching pending candidate envelope, and a coherent owner-readable final
+  envelope at the recorded old revision may transition atomically to
+  `abandoned` with the role auth-required error. The old credential file,
+  binding revision, and credential revision remain unchanged. Any pending
+  candidate, digest mismatch, unexpected file, owner/lock uncertainty, or
+  non-refresh/requesting shape stays `maintenance_required`/attention; never
+  force-reset, initialize an empty DB, or edit state outside the existing
+  writer protocol.
 - Keep the existing `error_events` schema and public `Issues`/`Diagnostics`
   DTOs unchanged: they have no stage field, and adding one would require a
   schema/public-version migration. Stage details remain private typed failure
@@ -77,6 +87,10 @@
   typed profile `ProviderFailure` through verify/profile preflight and expose
   its fixed private diagnostic allowlist when `--private-metadata` is explicit;
   public/default output continues to expose only the closed error code.
+- `src/facet/gmail/credentials.py`/`src/facet/runtime/state_owner.py` (or the
+  existing writer-owned startup seam): reconcile only the bounded interrupted
+  refresh shape above before normal provider work; offline status remains
+  read-only and does not reconcile.
 - Focused provider/runtime tests: fake a hanging request/transport at each
   representative stage and assert bounded invocation, typed stage metadata,
   no raw leakage, and no durable H0/epoch mutation.
@@ -93,6 +107,10 @@
   `abandoned`/attention-coded, no new credential revision is published, and
   concurrent same-flight callers receive the original typed error code rather
   than `persistence_failure`.
+- Focused startup-recovery fixtures: safe no-candidate requesting refresh is
+  abandoned idempotently with the old revision retained; candidate-file,
+  digest/old-envelope mismatch, and uncertain-owner cases remain held for
+  attention/maintenance without destructive or public/raw output.
 - No live state, OAuth, Gmail writes, Compose, image, or deployment changes.
 
 ## Acceptance

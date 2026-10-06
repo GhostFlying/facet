@@ -454,6 +454,51 @@ class CredentialManager:
             _fail(ErrorCode.BINDING_MISMATCH)
         return envelope
 
+    def reconcile_interrupted_refresh(self, role: Role) -> None:
+        """Abandon only a safely identifiable interrupted refresh change."""
+
+        if type(role) is not Role:
+            _fail(ErrorCode.INVALID_INPUT)
+        from facet.db.repositories import credentials as repository
+
+        with self._owner.session.transaction() as uow:
+            change = repository.get_open_change(uow, self._config.projection.id, role)
+        if change is None:
+            return
+        if change.kind != "refresh" or change.phase != "requesting":
+            _fail(ErrorCode.MAINTENANCE_REQUIRED)
+        path = self._path(role)
+        pending = path.with_name("." + path.name + ".pending")
+        try:
+            if pending.exists() or pending.is_symlink():
+                _fail(ErrorCode.MAINTENANCE_REQUIRED)
+            envelope = _read_credential(path, role)
+        except StorageFailure:
+            raise
+        except OSError:
+            _fail(ErrorCode.MAINTENANCE_REQUIRED)
+        binding = self._owner.bindings().get(role)
+        if (
+            binding is None
+            or binding.state is not BindingState.VERIFIED
+            or binding.binding_revision != change.binding_revision
+            or binding.credential_revision != change.old_revision
+            or envelope.credential_revision != change.old_revision
+            or envelope.binding_revision != change.binding_revision
+            or envelope.projection_id != self._config.projection.id
+            or envelope.state_instance_id != self._owner.owner_info.state_instance_id
+        ):
+            _fail(ErrorCode.MAINTENANCE_REQUIRED)
+        code = (
+            ErrorCode.SOURCE_AUTH_REQUIRED
+            if role is Role.SOURCE
+            else ErrorCode.TARGET_AUTH_REQUIRED
+        )
+        with self._owner.session.transaction() as uow:
+            repository.abandon_change(
+                uow, self._config.projection.id, role, change.change_id, code
+            )
+
     def _check_private_root(self) -> Path:
         return _check_private_root_path(self._state_dir)
 

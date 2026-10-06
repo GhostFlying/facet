@@ -582,6 +582,76 @@ def test_refresh_provider_failure_preserves_code_for_single_flight_waiter(
         owner.close()
 
 
+def _requesting_refresh(owner, config, source):
+    row = CredentialChangeRow(
+        config.projection.id,
+        owner.owner_info.state_instance_id,
+        LocalId("00000000000040008000000000000071"),
+        Role.SOURCE,
+        "refresh",
+        "requesting",
+        source.credential_revision,
+        Revision(source.credential_revision.value + 1),
+        source.binding_revision,
+        source.scope_policy_revision,
+        None,
+        None,
+        None,
+        source.scope_policy.value,
+        None,
+        None,
+        None,
+        None,
+        source.profile_verified_at,
+        source.secret.expires_at,
+        FUTURE,
+        FUTURE,
+        None,
+    )
+    with owner.session.transaction() as uow:
+        credential_repository.begin_change(uow, config.projection.id, row)
+    return row
+
+
+def test_reconcile_interrupted_refresh_abandons_only_coherent_old_file(
+    trusted_state_parent, monkeypatch
+):
+    owner, config, manager, source, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+        manager.verify_and_publish(Profiles())
+        row = _requesting_refresh(owner, config, source)
+        manager.reconcile_interrupted_refresh(Role.SOURCE)
+        assert owner.session._connection.execute(
+            "SELECT phase,error FROM credential_changes WHERE change_id=?",
+            (row.change_id.value,),
+        ).fetchone() == ("abandoned", "source_auth_required")
+        assert owner.bindings()[Role.SOURCE].credential_revision == Revision(1)
+        manager.reconcile_interrupted_refresh(Role.SOURCE)
+    finally:
+        owner.close()
+
+
+def test_reconcile_interrupted_refresh_holds_pending_candidate(
+    trusted_state_parent, monkeypatch
+):
+    owner, config, manager, source, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+        manager.verify_and_publish(Profiles())
+        _requesting_refresh(owner, config, source)
+        pending = Path(manager._path(Role.SOURCE)).with_name(".source.json.pending")
+        pending.write_bytes(b"synthetic pending")
+        pending.chmod(0o600)
+        with pytest.raises(StorageFailure) as caught:
+            manager.reconcile_interrupted_refresh(Role.SOURCE)
+        assert caught.value.code is ErrorCode.MAINTENANCE_REQUIRED
+        assert owner.session._connection.execute(
+            "SELECT phase,error FROM credential_changes WHERE role='source'"
+        ).fetchone() == ("requesting", None)
+    finally:
+        pending.unlink(missing_ok=True)
+        owner.close()
+
+
 def test_refresh_records_explicit_scope_evidence(trusted_state_parent, monkeypatch):
     owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
     try:

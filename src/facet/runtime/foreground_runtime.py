@@ -142,6 +142,7 @@ class ForegroundRuntime:
 
         if getattr(self.factory, "supports_refresh", False):
             for role in (Role.SOURCE, Role.TARGET):
+                manager.reconcile_interrupted_refresh(role)
                 manager.ensure_current(role, exchange, refreshed_profile)
         # verify() reads both role envelopes and probes both profiles before
         # verify_and_publish changes either binding or projection readiness.
