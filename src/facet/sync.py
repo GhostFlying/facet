@@ -183,6 +183,7 @@ class ForegroundSync:
         admission,
         *,
         action_consumer: ActionEffectConsumer | None = None,
+        admission_for_epoch=None,
         max_raw_bytes: int = 35_000_000,
     ) -> None:
         if (
@@ -191,6 +192,7 @@ class ForegroundSync:
             or not hasattr(source, "history")
             or not hasattr(target, "insert")
             or not hasattr(admission, "evaluate")
+            or (admission_for_epoch is not None and not callable(admission_for_epoch))
         ):
             raise ValueError("invalid_input")
         if type(max_raw_bytes) is not int or not 1 <= max_raw_bytes <= 35_000_000:
@@ -199,6 +201,7 @@ class ForegroundSync:
         self._source = source
         self._target = target
         self._projection = owner.projection_id
+        self._admission_for_epoch = admission_for_epoch
         self._admission = (
             SourceCandidateAdmission(source, admission)
             if isinstance(admission, PolicyAdmissionEvaluator)
@@ -289,6 +292,16 @@ class ForegroundSync:
         if not rows:
             return 0
         epoch_id = LocalId(rows[0][0])
+        if self._admission_for_epoch is not None:
+            with self._owner.session.transaction() as uow:
+                epoch = _get(uow, self._projection, "epochs", (("epoch_id", epoch_id),))
+            if epoch is None:
+                raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+            admission = self._admission_for_epoch(epoch)
+            if not isinstance(admission, PolicyAdmissionEvaluator):
+                raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+            self._admission = SourceCandidateAdmission(self._source, admission)
+            self._backfill = BackfillProducer(self._source, self._admission)
         discovered = self._backfill.discover(
             self._owner.session, self._projection, epoch_id
         )

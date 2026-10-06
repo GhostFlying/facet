@@ -185,6 +185,17 @@ def test_discovery_query_rejects_unbounded_rendering():
         query.render("after:2026/01/01 before:2026/07/01")
 
 
+def test_source_maps_query_overflow_to_typed_input(gmail_controller):
+    query = DiscoveryQuery(('from:"' + "a" * 4100 + '"',))
+    with pytest.raises(ProviderFailure) as error:
+        _adapter(gmail_controller).discover(
+            window_start=datetime(2026, 1, 1, tzinfo=UTC),
+            window_end=datetime(2026, 7, 1, tzinfo=UTC),
+            query=query,
+        )
+    assert error.value.code is ErrorCode.INVALID_INPUT
+
+
 def test_action_label_map_is_optional_when_fixed_labels_are_absent(gmail_controller):
     gmail_controller.labels(
         "source", [{"id": "other", "name": "Other", "type": "user"}]

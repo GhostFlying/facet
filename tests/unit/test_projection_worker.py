@@ -38,10 +38,15 @@ from facet.db.models import (
 from facet.gmail.credential_models import ScopePolicy, policy_scopes
 from facet.gmail.credentials import CredentialManager
 from facet.gmail.retry import ProviderFailure
-from facet.gmail.source import SourceAdapter
+from facet.gmail.source import DiscoveryQuery, SourceAdapter
 from facet.gmail.target import TargetAdapter
 from facet.projection.admission import AdmissionEvaluator, AdmissionRule
-from facet.projection.backfill import BackfillProducer, DiscoveryDecision
+from facet.projection.backfill import (
+    BackfillProducer,
+    DiscoveryDecision,
+    _decode_query_token,
+    _encode_query_token,
+)
 from facet.projection.fidelity import inspect
 from facet.projection.rules import normalize_rule
 from facet.projection.worker import ProjectionWorker
@@ -61,7 +66,7 @@ class _SourceDiscovery:
 
         return SourceProfile("source@example.invalid", ProviderId("h-1"), 2, 1)
 
-    def discover(self, *, window_start, window_end, page_token=None):
+    def discover(self, *, window_start, window_end, page_token=None, query=None):
         self.discover_calls += 1
         from facet.contracts import ProviderId
         from facet.gmail.source import DiscoveryItem, DiscoveryPage
@@ -80,6 +85,9 @@ class _Admission:
 
     def evaluate(self, item, epoch):
         return DiscoveryDecision(True, RuleRef(self.rule_id, Revision(1)))
+
+    def discovery_query(self, epoch=None):
+        return DiscoveryQuery(('from:"synthetic@example.com"',))
 
 
 def _trusted_parent():
@@ -339,6 +347,92 @@ def test_rule_query_never_reuses_legacy_unfiltered_page_token(monkeypatch):
             assert owner._connection.execute(
                 "SELECT completed_pages,observed_items,page_token FROM epoch_partitions"
             ).fetchone() == (47, 47, "legacy-page")
+        finally:
+            owner.close()
+
+
+def test_missing_discovery_planner_fails_closed_before_provider_call(monkeypatch):
+    parent = _trusted_parent()
+    with TemporaryDirectory(prefix="facet-missing-planner-", dir=parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=False)
+        source = _SourceDiscovery()
+
+        class NoPlanner:
+            def evaluate(self, item, epoch):
+                return DiscoveryDecision(False)
+
+        producer = BackfillProducer(source, NoPlanner())
+        projection = owner.projection_id
+        epoch_id = owner._connection.execute(
+            "SELECT epoch_id FROM epochs WHERE kind='initial_backfill'"
+        ).fetchone()[0]
+        try:
+            with pytest.raises(StorageFailure) as error:
+                producer.discover(owner.session, projection, LocalId(epoch_id))
+            assert error.value.code is ErrorCode.MAINTENANCE_REQUIRED
+            assert source.discover_calls == 0
+        finally:
+            owner.close()
+
+
+def test_same_query_page_token_round_trips_across_restart():
+    token = __import__("facet.contracts").contracts.ProviderPageToken("page-2")
+    wrapped = _encode_query_token(token, "a" * 32)
+    assert wrapped is not None
+    assert wrapped.value.startswith("facet-q1:")
+    assert _decode_query_token(wrapped, "a" * 32) == token
+    with pytest.raises(StorageFailure) as error:
+        _decode_query_token(token, "a" * 32)
+    assert error.value.code is ErrorCode.MAINTENANCE_REQUIRED
+
+
+def test_backfill_resumes_same_query_token_after_page_failure(monkeypatch):
+    parent = _trusted_parent()
+
+    class PagedSource(_SourceDiscovery):
+        def __init__(self, fail_once):
+            super().__init__()
+            self.fail_once = fail_once
+            self.tokens = []
+
+        def discover(self, *, window_start, window_end, page_token=None, query=None):
+            self.tokens.append(None if page_token is None else page_token.value)
+            if page_token is not None and self.fail_once:
+                self.fail_once = False
+                raise StorageFailure(ErrorCode.NETWORK_UNAVAILABLE)
+            from facet.contracts import ProviderPageToken
+            from facet.gmail.source import DiscoveryItem, DiscoveryPage
+
+            if page_token is None:
+                return DiscoveryPage(
+                    (DiscoveryItem(ProviderId("m-new"), ProviderId("thread-1")),),
+                    ProviderPageToken("page-2"),
+                    2,
+                )
+            return DiscoveryPage((), None, 2)
+
+    with TemporaryDirectory(prefix="facet-query-token-", dir=parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=False)
+        source = PagedSource(True)
+        producer = BackfillProducer(
+            source, _Admission(__import__("test_m2_foundation_consumers").lid(900))
+        )
+        projection = owner.projection_id
+        epoch_id = owner._connection.execute(
+            "SELECT epoch_id FROM epochs WHERE kind='initial_backfill'"
+        ).fetchone()[0]
+        try:
+            with pytest.raises(StorageFailure):
+                producer.discover(owner.session, projection, LocalId(epoch_id))
+            stored = owner._connection.execute(
+                "SELECT page_token FROM epoch_partitions"
+            ).fetchone()[0]
+            assert stored.startswith("facet-q1:")
+            resumed = PagedSource(False)
+            BackfillProducer(
+                resumed, _Admission(__import__("test_m2_foundation_consumers").lid(900))
+            ).discover(owner.session, projection, LocalId(epoch_id))
+            assert resumed.tokens == ["page-2"]
         finally:
             owner.close()
 

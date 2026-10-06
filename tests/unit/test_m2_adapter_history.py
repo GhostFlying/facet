@@ -144,7 +144,7 @@ class _DiscoverySource:
 
         return SourceProfile("source@example.invalid", ProviderId("h0"), 1, 1)
 
-    def discover(self, *, window_start, window_end, page_token=None):
+    def discover(self, *, window_start, window_end, page_token=None, query=None):
         from facet.gmail.source import DiscoveryItem, DiscoveryPage
 
         return DiscoveryPage(
@@ -163,6 +163,11 @@ class _TrustedAdmission(AdmissionEvaluator):
 
     def evaluate(self, item, epoch):
         return DiscoveryDecision(True, RuleRef(self.rule_id, Revision(1)))
+
+    def discovery_query(self, epoch=None):
+        from facet.gmail.source import DiscoveryQuery
+
+        return DiscoveryQuery(('from:"synthetic@example.com"',))
 
 
 def test_backfill_producer_uses_verified_owner_and_durable_expansion_job(

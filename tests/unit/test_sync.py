@@ -24,6 +24,7 @@ from facet.db.codecs import PrivateAddress, StorageFailure
 from facet.gmail.source import (
     DiscoveryItem,
     DiscoveryPage,
+    DiscoveryQuery,
     HistoryLabel,
     HistoryMessage,
     HistoryPage,
@@ -55,6 +56,9 @@ class _Admission:
             else None,
         )
 
+    def discovery_query(self, epoch=None):
+        return DiscoveryQuery(('from:"synthetic@example.com"',)) if self.admit else None
+
 
 class _Source:
     def __init__(self, raw, *, discover=False, deleted=False, action=False):
@@ -68,7 +72,7 @@ class _Source:
     def profile(self):
         return SourceProfile("source@example.invalid", ProviderId("h-1"), 1, 1)
 
-    def discover(self, *, window_start, window_end, page_token=None):
+    def discover(self, *, window_start, window_end, page_token=None, query=None):
         self.discover_calls += 1
         items = (
             (DiscoveryItem(ProviderId("m-new"), ProviderId("thread-1")),)
@@ -210,15 +214,20 @@ def test_source_candidate_admission_plans_sender_query_and_no_rule_scope():
 
 def test_source_candidate_admission_rejects_ruleset_lineage_mismatch():
     source = type("CandidateSource", (), {"candidate": lambda self, item: None})()
+    epoch = SimpleNamespace(decision=SimpleNamespace(ruleset_revision=Revision(2)))
+    pinned = AdmissionEvaluator(
+        (),
+        source_account=PrivateAddress("source@example.com"),
+        ruleset_revision=Revision(2),
+    )
+    assert SourceCandidateAdmission(source, pinned).discovery_query(epoch) is None
     policy = AdmissionEvaluator(
         (),
         source_account=PrivateAddress("source@example.com"),
         ruleset_revision=Revision(3),
     )
     with pytest.raises(StorageFailure) as error:
-        SourceCandidateAdmission(source, policy).discovery_query(
-            SimpleNamespace(decision=SimpleNamespace(ruleset_revision=Revision(2)))
-        )
+        SourceCandidateAdmission(source, policy).discovery_query(epoch)
     assert error.value.code is ErrorCode.CONSISTENCY_FAILURE
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Protocol
 from uuid import uuid4
 
@@ -19,6 +20,7 @@ from facet.contracts import (
     PartitionState,
     PolicyVersion,
     Priority,
+    ProviderPageToken,
     Revision,
     RuleRef,
     Timestamp,
@@ -73,6 +75,36 @@ def _local_id() -> LocalId:
 
 def _now() -> Timestamp:
     return Timestamp(datetime.now(UTC))
+
+
+def _query_digest(query, epoch) -> str:
+    window = (
+        f"after:{epoch.window_start.value.astimezone(UTC):%Y/%m/%d} "
+        f"before:{epoch.window_end.value.astimezone(UTC):%Y/%m/%d}"
+    )
+    try:
+        rendered = query.render(window)
+    except ValueError:
+        raise StorageFailure(ErrorCode.INVALID_INPUT) from None
+    return sha256(rendered.encode("utf-8")).hexdigest()[:32]
+
+
+def _encode_query_token(token, digest: str) -> ProviderPageToken | None:
+    if token is None:
+        return None
+    return ProviderPageToken(f"facet-q1:{digest}:{token.value}")
+
+
+def _decode_query_token(token, digest: str) -> ProviderPageToken | None:
+    if token is None:
+        return None
+    prefix = f"facet-q1:{digest}:"
+    if not token.value.startswith(prefix):
+        raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+    raw = token.value[len(prefix) :]
+    if not raw:
+        raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+    return ProviderPageToken(raw)
 
 
 class BackfillProducer:
@@ -130,13 +162,13 @@ class BackfillProducer:
                     owner, projection_id, epoch_id, partition
                 )
         else:
-            query = None
-        if query is not None and partition.progress.page_token is not None:
-            # A token created by an older unfiltered scan is not valid for a
-            # newly rule-selected query. Hold for explicit maintenance rather
-            # than silently skipping or reusing provider pages.
             raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
-        token = partition.progress.page_token
+        query_digest = None if query is None else _query_digest(query, epoch)
+        token = (
+            partition.progress.page_token
+            if query_digest is None
+            else _decode_query_token(partition.progress.page_token, query_digest)
+        )
         observed = partition.progress.observed_items.value
         pages = 0
         while True:
@@ -186,7 +218,11 @@ class BackfillProducer:
                                     current.progress.observed_items.value
                                     + len(response.items)
                                 ),
-                                response.next_page_token,
+                                _encode_query_token(
+                                    response.next_page_token, query_digest
+                                )
+                                if query_digest is not None
+                                else response.next_page_token,
                                 None,
                             )
                             epochs.advance_partition(
@@ -290,7 +326,9 @@ class BackfillProducer:
                     Count(
                         partition.progress.observed_items.value + len(response.items)
                     ),
-                    response.next_page_token,
+                    _encode_query_token(response.next_page_token, query_digest)
+                    if query_digest is not None
+                    else response.next_page_token,
                     None,
                 )
                 receipt = epochs.advance_partition(

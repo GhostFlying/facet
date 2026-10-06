@@ -290,7 +290,14 @@ class SourceAdapter:
         window = f"after:{start} before:{end}"
         if type(query) not in {DiscoveryQuery, type(None)}:
             raise ValueError("invalid_input")
-        rendered_query = window if query is None else query.render(window)
+        try:
+            rendered_query = window if query is None else query.render(window)
+        except ValueError:
+            raise ProviderFailure(
+                ErrorCode.INVALID_INPUT,
+                self.role,
+                provider_stage=ProviderStage.MESSAGE_LIST,
+            ) from None
         args = {
             "userId": "me",
             "q": rendered_query,
