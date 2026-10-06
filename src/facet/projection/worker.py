@@ -425,6 +425,14 @@ class ProjectionWorker:
             if not unknown:
                 self._defer(job, error.code, error.retry_after_seconds)
             return "recovery" if unknown else "deferred"
+        except Exception:
+            self._result(
+                attempt,
+                InsertState.PENDING_RECOVERY,
+                OutcomeCertainty.UNKNOWN,
+                ErrorCode.INSERT_RESULT_UNKNOWN,
+            )
+            return "recovery"
         finally:
             del raw
         attempt = self._result(

@@ -1,5 +1,32 @@
 # Production action-label runtime wiring
 
+## Revision 3 — bind the live action path to the writer and preserve orphaned insert recovery
+
+User live-validation evidence on 2026-10-06 exposed two implementation defects
+without changing the product contract: the foreground seam passed `StateOwner`
+where `ActionEffectConsumer` requires its owned `WriterSession`, and an
+unexpected target-insert exception could leave a dispatch-started attempt
+without a durable recovery job. This correction remains root-owned with
+independent implementation review; no new user permission or Gmail scope.
+
+- Pass the existing writer session into the action consumer; do not add a
+  second transaction or owner abstraction.
+- On an unexpected target insert exception, record `insert_result_unknown` and
+  materialize recovery rather than allowing a generic defer to strand a
+  dispatch-started attempt.
+- At the next owner cycle, reconcile only dispatch-started attempts that have
+  no claim and no recovery job into the existing pending-recovery/recover-insert
+  state machine. Preserve all insert facts; never retry or query Gmail as part
+  of this reconciliation. Make it idempotent and typed.
+- Add synthetic orphan/restart tests plus the runtime owner-session regression.
+  Existing partial-label tests and evidence remain valid.
+
+Acceptance: a live action event can reach the durable action effect; unknown
+insert state always has a recover-insert job; restart materializes a stranded
+dispatch attempt without remote writes; recovery check remains read-only and
+unknown outcomes never become a blind insert. No schema, public output, scope,
+raw-storage or target-cleanup changes.
+
 ## Revision 2 — independently enable available categories
 
 User decision: 2026-10-06, option 2. Base: `0790de4b29a4b42c115afd12ce166541eb71bad1`.

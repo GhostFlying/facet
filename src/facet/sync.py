@@ -40,7 +40,7 @@ from facet.db.codecs import (
 )
 from facet.db.keys import event_key, job_key
 from facet.db.models import HistoryPollRow, RevisionGuard, SyncJobRow
-from facet.db.repositories import epochs, events, jobs, reads
+from facet.db.repositories import epochs, events, intents, jobs, reads
 from facet.db.repositories.base import _decode, _get, _query
 from facet.db.repositories.serialization import COLUMNS
 from facet.gmail.retry import ProviderFailure
@@ -276,6 +276,22 @@ class ForegroundSync:
         from this transition and remain visible for explicit recovery.
         """
         with self._owner.session.transaction() as uow:
+            orphaned = _query(
+                uow,
+                "SELECT "
+                + ",".join(COLUMNS["insert_attempts"])
+                + " FROM insert_attempts a WHERE a.projection_id=? "
+                "AND a.state='dispatch_started' AND NOT EXISTS ("
+                "SELECT 1 FROM job_claims c WHERE c.projection_id=a.projection_id "
+                "AND c.job_id=a.job_id)",
+                (self._projection.value,),
+                maximum=10_000,
+            )
+            for values in orphaned:
+                attempt = _decode(uow, self._projection, "insert_attempts", values)
+                intents.reconcile_orphaned_attempt(
+                    uow, self._projection, attempt.attempt_id, _now()
+                )
             return jobs.requeue_preparing_claims(uow, self._projection)
 
     def _discover_initial_epoch(self) -> int:

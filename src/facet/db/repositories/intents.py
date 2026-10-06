@@ -611,3 +611,65 @@ def record_attempt_result(uow, projection_id, row, observed_at, guard):
         error=row.error_code,
     )
     return WriteReceipt("updated", row.attempt_id, row.revision)
+
+
+@_mutating
+def reconcile_orphaned_attempt(uow, projection_id, attempt_id, observed_at):
+    """Materialize recovery for a dispatch marker whose claim was lost."""
+
+    if type(attempt_id) is not LocalId or type(observed_at) is not Timestamp:
+        _conflict()
+    old = _get(uow, projection_id, "insert_attempts", (("attempt_id", attempt_id),))
+    if old is None or old.state is not InsertState.DISPATCH_STARTED:
+        _conflict()
+    original = _get(uow, projection_id, "sync_jobs", (("job_id", old.job_id),))
+    if (
+        original is None
+        or original.kind is not JobKind.PROJECT_MESSAGE
+        or original.state not in {JobState.BLOCKED, JobState.NEEDS_ATTENTION}
+        or _get(uow, projection_id, "job_claims", (("job_id", old.job_id),)) is not None
+    ):
+        _conflict()
+    row = replace(
+        old,
+        state=InsertState.PENDING_RECOVERY,
+        certainty=OutcomeCertainty.UNKNOWN,
+        error_code=ErrorCode.INSERT_RESULT_UNKNOWN,
+        result_at=old.result_at or observed_at,
+        revision=next_revision(old.revision),
+    )
+    _result_time(row, observed_at)
+    _result_facts(old, row)
+    _result_binding(uow, projection_id, old)
+    values = _encode_row("insert_attempts", row)
+    changed = uow._execute(
+        "UPDATE insert_attempts SET "
+        + ",".join(column + "=?" for column in COLUMNS["insert_attempts"])
+        + " WHERE projection_id=? AND attempt_id=? AND revision=?",
+        (*values, projection_id.value, old.attempt_id.value, old.revision.value),
+    )
+    if changed.rowcount != 1:
+        _conflict()
+    _result_disposition(
+        uow,
+        projection_id,
+        original,
+        JobState.BLOCKED,
+        ErrorCode.INSERT_RESULT_UNKNOWN,
+        observed_at,
+    )
+    _result_recovery(uow, projection_id, original, row, observed_at)
+    _audit(
+        uow,
+        projection_id,
+        AuditKind.ATTEMPT_STATE_CHANGED,
+        AuditObjectKind.ATTEMPT,
+        observed_at,
+        local_id=row.attempt_id,
+        before_revision=old.revision,
+        after_revision=row.revision,
+        before_state=old.state,
+        after_state=row.state,
+        error=row.error_code,
+    )
+    return WriteReceipt("updated", row.attempt_id, row.revision)
