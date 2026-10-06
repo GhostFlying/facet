@@ -148,9 +148,11 @@ class _Target:
 class _RetryAction:
     def __init__(self):
         self.calls = 0
+        self.owner = None
 
     def process(self, *args, **kwargs):
         self.calls += 1
+        self.owner = args[0]
         raise StorageFailure(ErrorCode.SOURCE_AUTH_REQUIRED)
 
 
@@ -371,6 +373,7 @@ def test_retryable_history_effect_is_not_retried_in_same_cycle(
             ).run_once()
             assert receipt.attention == 1
             assert action.calls == 1
+            assert action.owner is owner.session
             row = owner._connection.execute(
                 "SELECT state,next_attempt_at FROM sync_jobs WHERE kind='resolve_event'"
             ).fetchone()

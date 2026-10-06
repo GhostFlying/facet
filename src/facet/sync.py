@@ -435,7 +435,7 @@ class ForegroundSync:
                     continue
                 try:
                     result = self._action.process(
-                        self._owner,
+                        self._owner.session,
                         self._projection,
                         self._event_id(job),
                         epoch_id=self._active_live_epoch() or job.origin_epoch_id,
