@@ -766,6 +766,16 @@ bootstrap/launcher modules and broader exception-taxonomy cleanup are deferred;
 the next product gate is controlled live Gmail sync after this unit is
 committed and reviewed under the existing authorization boundary.
 
+The local Compose runtime was then exercised with the candidate source under
+the image's non-root UID, read-only root filesystem, and persistent state
+volume. `init`, fake authorization, sender-rule publication, preview, explicit
+backfill start, and two `run --once --fake` invocations completed; the first
+reported one projection and the second reported zero new projections with no
+attention. The official Dockerfile rebuild itself was attempted but Docker Hub
+timed out before fetching the pinned base; the runtime check therefore used a
+cached local diagnostic base with only the committed source overlaid and is not
+an image-publication or Dockerfile-build claim.
+
 ## Historical next-unit note (superseded)
 
 This old note proposed a source-Gmail-path evidence producer; the 2026-10-05
