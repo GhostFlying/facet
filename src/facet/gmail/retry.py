@@ -19,6 +19,7 @@ _PROVIDER_REQUEST_TIMEOUT_SECONDS = 30
 class ProviderStage(StrEnum):
     """Bounded in-memory stages used for private provider diagnostics."""
 
+    TOKEN_REFRESH = "token_refresh"
     PROFILE_PROBE = "profile_probe"
     SERVICE_DISCOVERY = "service_discovery"
     HISTORY_LIST = "history_list"

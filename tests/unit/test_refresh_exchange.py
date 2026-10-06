@@ -14,6 +14,7 @@ from facet.gmail.credential_models import (
     SecretText,
 )
 from facet.gmail.refresh_exchange import refresh_google
+from facet.gmail.retry import ProviderFailure, ProviderStage
 
 SCOPES = ScopeSet(frozenset({ScopeName.GMAIL_READONLY}))
 
@@ -39,7 +40,9 @@ class _Credentials:
         self.granted_scopes = None
 
     def refresh(self, request):
-        del request
+        if self.mode == "timeout":
+            request("https://synthetic.invalid/token", timeout=999)
+            return
         if self.mode not in {"success", "omitted"}:
             from google.auth.exceptions import RefreshError
 
@@ -117,10 +120,35 @@ def test_target_refresh_preserves_target_policy_scope_evidence():
 )
 def test_refresh_maps_provider_failures_without_raw_payload(mode, expected):
     _Credentials.mode = mode
-    with pytest.raises(StorageFailure) as caught:
+    with pytest.raises(ProviderFailure) as caught:
         refresh_google(Role.SOURCE, _secret(), SCOPES)
     assert caught.value.code is expected
+    assert caught.value.provider_stage is ProviderStage.TOKEN_REFRESH
+    assert caught.value.timeout_seconds == 30
+    assert caught.value.attempt == 1
+    assert caught.value.observed_at is not None
     assert "synthetic provider payload" not in repr(caught.value)
+
+
+def test_refresh_forces_fixed_timeout_at_request_call(monkeypatch):
+    calls = []
+
+    class _Request:
+        def __call__(self, _url, **kwargs):
+            calls.append(kwargs)
+            raise TimeoutError("synthetic token endpoint timeout")
+
+    import google.auth.transport.requests
+
+    monkeypatch.setattr(google.auth.transport.requests, "Request", _Request)
+    _Credentials.mode = "timeout"
+    with pytest.raises(ProviderFailure) as caught:
+        refresh_google(Role.SOURCE, _secret(), SCOPES)
+    assert calls == [{"timeout": 30}]
+    assert caught.value.code is ErrorCode.NETWORK_UNAVAILABLE
+    assert caught.value.provider_stage is ProviderStage.TOKEN_REFRESH
+    assert caught.value.timeout_seconds == 30
+    assert "synthetic token endpoint timeout" not in repr(caught.value)
 
 
 def test_refresh_rejects_malformed_provider_result(monkeypatch):

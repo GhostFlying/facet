@@ -13,7 +13,8 @@ from .credential_models import (
     ScopeName,
     ScopeSet,
 )
-from .retry import classify_http_status
+from .retry import ProviderFailure, ProviderStage, classify_http_status
+from .service_factory import PROVIDER_REQUEST_TIMEOUT_SECONDS
 
 _SCOPE_URLS = {
     ScopeName.GMAIL_READONLY: "https://www.googleapis.com/auth/gmail.readonly",
@@ -74,6 +75,53 @@ def _refresh_error_code(error: BaseException, role: Role) -> ErrorCode:
     return _role_auth(role)
 
 
+def _refresh_provider_failure(
+    error: BaseException, role: Role, *, code: ErrorCode | None = None
+) -> ProviderFailure:
+    """Map one token exchange failure to closed, private metadata."""
+
+    response = getattr(error, "response", None) or getattr(error, "resp", None)
+    status = getattr(response, "status", None)
+    response_data = next(
+        (value for value in getattr(error, "args", ()) if isinstance(value, dict)),
+        None,
+    )
+    if response_data is not None:
+        status = response_data.get("status", response_data.get("code", status))
+    if isinstance(status, str) and status.isdigit():
+        status = int(status)
+    if type(status) is not int:
+        status = None
+    retry_after = None
+    if response is not None and hasattr(response, "get"):
+        raw_retry = response.get("retry-after") or response.get("Retry-After")
+        if isinstance(raw_retry, str) and raw_retry.isdigit():
+            retry_after = int(raw_retry)
+    code = _refresh_error_code(error, role) if code is None else code
+    return ProviderFailure(
+        code,
+        role,
+        status=status,
+        retry_after_seconds=retry_after,
+        provider_stage=ProviderStage.TOKEN_REFRESH,
+        timeout_seconds=PROVIDER_REQUEST_TIMEOUT_SECONDS,
+        attempt=1,
+        observed_at=Timestamp(datetime.now(UTC)),
+    )
+
+
+class _BoundedRequest:
+    """Force the fixed token-exchange timeout at Request.__call__."""
+
+    def __init__(self, request, timeout: int):
+        self._request = request
+        self._timeout = timeout
+
+    def __call__(self, *args, **kwargs):
+        kwargs["timeout"] = self._timeout
+        return self._request(*args, **kwargs)
+
+
 def refresh_google(role: Role, secret: ProviderSecret, scopes: ScopeSet):
     """Exchange one manager-owned refresh token without retaining provider data."""
 
@@ -84,7 +132,7 @@ def refresh_google(role: Role, secret: ProviderSecret, scopes: ScopeSet):
     ):
         raise StorageFailure(ErrorCode.INVALID_INPUT)
     try:
-        from google.auth.exceptions import RefreshError
+        from google.auth.exceptions import RefreshError, TransportError
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
 
@@ -96,15 +144,21 @@ def refresh_google(role: Role, secret: ProviderSecret, scopes: ScopeSet):
             client_secret=secret.client_secret.value,
             scopes=tuple(_SCOPE_URLS[scope] for scope in scopes.value),
         )
-        credentials.refresh(Request())
+        credentials.refresh(
+            _BoundedRequest(Request(), PROVIDER_REQUEST_TIMEOUT_SECONDS)
+        )
     except RefreshError as error:
-        raise StorageFailure(_refresh_error_code(error, role)) from None
+        raise _refresh_provider_failure(error, role) from None
     except StorageFailure:
         raise
-    except TimeoutError:
-        raise StorageFailure(ErrorCode.NETWORK_UNAVAILABLE) from None
-    except Exception:
-        raise StorageFailure(ErrorCode.NETWORK_UNAVAILABLE) from None
+    except (TransportError, TimeoutError, OSError) as error:
+        raise _refresh_provider_failure(
+            error, role, code=ErrorCode.NETWORK_UNAVAILABLE
+        ) from None
+    except Exception as error:
+        raise _refresh_provider_failure(
+            error, role, code=ErrorCode.NETWORK_UNAVAILABLE
+        ) from None
     try:
         token = credentials.token
         expiry = credentials.expiry
