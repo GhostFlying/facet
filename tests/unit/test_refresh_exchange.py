@@ -43,6 +43,10 @@ class _Credentials:
         if self.mode == "timeout":
             request("https://synthetic.invalid/token", timeout=999)
             return
+        if self.mode == "transport":
+            from google.auth.exceptions import TransportError
+
+            raise TransportError("synthetic transport failure")
         if self.mode not in {"success", "omitted"}:
             from google.auth.exceptions import RefreshError
 
@@ -116,6 +120,7 @@ def test_target_refresh_preserves_target_policy_scope_evidence():
         (429, ErrorCode.SOURCE_RATE_LIMITED),
         (500, ErrorCode.NETWORK_UNAVAILABLE),
         ("retryable", ErrorCode.NETWORK_UNAVAILABLE),
+        ("transport", ErrorCode.NETWORK_UNAVAILABLE),
     ),
 )
 def test_refresh_maps_provider_failures_without_raw_payload(mode, expected):
