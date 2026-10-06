@@ -552,23 +552,39 @@ class SourceAdapter:
     def action_label_map(self, names=None) -> PrivateActionLabelMap | None:
         """Resolve exact configured action labels without writing Gmail.
 
-        Missing fixed labels are a normal opt-in state: ordinary sync can
-        continue, while any matching history work remains explicit attention.
-        Duplicate fixed labels and provider failures stay hard typed errors.
+        Each configured action category is independently optional at the
+        provider boundary. Missing labels leave that category disabled;
+        duplicate fixed labels and malformed provider responses stay typed
+        errors. A valid list with no configured labels is a normal no-match.
         """
-        names = names or {
-            ActionKind.ADD_SENDER: "AI/AddSender",
-            ActionKind.ADD_DOMAIN: "AI/AddDomain",
-            ActionKind.BLACKLIST: "AI/BlackList",
-        }
+        if names is None:
+            names = {
+                ActionKind.ADD_SENDER: "AI/AddSender",
+                ActionKind.ADD_DOMAIN: "AI/AddDomain",
+                ActionKind.BLACKLIST: "AI/BlackList",
+            }
+        if (
+            type(names) is not dict
+            or set(names) != set(ActionKind)
+            or any(type(kind) is not ActionKind for kind in names)
+            or any(type(name) is not str or not name for name in names.values())
+            or len(set(names.values())) != len(names)
+        ):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
         value = execute(
             self._service.users().labels().list(userId="me"),
             self.role,
             provider_stage=ProviderStage.LABEL_LIST,
         )
+        if (
+            type(value) is not dict
+            or "labels" not in value
+            or type(value["labels"]) is not list
+        ):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
         found = {}
-        for label in value.get("labels", ()):
-            if not isinstance(label, dict):
+        for label in value["labels"]:
+            if type(label) is not dict:
                 raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
             name, identifier = label.get("name"), label.get("id")
             if type(name) is not str or type(identifier) is not str:
@@ -577,12 +593,12 @@ class SourceAdapter:
                 if name in found:
                     raise ProviderFailure(ErrorCode.CONSISTENCY_FAILURE, self.role)
                 found[name] = _id(identifier)
-        if set(found) != set(names.values()):
+        if not found:
             return None
         return PrivateActionLabelMap(
-            found[names[ActionKind.ADD_SENDER]],
-            found[names[ActionKind.ADD_DOMAIN]],
-            found[names[ActionKind.BLACKLIST]],
+            found.get(names[ActionKind.ADD_SENDER]),
+            found.get(names[ActionKind.ADD_DOMAIN]),
+            found.get(names[ActionKind.BLACKLIST]),
         )
 
     def get_thread_facts(self, source_thread_id: ProviderId):

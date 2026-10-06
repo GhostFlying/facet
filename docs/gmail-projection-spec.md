@@ -48,7 +48,8 @@ web:
 Source 默认 `gmail.readonly`，便利模式 `gmail.modify`。Action label metakinds 固定为
 `add_sender`、`add_domain`、`blacklist`；默认读取 `AI/AddSender`、`AI/AddDomain`、
 `AI/BlackList`，私有 CLI 可为每类设置一个精确名称并在 remove 时回退默认。Facet
-只读查找 source labels，不创建或修改 Gmail label，不扩大 scope，已有绑定无需 reauth；
+逐类只读查找 source labels；已存在的任意非空子集即可独立启用对应命令，缺失类别保持禁用，
+不创建或修改 Gmail label，不扩大 scope，已有绑定无需 reauth；
 旧 provider label ID 的 pending event 转为 typed attention/unknown，不重写历史或静默重放。
 Target 固定 `gmail.insert` 和 `gmail.readonly`；后者用于搜索、回读和 audit，insert scope 本身不提供这些能力。[Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes)、[messages.list scopes](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list)
 
@@ -216,7 +217,7 @@ Gmail History 可能过期并返回 404，不能假定固定保留时间。[Gmai
 
 ## Label 命令和 BlackList
 
-支持 `AI/AddSender`、`AI/AddDomain`、`AI/BlackList`。按 `(projection_id, history_record_id, label_id, source_thread_id)` 聚合，一次 UI thread 操作只执行一次。
+支持 `AI/AddSender`、`AI/AddDomain`、`AI/BlackList`；每类标签可独立缺省。按 `(projection_id, history_record_id, label_id, source_thread_id)` 聚合，一次 UI thread 操作只执行一次。
 
 倒序寻找最近 From 不属于 own-addresses 的消息；无法找到或 sender 格式有歧义时进入 review。AddDomain 使用 PSL，不学习用户 primary domain。Command、rule 和 thread jobs 先落盘，便利模式随后清理 label；清理失败只重试清理，不重放业务效果。
 

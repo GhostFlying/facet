@@ -268,7 +268,98 @@ def test_action_label_map_custom_name_missing_is_typed_no_match(gmail_controller
             {"id": "custom-domain", "name": "Facet/AddDomain", "type": "user"},
         ],
     )
-    assert _adapter(gmail_controller).action_label_map(names) is None
+    labels = _adapter(gmail_controller).action_label_map(names)
+    assert labels is not None
+    assert labels.add_sender_label_id.value == "custom-sender"
+    assert labels.add_domain_label_id.value == "custom-domain"
+    assert labels.blacklist_label_id is None
+
+
+@pytest.mark.parametrize(
+    ("facts", "attribute", "identifier"),
+    [
+        (
+            [{"id": "sender", "name": "Facet/AddSender", "type": "user"}],
+            "add_sender_label_id",
+            "sender",
+        ),
+        (
+            [{"id": "domain", "name": "Facet/AddDomain", "type": "user"}],
+            "add_domain_label_id",
+            "domain",
+        ),
+        (
+            [{"id": "blacklist", "name": "Facet/BlackList", "type": "user"}],
+            "blacklist_label_id",
+            "blacklist",
+        ),
+    ],
+)
+def test_action_label_map_resolves_each_category_independently(
+    gmail_controller, facts, attribute, identifier
+):
+    names = {
+        ActionKind.ADD_SENDER: "Facet/AddSender",
+        ActionKind.ADD_DOMAIN: "Facet/AddDomain",
+        ActionKind.BLACKLIST: "Facet/BlackList",
+    }
+    gmail_controller.labels("source", facts)
+    labels = _adapter(gmail_controller).action_label_map(names)
+    assert labels is not None
+    assert getattr(labels, attribute).value == identifier
+    assert (
+        sum(
+            value is not None
+            for value in (
+                labels.add_sender_label_id,
+                labels.add_domain_label_id,
+                labels.blacklist_label_id,
+            )
+        )
+        == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {},
+        {"labels": None},
+        {"labels": [{}]},
+        {"labels": [{"id": "sender", "name": 1}]},
+    ],
+)
+def test_action_label_map_rejects_malformed_label_response(
+    gmail_controller, monkeypatch, response
+):
+    monkeypatch.setattr("facet.gmail.source.execute", lambda *args, **kwargs: response)
+    with pytest.raises(ProviderFailure) as error:
+        _adapter(gmail_controller).action_label_map()
+    assert error.value.code is ErrorCode.INVALID_INPUT
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        {},
+        {ActionKind.ADD_SENDER: "Facet/AddSender"},
+        {"add_sender": "Facet/AddSender"},
+        {
+            ActionKind.ADD_SENDER: "",
+            ActionKind.ADD_DOMAIN: "Facet/AddDomain",
+            ActionKind.BLACKLIST: "Facet/BlackList",
+        },
+        {
+            ActionKind.ADD_SENDER: "Facet/Same",
+            ActionKind.ADD_DOMAIN: "Facet/Same",
+            ActionKind.BLACKLIST: "Facet/BlackList",
+        },
+    ],
+)
+def test_action_label_map_rejects_invalid_configured_names(gmail_controller, names):
+    with pytest.raises(ProviderFailure) as error:
+        _adapter(gmail_controller).action_label_map(names)
+    assert error.value.code is ErrorCode.INVALID_INPUT
 
 
 def test_action_label_map_rejects_duplicate_custom_names(gmail_controller):

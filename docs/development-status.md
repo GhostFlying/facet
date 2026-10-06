@@ -122,15 +122,14 @@ as active gates.
   Gmail run still requires explicit live-account/test-scope authorization; no
   such operation was performed by PR #55.
 - PR #57 is integrated at main `5b6097f3f0a6e0ab2a0bf55157a9e9f7518bf5a8`.
-  When all three fixed source
-  labels exist, the verified production runtime composes the existing durable
-  `ActionEffectConsumer`; missing labels leave ordinary sync running and keep
-  label work explicit attention. Duplicate labels and provider failures remain
-  typed failures. The independent implementation review approved the exact
-  candidate `d94e4bc715484c7b5fbeaa9fab13318f821defa3`; focused
-  adapter/runtime/action tests passed 25 and the full local offline suite
-  passed 2519. Candidate CI passed before merge; this still does not prove a
-  live Gmail action event.
+  The historical all-three-label precondition is superseded by the approved
+  partial-map correction now under local validation: any nonempty configured
+  subset composes the existing durable `ActionEffectConsumer`, while missing
+  categories remain unmapped and their events stay explicit attention. All
+  labels absent still leaves ordinary sync running without an action consumer;
+  duplicate labels and malformed/provider failures remain typed failures. This
+  correction has not yet been merged or live-verified, so the prior candidate
+  evidence remains historical and does not prove a Gmail action event.
 
 - The offline maintenance CLI unit is integrated in PR #59 at main merge
   `2033be505e36217da7dbaf2b547caeef5819260b` (implementation candidate

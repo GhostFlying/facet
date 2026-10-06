@@ -16,7 +16,7 @@ from test_db_repositories import state as state
 from test_db_schema import NOW, P, lid
 
 from facet.contracts import ErrorCode, LabelChange, ProviderId
-from facet.db.codecs import PrivateAddress, StorageFailure
+from facet.db.codecs import ActionKind, PrivateAddress, StorageFailure
 from facet.db.keys import event_key
 from facet.db.repositories import jobs, reads
 from facet.db.repositories.base import _insert
@@ -95,6 +95,35 @@ def test_add_sender_commits_rule_thread_action_and_resolve_job(state):
         assert reads.get_thread(uow, P, T).active
         assert reads.get_job(uow, P, lid(1050)).state.value == "completed"
     assert connection.execute("SELECT COUNT(*) FROM action_commands").fetchone() == (1,)
+
+
+def test_add_sender_accepts_partial_action_label_map(state):
+    _, connection, session, _ = state
+    labels = PrivateActionLabelMap(ProviderId("add-sender"), None, None)
+    row = _event(session, label=labels.add_sender_label_id)
+    selected_epoch = prepare_epoch(session, n=1201)
+    result = _consumer(
+        labels,
+        (
+            ActionMessageFact(
+                ProviderId("message-partial"),
+                T,
+                PrivateAddress("bank@vendor.com"),
+                NOW,
+            ),
+        ),
+    ).process(session, P, row.event_id, epoch_id=selected_epoch.epoch_id)
+    assert result.receipt is not None, result.attention
+    with session.transaction() as uow:
+        assert reads.get_event(uow, P, row.event_id).processing.value == "consumed"
+        assert reads.get_thread(uow, P, T).active
+    assert connection.execute("SELECT COUNT(*) FROM action_commands").fetchone() == (1,)
+
+
+def test_partial_action_label_map_does_not_match_missing_category():
+    labels = PrivateActionLabelMap(ProviderId("add-sender"), None, None)
+    assert labels.kind(ProviderId("add-sender")) is ActionKind.ADD_SENDER
+    assert labels.kind(ProviderId("domain")) is None
 
 
 def test_blacklist_stops_selected_thread_without_expansion_job(state):

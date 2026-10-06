@@ -1,5 +1,55 @@
 # Production action-label runtime wiring
 
+## Revision 2 — independently enable available categories
+
+User decision: 2026-10-06, option 2. Base: `0790de4b29a4b42c115afd12ce166541eb71bad1`.
+This revision supersedes the all-three-label precondition below. Plan and
+implementation are owned directly by root under the user's later workflow
+instruction; only review is delegated independently. No new framework or schema.
+
+- Represent each of the three provider label IDs as `ProviderId | None` in
+  `PrivateActionLabelMap`. At least one must be present, and present IDs must
+  be unique. `kind()` resolves only present IDs; missing categories do not
+  match unrelated IDs. No sentinel IDs or invented provider evidence.
+- Resolve configured names through the existing read-only `labels.list` call.
+  Return a partial map when any category exists; return `None` only when none
+  exist. Duplicate configured labels and malformed/provider failures remain
+  typed errors. Names/defaults/CLI persistence do not change.
+- Existing runtime composes `ActionEffectConsumer` for the partial map. A valid
+  AddSender event learns an exact rule and admits its selected thread even when
+  AddDomain/BlackList are absent. Absent/unknown labels never create actions;
+  existing removed/unknown attention semantics remain unchanged.
+- Existing attention events are not automatically requeued, reset, or replayed.
+  Live validation uses a fresh operator remove/re-add event after the reviewed
+  local candidate image is ready. No manual DB edit or source label write.
+
+Files: `src/facet/projection/actions.py`, `src/facet/gmail/source.py`; source,
+producer/consumer and runtime integration tests; update the current action-label
+passage in `docs/development-status.md` (and only any directly contradictory
+concise spec wording). No change to insert recovery, generations, effective times, scopes,
+raw memory-only storage or public DTOs. This authorized correction does not
+promise safe sender/content authentication.
+
+Acceptance: sender-only and domain-only/blacklist-only maps; all-absent, duplicate
+and invalid maps; unknown ID never matches a missing category; an absent or
+non-list `labels` response, a non-dict label entry, a non-string name/id, or an
+invalid configured name map is a typed `ProviderFailure(INVALID_INPUT)` (while
+an otherwise valid list with no configured names is the normal all-absent
+`None` result); actual production
+runtime composes with sender-only provider labels; synthetic durable AddSender
+rule/thread/job effect plus replay/restart idempotency with the partial map.
+Run affected tests during iteration, then Ruff/format, full offline pytest and
+repository-safety at the final candidate boundary. Independent plan and exact
+implementation review required. Build local image before PR/CI.
+
+External boundary: no Gmail writes during engineering tests. Resume the already
+authorized live test only after fresh user activation; do not insert arbitrary
+threads, replay old attention, widen scopes, create labels or deploy elsewhere.
+Stop if partial IDs require schema/public changes or weaken stopped-generation,
+durable action deduplication, account/scope, privacy or unknown-insert guards.
+
+## Historical revision 1
+
 Date: 2026-10-05. Status: implementation candidate; plan and exact-candidate
 review approved, CI/merge pending.
 Base: `e1fa578d32be0aa301edd4edeeed891011a31bea`.

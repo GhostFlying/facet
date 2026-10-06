@@ -235,8 +235,6 @@ def test_runtime_composes_profiles_services_and_projection(
             "source",
             [
                 {"id": "add-sender", "name": "AI/AddSender", "type": "user"},
-                {"id": "add-domain", "name": "AI/AddDomain", "type": "user"},
-                {"id": "blacklist", "name": "AI/BlackList", "type": "user"},
             ],
         )
         captured = {}
@@ -306,6 +304,9 @@ def test_runtime_composes_profiles_services_and_projection(
         assert [role for role, _ in factory.profiles] == [Role.SOURCE, Role.TARGET]
         assert [role for role, _ in factory.services] == [Role.SOURCE, Role.TARGET]
         assert isinstance(captured["labels"], PrivateActionLabelMap)
+        assert captured["labels"].add_sender_label_id.value == "add-sender"
+        assert captured["labels"].add_domain_label_id is None
+        assert captured["labels"].blacklist_label_id is None
         assert captured["own_addresses"][0].value == "source@example.invalid"
         assert captured["source_primary"] == "source@example.invalid"
         assert owner.session._connection.execute(
