@@ -21,6 +21,7 @@ from facet.contracts import ErrorCode, LocalId, Revision, Role, Timestamp
 from facet.db.codecs import StorageFailure
 from facet.gmail.credential_codec import encode_envelope
 from facet.gmail.credential_models import AccountAddress
+from facet.gmail.source import DiscoveryQuery
 from facet.projection.actions import PrivateActionLabelMap
 from facet.projection.backfill import DiscoveryDecision
 from facet.runtime.foreground_runtime import run_foreground_once
@@ -60,6 +61,9 @@ class _Admission:
                 LocalId("00000000000040008000000000000384"), Revision(1)
             ),
         )
+
+    def discovery_query(self, epoch=None):
+        return DiscoveryQuery(('from:"sender@example.invalid"',))
 
 
 @pytest.mark.parametrize("mode", ["missing", "swapped", "expired", "mismatched"])

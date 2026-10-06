@@ -50,6 +50,7 @@ from facet.projection.backfill import (
 from facet.projection.fidelity import inspect
 from facet.projection.rules import normalize_rule
 from facet.projection.worker import ProjectionWorker
+from facet.runtime.foreground_runtime import load_persisted_admission
 from facet.runtime.state_owner import StateOwner
 from facet.sync import SourceCandidateAdmission
 
@@ -185,7 +186,7 @@ def _ready_owner(root, controller, monkeypatch, *, seed=True, with_rule=True):
             projection,
             __import__("test_m2_foundation_consumers").lid(900),
             RuleKind.ALLOW_SENDER,
-            RuleValue("synthetic@example.invalid"),
+            RuleValue("synthetic@example.com"),
             Revision(1),
         )
         with owner.session.transaction() as uow:
@@ -384,6 +385,34 @@ def test_same_query_page_token_round_trips_across_restart():
     with pytest.raises(StorageFailure) as error:
         _decode_query_token(token, "a" * 32)
     assert error.value.code is ErrorCode.MAINTENANCE_REQUIRED
+
+
+def test_initial_discovery_can_load_pinned_ruleset_after_current_rules_change(
+    monkeypatch,
+):
+    parent = _trusted_parent()
+    with TemporaryDirectory(prefix="facet-pinned-rules-", dir=parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=False)
+        config = initial_template("source@example.invalid", "target@example.invalid")
+        owner._connection.execute(
+            "INSERT INTO rulesets(projection_id,revision,created_at,sealed) "
+            "SELECT projection_id,2,created_at,1 FROM projections "
+            "WHERE projection_id=?",
+            (owner.projection_id.value,),
+        )
+        owner._connection.execute(
+            "UPDATE projections SET ruleset_revision=2 WHERE projection_id=?",
+            (owner.projection_id.value,),
+        )
+        owner._connection.commit()
+        try:
+            pinned = load_persisted_admission(owner, config, Revision(1))
+            assert pinned.ruleset_revision == Revision(1)
+            assert pinned.enabled_allow_rules[0].normalized.value.value == (
+                "synthetic@example.com"
+            )
+        finally:
+            owner.close()
 
 
 def test_backfill_resumes_same_query_token_after_page_failure(monkeypatch):
