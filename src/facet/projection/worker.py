@@ -197,7 +197,9 @@ class ProjectionWorker:
             metadata = self._source.thread_metadata(job.subject.source_thread_id)
         except ProviderFailure as error:
             if error.status == 404:
-                raise ProviderFailure(ErrorCode.SOURCE_MISSING, Role.SOURCE) from None
+                raise error.with_code(
+                    ErrorCode.SOURCE_MISSING, role=Role.SOURCE
+                ) from None
             raise
         if metadata.thread_id != job.subject.source_thread_id:
             raise ValueError("invalid_input")
@@ -322,7 +324,9 @@ class ProjectionWorker:
             raw = self._source.raw(job.subject.source_message_id)
         except ProviderFailure as error:
             if error.status == 404:
-                raise ProviderFailure(ErrorCode.SOURCE_MISSING, Role.SOURCE) from None
+                raise error.with_code(
+                    ErrorCode.SOURCE_MISSING, role=Role.SOURCE
+                ) from None
             raise
         if len(raw) > self._max_raw_bytes:
             raise ValueError("invalid_input")

@@ -13,9 +13,15 @@ from .credential_models import (
     CredentialCodecError,
     ProviderSecret,
 )
-from .retry import execute
+from .retry import ProviderStage, execute, provider_failure
 
-__all__ = ("GmailServiceFactory", "GoogleGmailServiceFactory")
+__all__ = (
+    "GmailServiceFactory",
+    "GoogleGmailServiceFactory",
+    "PROVIDER_REQUEST_TIMEOUT_SECONDS",
+)
+
+PROVIDER_REQUEST_TIMEOUT_SECONDS = 30
 
 
 class GmailServiceFactory(Protocol):
@@ -38,7 +44,11 @@ class GoogleGmailServiceFactory:
             raise StorageFailure(ErrorCode.INVALID_INPUT)
         service = self._build(role, secret.access_token.value)
         try:
-            value = execute(service.users().getProfile(userId="me"), role)
+            value = execute(
+                service.users().getProfile(userId="me"),
+                role,
+                provider_stage=ProviderStage.PROFILE_PROBE,
+            )
             return AccountAddress(value["emailAddress"])
         except StorageFailure:
             raise
@@ -58,9 +68,25 @@ class GoogleGmailServiceFactory:
         # construct a provider client. No refresh token/client secret is given
         # to the Google credential object, so this service cannot refresh or
         # write credentials behind the manager's back.
-        del role
+        import httplib2
         from google.oauth2.credentials import Credentials
+        from google_auth_httplib2 import AuthorizedHttp
         from googleapiclient.discovery import build
 
         credentials = Credentials(token=access_token)
-        return build("gmail", "v1", credentials=credentials, cache_discovery=False)
+        transport = httplib2.Http(timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS)
+        authorized_http = AuthorizedHttp(credentials, http=transport)
+        try:
+            return build(
+                "gmail",
+                "v1",
+                http=authorized_http,
+                cache_discovery=False,
+                num_retries=0,
+            )
+        except BaseException as error:
+            if isinstance(error, KeyboardInterrupt | SystemExit):
+                raise
+            raise provider_failure(
+                error, role, provider_stage=ProviderStage.SERVICE_DISCOVERY
+            ) from None

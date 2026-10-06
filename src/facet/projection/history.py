@@ -226,7 +226,7 @@ class HistoryProducer:
                     )
                     checkpoint = _get(uow, projection_id, "history_checkpoints", ())
                     if current is None or checkpoint is None:
-                        raise ProviderFailure(error.code, error.role, 404) from None
+                        raise error.with_code(error.code) from None
                     history.abandon_history_poll(
                         uow,
                         projection_id,

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
 from fakes.gmail import HttpFailure, InsertReply
@@ -45,7 +46,7 @@ from facet.db.models import (
 from facet.db.repositories import policy
 from facet.gmail.credential_models import ScopePolicy, policy_scopes
 from facet.gmail.credentials import CredentialManager
-from facet.gmail.retry import ProviderFailure, classify_http_status
+from facet.gmail.retry import ProviderFailure, ProviderStage, classify_http_status
 from facet.gmail.source import (
     HistoryLabel,
     HistoryMessage,
@@ -59,6 +60,7 @@ from facet.projection.backfill import (
     DiscoveryDecision,
 )
 from facet.projection.history import HistoryProducer, _typed_events
+from facet.projection.worker import ProjectionWorker
 from facet.runtime.state_owner import StateOwner
 
 
@@ -345,6 +347,7 @@ def test_provider_failures_are_closed_and_do_not_expose_wire_text(gmail_controll
         )
     except ProviderFailure as error:
         assert error.code.value == "source_rate_limited"
+        assert error.provider_stage is ProviderStage.MESSAGE_LIST
         assert "PRIVATE_PROVIDER_BODY" not in repr(error)
     else:
         raise AssertionError("expected a closed provider failure")
@@ -389,7 +392,72 @@ def test_provider_failure_keeps_retry_after_and_maps_invalid_grant_to_auth(
         )
     assert caught.value.code is ErrorCode.SOURCE_AUTH_REQUIRED
     assert caught.value.retry_after_seconds == 17
+    assert caught.value.provider_stage is ProviderStage.MESSAGE_LIST
     assert "invalid_grant" not in repr(caught.value)
+
+
+def test_provider_failure_rewrap_preserves_stage_and_retry_metadata():
+    original = ProviderFailure(
+        ErrorCode.INVALID_INPUT,
+        Role.SOURCE,
+        404,
+        17,
+        ProviderStage.MESSAGE_GET,
+        30,
+        1,
+        NOW,
+    )
+    converted = original.with_code(ErrorCode.SOURCE_MISSING, role=Role.SOURCE)
+    assert converted.code is ErrorCode.SOURCE_MISSING
+    assert converted.role is Role.SOURCE
+    assert converted.status == 404
+    assert converted.retry_after_seconds == 17
+    assert converted.provider_stage is ProviderStage.MESSAGE_GET
+    assert converted.timeout_seconds == 30
+    assert converted.attempt == 1
+    assert converted.observed_at is NOW
+
+
+def test_worker_source_missing_rewrap_preserves_provider_stage_metadata():
+    original = ProviderFailure(
+        ErrorCode.INVALID_INPUT,
+        Role.SOURCE,
+        404,
+        11,
+        ProviderStage.MESSAGE_GET,
+        30,
+        1,
+        NOW,
+    )
+
+    class Source:
+        def thread_metadata(self, _thread_id):
+            raise original
+
+        def raw(self, _message_id):
+            raise original
+
+    worker = object.__new__(ProjectionWorker)
+    worker._source = Source()
+    expanded_job = SimpleNamespace(
+        subject=SimpleNamespace(source_thread_id=ProviderId("thread"))
+    )
+    projected_job = SimpleNamespace(
+        subject=SimpleNamespace(source_message_id=ProviderId("message"))
+    )
+    with pytest.raises(ProviderFailure) as expanded:
+        worker._expand(expanded_job)
+    with pytest.raises(ProviderFailure) as projected:
+        worker._project(projected_job)
+    for caught in (expanded.value, projected.value):
+        assert caught.code is ErrorCode.SOURCE_MISSING
+        assert caught.role is Role.SOURCE
+        assert caught.status == 404
+        assert caught.retry_after_seconds == 11
+        assert caught.provider_stage is ProviderStage.MESSAGE_GET
+        assert caught.timeout_seconds == 30
+        assert caught.attempt == 1
+        assert caught.observed_at is NOW
 
 
 @dataclass

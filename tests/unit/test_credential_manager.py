@@ -43,6 +43,7 @@ from facet.gmail.credential_models import (
     policy_scopes,
 )
 from facet.gmail.credentials import CredentialManager, ProfileEvidence
+from facet.gmail.retry import ProviderFailure, ProviderStage
 from facet.runtime.state_owner import StateOwner
 
 FUTURE = Timestamp(datetime(2040, 1, 1, tzinfo=UTC))
@@ -243,6 +244,49 @@ def test_verify_rejects_expired_envelope_before_profile_or_publish(
             manager.verify_and_publish(Reader())
         assert caught.value.code is ErrorCode.SOURCE_AUTH_REQUIRED
         assert calls == []
+        assert owner.bindings()[Role.SOURCE].state.value == "verification_pending"
+    finally:
+        owner.close()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ProviderFailure(
+            ErrorCode.NETWORK_UNAVAILABLE,
+            Role.SOURCE,
+            provider_stage=ProviderStage.PROFILE_PROBE,
+            timeout_seconds=30,
+            attempt=1,
+            observed_at=FUTURE,
+        ),
+        ProviderFailure(
+            ErrorCode.SOURCE_AUTH_REQUIRED,
+            Role.SOURCE,
+            401,
+            provider_stage=ProviderStage.PROFILE_PROBE,
+            timeout_seconds=30,
+            attempt=1,
+            observed_at=FUTURE,
+        ),
+    ],
+)
+def test_verify_preserves_typed_profile_provider_failure(
+    trusted_state_parent, monkeypatch, failure
+):
+    owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+
+        class Reader:
+            def get_profile(self, _role, _secret):
+                raise failure
+
+        with pytest.raises(ProviderFailure) as caught:
+            manager.verify_and_publish(Reader())
+        assert caught.value is failure
+        assert caught.value.provider_stage is ProviderStage.PROFILE_PROBE
+        assert caught.value.timeout_seconds == 30
+        assert caught.value.status == failure.status
         assert owner.bindings()[Role.SOURCE].state.value == "verification_pending"
     finally:
         owner.close()
@@ -456,6 +500,187 @@ def test_refresh_preserves_typed_exchange_failure(trusted_state_parent, monkeypa
         assert owner.session._connection.execute(
             "SELECT phase,error FROM credential_changes"
         ).fetchone() == ("abandoned", "network_unavailable")
+    finally:
+        owner.close()
+
+
+def test_refresh_provider_failure_abandons_requesting_change(
+    trusted_state_parent, monkeypatch
+):
+    owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
+    failure = ProviderFailure(
+        ErrorCode.NETWORK_UNAVAILABLE,
+        Role.SOURCE,
+        provider_stage=ProviderStage.PROFILE_PROBE,
+        timeout_seconds=30,
+        attempt=1,
+        observed_at=FUTURE,
+    )
+    try:
+        manager.verify_and_publish(Profiles())
+
+        def exchange(_role, _old):
+            raise failure
+
+        with pytest.raises(ProviderFailure) as caught:
+            manager.refresh(Role.SOURCE, exchange)
+        assert caught.value is failure
+        assert owner.bindings()[Role.SOURCE].credential_revision == Revision(1)
+        assert owner.session._connection.execute(
+            "SELECT phase,error FROM credential_changes"
+        ).fetchone() == ("abandoned", "network_unavailable")
+    finally:
+        owner.close()
+
+
+def test_refresh_provider_failure_preserves_code_for_single_flight_waiter(
+    trusted_state_parent, monkeypatch
+):
+    owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
+    release = threading.Event()
+    failure = ProviderFailure(
+        ErrorCode.SOURCE_AUTH_REQUIRED,
+        Role.SOURCE,
+        401,
+        provider_stage=ProviderStage.PROFILE_PROBE,
+        timeout_seconds=30,
+        attempt=1,
+        observed_at=FUTURE,
+    )
+    try:
+        manager.verify_and_publish(Profiles())
+
+        def duplicate_exchange(_role, _old):
+            raise AssertionError("duplicate exchange")
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            holder = {}
+
+            def exchange(_role, _old):
+                holder["second"] = pool.submit(
+                    manager.refresh, Role.SOURCE, duplicate_exchange
+                )
+                for _ in range(100):
+                    with manager._flight_condition:
+                        if manager._flights[Role.SOURCE].waiters == 1:
+                            break
+                        manager._flight_condition.wait(0.01)
+                else:
+                    raise AssertionError("single-flight waiter did not join")
+                release.set()
+                assert release.wait(5)
+                raise failure
+
+            with pytest.raises(ProviderFailure) as first_error:
+                manager.refresh(Role.SOURCE, exchange)
+            with pytest.raises(StorageFailure) as second_error:
+                holder["second"].result(timeout=5)
+        assert first_error.value is failure
+        assert second_error.value.code is ErrorCode.SOURCE_AUTH_REQUIRED
+        assert second_error.value.code is not ErrorCode.PERSISTENCE_FAILURE
+    finally:
+        owner.close()
+
+
+def _requesting_refresh(owner, config, source):
+    row = CredentialChangeRow(
+        config.projection.id,
+        owner.owner_info.state_instance_id,
+        LocalId("00000000000040008000000000000071"),
+        Role.SOURCE,
+        "refresh",
+        "requesting",
+        source.credential_revision,
+        Revision(source.credential_revision.value + 1),
+        source.binding_revision,
+        source.scope_policy_revision,
+        None,
+        None,
+        None,
+        source.scope_policy.value,
+        None,
+        None,
+        None,
+        None,
+        source.profile_verified_at,
+        source.secret.expires_at,
+        FUTURE,
+        FUTURE,
+        None,
+    )
+    with owner.session.transaction() as uow:
+        credential_repository.begin_change(uow, config.projection.id, row)
+    return row
+
+
+def test_reconcile_interrupted_refresh_abandons_only_coherent_old_file(
+    trusted_state_parent, monkeypatch
+):
+    owner, config, manager, source, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+        manager.verify_and_publish(Profiles())
+        row = _requesting_refresh(owner, config, source)
+        manager.reconcile_interrupted_refresh(Role.SOURCE)
+        assert owner.session._connection.execute(
+            "SELECT phase,error FROM credential_changes WHERE change_id=?",
+            (row.change_id.value,),
+        ).fetchone() == ("abandoned", "source_auth_required")
+        assert owner.bindings()[Role.SOURCE].credential_revision == Revision(1)
+        manager.reconcile_interrupted_refresh(Role.SOURCE)
+    finally:
+        owner.close()
+
+
+def test_reconcile_interrupted_refresh_holds_pending_candidate(
+    trusted_state_parent, monkeypatch
+):
+    owner, config, manager, source, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+        manager.verify_and_publish(Profiles())
+        _requesting_refresh(owner, config, source)
+        pending = Path(manager._path(Role.SOURCE)).with_name(".source.json.pending")
+        pending.write_bytes(b"synthetic pending")
+        pending.chmod(0o600)
+        with pytest.raises(StorageFailure) as caught:
+            manager.reconcile_interrupted_refresh(Role.SOURCE)
+        assert caught.value.code is ErrorCode.MAINTENANCE_REQUIRED
+        assert owner.session._connection.execute(
+            "SELECT phase,error FROM credential_changes WHERE role='source'"
+        ).fetchone() == ("requesting", None)
+    finally:
+        pending.unlink(missing_ok=True)
+        owner.close()
+
+
+@pytest.mark.parametrize("mismatch", ["swapped", "account", "scope_revision", "state"])
+def test_reconcile_interrupted_refresh_holds_lineage_mismatch(
+    trusted_state_parent, monkeypatch, mismatch
+):
+    owner, config, manager, source, _ = _manager(trusted_state_parent, monkeypatch)
+    try:
+        manager.verify_and_publish(Profiles())
+        row = _requesting_refresh(owner, config, source)
+        if mismatch == "swapped":
+            envelope = _envelope(owner, Role.TARGET, "target@example.invalid")
+        else:
+            changes = {
+                "account": {"account": AccountAddress("other@example.invalid")},
+                "scope_revision": {"scope_policy_revision": Revision(99)},
+                "state": {
+                    "state_instance_id": LocalId("00000000000040008000000000000072")
+                },
+            }
+            envelope = replace(source, **changes[mismatch])
+        path = Path(manager._path(Role.SOURCE))
+        path.write_bytes(encode_envelope(envelope))
+        path.chmod(0o600)
+        with pytest.raises(StorageFailure) as caught:
+            manager.reconcile_interrupted_refresh(Role.SOURCE)
+        assert caught.value.code is ErrorCode.MAINTENANCE_REQUIRED
+        assert owner.session._connection.execute(
+            "SELECT phase,error FROM credential_changes WHERE change_id=?",
+            (row.change_id.value,),
+        ).fetchone() == ("requesting", None)
     finally:
         owner.close()
 

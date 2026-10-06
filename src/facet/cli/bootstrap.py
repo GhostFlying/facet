@@ -802,6 +802,7 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
     )
     from facet.gmail.credentials import CredentialManager, _owner_now
     from facet.gmail.oauth import GoogleOAuthAuthorizer, read_desktop_client
+    from facet.gmail.retry import ProviderFailure
     from facet.gmail.service_factory import GoogleGmailServiceFactory
     from facet.private_paths import read_managed_config
     from facet.runtime.foreground_runtime import _policy
@@ -1038,6 +1039,9 @@ def _auth_authorize_oauth(options: object) -> tuple[dict, tuple[str, ...]]:
                 raise ConfigError(code)
             try:
                 evidence = probe.get_profile(role, oauth_result.secret)
+            except ProviderFailure as error:
+                reject_before_publication(error.code)
+                raise
             except StorageFailure as error:
                 reject_before_publication(error.code)
                 raise ConfigError(error.code) from None
@@ -2008,6 +2012,24 @@ def _emit(
     return exit_code
 
 
+def _provider_failure_private_data(error) -> dict:
+    """Return the fixed private-only provider diagnostic allowlist."""
+
+    observed_at = error.observed_at
+    return {
+        "provider_stage": (
+            error.provider_stage.value if error.provider_stage is not None else None
+        ),
+        "role": error.role.value,
+        "error_code": error.code.value,
+        "timeout_seconds": error.timeout_seconds,
+        "attempt": error.attempt,
+        "observed_at": observed_at.value.isoformat() if observed_at else None,
+        "status": error.status,
+        "retry_after_seconds": error.retry_after_seconds,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     json_mode = "--json" in arguments
@@ -2195,4 +2217,11 @@ def main(argv: list[str] | None = None) -> int:
         code = getattr(error, "code", ErrorCode.PERSISTENCE_FAILURE)
         if type(code) is not ErrorCode:
             code = ErrorCode.PERSISTENCE_FAILURE
-        return _emit(command, code=code, json_mode=json_mode)
+        from facet.gmail.retry import ProviderFailure
+
+        data = None
+        if isinstance(error, ProviderFailure) and getattr(
+            locals().get("options"), "private_metadata", False
+        ):
+            data = {"provider_failure": _provider_failure_private_data(error)}
+        return _emit(command, code=code, data=data, json_mode=json_mode)

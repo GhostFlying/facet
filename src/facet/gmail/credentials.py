@@ -47,6 +47,7 @@ from .credential_models import (
     ScopeSet,
     policy_scopes,
 )
+from .retry import ProviderFailure
 
 __all__ = (
     "ProfileEvidence",
@@ -453,6 +454,61 @@ class CredentialManager:
             _fail(ErrorCode.BINDING_MISMATCH)
         return envelope
 
+    def reconcile_interrupted_refresh(self, role: Role) -> None:
+        """Abandon only a safely identifiable interrupted refresh change."""
+
+        if type(role) is not Role:
+            _fail(ErrorCode.INVALID_INPUT)
+        from facet.db.repositories import credentials as repository
+
+        with self._owner.session.transaction() as uow:
+            change = repository.get_open_change(uow, self._config.projection.id, role)
+        if change is None:
+            return
+        if change.kind != "refresh" or change.phase != "requesting":
+            _fail(ErrorCode.MAINTENANCE_REQUIRED)
+        path = self._path(role)
+        pending = path.with_name("." + path.name + ".pending")
+        try:
+            if pending.exists() or pending.is_symlink():
+                _fail(ErrorCode.MAINTENANCE_REQUIRED)
+            envelope = _read_credential(path, role)
+        except StorageFailure:
+            raise
+        except OSError:
+            _fail(ErrorCode.MAINTENANCE_REQUIRED)
+        binding = self._owner.bindings().get(role)
+        expected_policy = _expected_policy(self._config, role)
+        if (
+            binding is None
+            or binding.state is not BindingState.VERIFIED
+            or change.state_instance_id != self._owner.owner_info.state_instance_id
+            or change.projection_id != self._config.projection.id
+            or change.role is not role
+            or change.scope_policy != expected_policy.value
+            or change.scope_policy_revision != envelope.scope_policy_revision
+            or binding.binding_revision != change.binding_revision
+            or binding.credential_revision != change.old_revision
+            or envelope.role is not role
+            or envelope.account.value.casefold()
+            != binding.declared_address.value.casefold()
+            or envelope.scope_policy is not expected_policy
+            or envelope.credential_revision != change.old_revision
+            or envelope.binding_revision != change.binding_revision
+            or envelope.projection_id != self._config.projection.id
+            or envelope.state_instance_id != self._owner.owner_info.state_instance_id
+        ):
+            _fail(ErrorCode.MAINTENANCE_REQUIRED)
+        code = (
+            ErrorCode.SOURCE_AUTH_REQUIRED
+            if role is Role.SOURCE
+            else ErrorCode.TARGET_AUTH_REQUIRED
+        )
+        with self._owner.session.transaction() as uow:
+            repository.abandon_change(
+                uow, self._config.projection.id, role, change.change_id, code
+            )
+
     def _check_private_root(self) -> Path:
         return _check_private_root_path(self._state_dir)
 
@@ -521,6 +577,8 @@ class CredentialManager:
                 )
             try:
                 evidence = reader.get_profile(role, secret)
+            except ProviderFailure:
+                raise
             except StorageFailure:
                 raise
             except Exception:
@@ -668,6 +726,8 @@ class CredentialManager:
             )
         try:
             evidence = reader.get_profile(role, secret)
+        except ProviderFailure:
+            raise
         except StorageFailure:
             raise
         except Exception:
@@ -824,6 +884,9 @@ class CredentialManager:
         except StorageFailure as error:
             self._finish_flight(role, flight, error=error.code)
             raise
+        except ProviderFailure as error:
+            self._finish_flight(role, flight, error=error.code)
+            raise
         except BaseException:
             self._finish_flight(role, flight, error=ErrorCode.PERSISTENCE_FAILURE)
             raise
@@ -892,6 +955,8 @@ class CredentialManager:
         try:
             try:
                 refreshed = exchange(role, old.secret)
+            except ProviderFailure:
+                raise
             except StorageFailure:
                 raise
             except Exception:
@@ -929,6 +994,8 @@ class CredentialManager:
                         refreshed_secret,
                         explicit_scopes or old.grant.granted,
                     )
+                except ProviderFailure:
+                    raise
                 except StorageFailure:
                     raise
                 except Exception:
@@ -1006,6 +1073,12 @@ class CredentialManager:
             return self._snapshot_verified(
                 role, candidate, self._owner.bindings()[role], observed
             )
+        except ProviderFailure as error:
+            if published:
+                self._attention(role, change_id, error.code)
+            else:
+                self._abandon(role, change_id, error.code)
+            raise
         except StorageFailure as error:
             if published:
                 self._attention(role, change_id, error.code)
@@ -1089,6 +1162,8 @@ class CredentialManager:
                 )
             try:
                 evidence = reader.get_profile(role, envelope.secret)
+            except ProviderFailure:
+                raise
             except StorageFailure:
                 raise
             except Exception:
