@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from dataclasses import dataclass
 
 from facet.config import Config
@@ -157,42 +158,51 @@ class ForegroundRuntime:
         manager.verify_and_publish(probe)
         source_snapshot = manager.snapshot(Role.SOURCE)
         target_snapshot = manager.snapshot(Role.TARGET)
-        source = SourceAdapter(
-            self.factory.service(Role.SOURCE, source_snapshot),
-            source_account=PrivateAddress(self.config.projection.source_email),
-        )
-        target = TargetAdapter(self.factory.service(Role.TARGET, target_snapshot))
-        initial_admission = (
-            load_persisted_admission(self.owner, self.config)
-            if admission is None
-            else admission
-        )
-
-        def admission_for_epoch(epoch):
-            return load_persisted_admission(
-                self.owner,
-                self.config,
-                epoch.decision.ruleset_revision,
+        with ExitStack() as services:
+            source_service = self.factory.service(Role.SOURCE, source_snapshot)
+            close = getattr(source_service, "close", None)
+            if callable(close):
+                services.callback(close)
+            target_service = self.factory.service(Role.TARGET, target_snapshot)
+            close = getattr(target_service, "close", None)
+            if callable(close):
+                services.callback(close)
+            source = SourceAdapter(
+                source_service,
+                source_account=PrivateAddress(self.config.projection.source_email),
+            )
+            target = TargetAdapter(target_service)
+            initial_admission = (
+                load_persisted_admission(self.owner, self.config)
+                if admission is None
+                else admission
             )
 
-        epoch_loader = admission_for_epoch if admission is None else None
-        return ForegroundSync(
-            self.owner,
-            source,
-            target,
-            initial_admission,
-            action_consumer=(
-                action_consumer
-                if action_consumer is not None
-                else _action_consumer(source, self.config, self.owner)
-            ),
-            admission_for_epoch=epoch_loader,
-            admission_for_history=(
-                (lambda: load_persisted_admission(self.owner, self.config))
-                if admission is None
-                else None
-            ),
-        ).run_once(max_jobs=max_jobs, max_events=max_events)
+            def admission_for_epoch(epoch):
+                return load_persisted_admission(
+                    self.owner,
+                    self.config,
+                    epoch.decision.ruleset_revision,
+                )
+
+            epoch_loader = admission_for_epoch if admission is None else None
+            return ForegroundSync(
+                self.owner,
+                source,
+                target,
+                initial_admission,
+                action_consumer=(
+                    action_consumer
+                    if action_consumer is not None
+                    else _action_consumer(source, self.config, self.owner)
+                ),
+                admission_for_epoch=epoch_loader,
+                admission_for_history=(
+                    (lambda: load_persisted_admission(self.owner, self.config))
+                    if admission is None
+                    else None
+                ),
+            ).run_once(max_jobs=max_jobs, max_events=max_events)
 
 
 def run_foreground_once(

@@ -49,6 +49,7 @@ from facet.gmail.source import (
 from facet.projection.admission import DiscoveryCandidate
 from facet.projection.rules import normalize_sender
 from facet.runtime.foreground_runtime import load_persisted_admission
+from facet.runtime.state_owner import StateOwner
 from facet.sync import ForegroundSync
 
 DATE = Timestamp(datetime(2026, 10, 6, tzinfo=UTC))
@@ -307,6 +308,47 @@ def test_metadata_network_failure_is_durable_retry_then_continues(monkeypatch):
             )
             assert _runner(owner, source, target).run_once().projected.verified == 1
             assert target.inserted == 1
+        finally:
+            owner.close()
+
+
+@pytest.mark.parametrize("active", [False, True])
+def test_history_metadata_404_is_source_missing_and_restart_does_not_refetch(
+    monkeypatch, active
+):
+    with TemporaryDirectory(prefix="facet-history-", dir=_trusted_parent()) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=active)
+        source = HistorySource(owner)
+        target = _Target(source.raw_bytes)
+        if active:
+            # This fixture already admits the thread; isolate History metadata.
+            with owner.session.transaction() as uow:
+                uow._execute(
+                    "UPDATE sync_jobs SET state='cancelled' WHERE kind='expand_thread'",
+                    (),
+                )
+
+        def vanished():
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.SOURCE, status=404)
+
+        source.on_metadata = vanished
+        try:
+            _runner(owner, source, target).run_once()
+            assert target.inserted == 0
+            assert source.metadata_calls == 1
+            assert owner._connection.execute(
+                "SELECT processing,error_code FROM source_events"
+            ).fetchone() == ("source_missing", "source_missing")
+            assert owner._connection.execute(
+                "SELECT state,last_error_code FROM sync_jobs WHERE kind='resolve_event'"
+            ).fetchone() == ("source_missing", "source_missing")
+            state_dir, config = owner.state_dir, owner.config
+            owner.close()
+            owner = StateOwner.open(state_dir, config)
+            source.owner = owner
+            _runner(owner, source, target).run_once()
+            assert target.inserted == 0
+            assert source.metadata_calls == 1
         finally:
             owner.close()
 

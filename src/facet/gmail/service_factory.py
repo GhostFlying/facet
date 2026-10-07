@@ -54,6 +54,10 @@ class GoogleGmailServiceFactory:
             raise
         except (CredentialCodecError, KeyError, TypeError, ValueError):
             raise StorageFailure(ErrorCode.INVALID_INPUT) from None
+        finally:
+            close = getattr(service, "close", None)
+            if callable(close):
+                close()
 
     def service(self, role: Role, snapshot: AccessSnapshot):
         if type(role) is not Role or type(snapshot) is not AccessSnapshot:
@@ -65,26 +69,25 @@ class GoogleGmailServiceFactory:
     @staticmethod
     def _build(role: Role, access_token: str):
         # Imports remain lazy so offline CLI help and synthetic tests do not
-        # construct a provider client. No refresh token/client secret is given
-        # to the Google credential object, so this service cannot refresh or
-        # write credentials behind the manager's back.
-        import httplib2
-        from google.oauth2.credentials import Credentials
-        from google_auth_httplib2 import AuthorizedHttp
+        # construct a provider client. The access-only transport cannot refresh
+        # or replay a request behind the credential manager's back.
         from googleapiclient.discovery import build
 
-        credentials = Credentials(token=access_token)
-        transport = httplib2.Http(timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS)
-        authorized_http = AuthorizedHttp(credentials, http=transport)
+        from .sync_transport import SyncHttp
+
+        transport = SyncHttp(
+            role, access_token, timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS
+        )
         try:
             return build(
                 "gmail",
                 "v1",
-                http=authorized_http,
+                http=transport,
                 cache_discovery=False,
                 num_retries=0,
             )
         except BaseException as error:
+            transport.close()
             if isinstance(error, KeyboardInterrupt | SystemExit):
                 raise
             raise provider_failure(

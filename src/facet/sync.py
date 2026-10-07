@@ -516,6 +516,14 @@ class ForegroundSync:
             try:
                 self._resolve_message_added(job)
             except (ProviderFailure, StorageFailure) as error:
+                # A vanished source message is not malformed input. Keep this
+                # local: History 404 and target 404 have different recovery.
+                if (
+                    isinstance(error, ProviderFailure)
+                    and error.role is Role.SOURCE
+                    and error.status == 404
+                ):
+                    error = error.with_code(ErrorCode.SOURCE_MISSING)
                 retryable = error.code in {
                     ErrorCode.SOURCE_AUTH_REQUIRED,
                     ErrorCode.SOURCE_RATE_LIMITED,
@@ -667,7 +675,9 @@ class ForegroundSync:
                     uow,
                     self._projection,
                     event.event_id,
-                    EventProcessing.NEEDS_ATTENTION,
+                    EventProcessing.SOURCE_MISSING
+                    if error is ErrorCode.SOURCE_MISSING
+                    else EventProcessing.NEEDS_ATTENTION,
                     error,
                     (),
                     RevisionGuard(event.revision),
@@ -676,7 +686,11 @@ class ForegroundSync:
                 uow,
                 self._projection,
                 claimed.job_id,
-                "retry_wait" if retryable else "needs_attention",
+                "retry_wait"
+                if retryable
+                else "source_missing"
+                if error is ErrorCode.SOURCE_MISSING
+                else "needs_attention",
                 error,
                 Timestamp(
                     now.value

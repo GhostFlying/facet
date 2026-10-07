@@ -66,6 +66,64 @@ class _Admission:
         return DiscoveryQuery(('from:"sender@example.invalid"',))
 
 
+@pytest.mark.parametrize("failure", [None, "target_build", "cycle"])
+def test_runtime_closes_services_on_success_cycle_failure_and_partial_build(
+    trusted_state_parent, monkeypatch, failure
+):
+    owner, _, _, _, _ = _manager(trusted_state_parent, monkeypatch)
+    closed = []
+
+    class Service:
+        def __init__(self, role):
+            self.role = role
+
+        def close(self):
+            closed.append(self.role)
+
+    class Factory(_Factory):
+        def service(self, role, snapshot):
+            if role is Role.TARGET and failure == "target_build":
+                raise StorageFailure(ErrorCode.NETWORK_UNAVAILABLE)
+            return Service(role)
+
+    class Cycle:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run_once(self, **kwargs):
+            if failure == "cycle":
+                raise StorageFailure(ErrorCode.NETWORK_UNAVAILABLE)
+            return "receipt"
+
+    monkeypatch.setattr(foreground_runtime, "ForegroundSync", Cycle)
+    try:
+        if failure:
+            with pytest.raises(StorageFailure):
+                run_foreground_once(
+                    owner,
+                    owner.config,
+                    Factory(None),
+                    _Admission(),
+                    action_consumer=object(),
+                )
+        else:
+            assert (
+                run_foreground_once(
+                    owner,
+                    owner.config,
+                    Factory(None),
+                    _Admission(),
+                    action_consumer=object(),
+                )
+                == "receipt"
+            )
+        assert closed == (
+            [Role.SOURCE] if failure == "target_build" else [Role.TARGET, Role.SOURCE]
+        )
+    finally:
+        owner.close()
+
+
 @pytest.mark.parametrize("mode", ["missing", "swapped", "expired", "mismatched"])
 def test_runtime_rejects_credential_lineage_before_provider_services(
     trusted_state_parent, monkeypatch, mode

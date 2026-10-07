@@ -409,8 +409,10 @@ class ProjectionWorker:
                 date_header=facts.date_policy is DatePolicy.VALID_DATE_HEADER,
             )
         except ProviderFailure as error:
-            unknown = error.code is ErrorCode.NETWORK_UNAVAILABLE or (
-                error.code is ErrorCode.INVALID_INPUT and error.status is None
+            unknown = (
+                error.code is ErrorCode.NETWORK_UNAVAILABLE
+                or (error.code is ErrorCode.INVALID_INPUT and error.status is None)
+                or (error.status is not None and 300 <= error.status < 400)
             )
             self._result(
                 attempt,
