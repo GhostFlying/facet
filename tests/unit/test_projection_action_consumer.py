@@ -1,10 +1,10 @@
 """Synthetic end-to-end evidence for the readonly action effect consumer."""
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from test_db_actions import prepare_epoch
+from test_db_actions import prepare_epoch, reopen
 from test_db_events import event, resolution
 from test_db_repositories import (
     T,
@@ -15,7 +15,7 @@ from test_db_repositories import (
 from test_db_repositories import state as state
 from test_db_schema import NOW, P, lid
 
-from facet.contracts import ErrorCode, LabelChange, ProviderId, Role
+from facet.contracts import ErrorCode, LabelChange, ProviderId, Role, Timestamp
 from facet.db.codecs import ActionKind, PrivateAddress, StorageFailure
 from facet.db.keys import event_key
 from facet.db.repositories import jobs, reads
@@ -266,3 +266,74 @@ def test_provider_failure_retains_resolve_job_for_retry(state):
     with session.transaction() as uow:
         assert reads.get_event(uow, P, row.event_id).processing.value == "pending"
         assert reads.get_job(uow, P, lid(1077)).state.value == "retry_wait"
+
+
+@pytest.mark.parametrize("label", ["add-sender", "add-domain", "blacklist"])
+@pytest.mark.parametrize("retry_after", [None, 120])
+def test_provider_retry_deadline_survives_restart(
+    state, monkeypatch, label, retry_after
+):
+    from facet.projection import action_consumer
+
+    _, _, session, _ = state
+    labels = PrivateActionLabelMap(
+        ProviderId("add-sender"), ProviderId("add-domain"), ProviderId("blacklist")
+    )
+    row = _event(session, label=ProviderId(label), n=78)
+    clock = [datetime.now(UTC)]
+    monkeypatch.setattr(action_consumer, "_now", lambda: Timestamp(clock[0]))
+
+    class RateLimitedSource:
+        calls = 0
+
+        def get_thread_facts(self, source_thread_id):
+            assert source_thread_id == T
+            self.calls += 1
+            raise ProviderFailure(
+                ErrorCode.SOURCE_RATE_LIMITED,
+                Role.SOURCE,
+                status=429,
+                retry_after_seconds=retry_after,
+            )
+
+    source = RateLimitedSource()
+
+    def consumer():
+        return ActionEffectConsumer(
+            labels,
+            source,
+            (AccountAddress("source@example.com"),),
+            "source@example.com",
+        )
+
+    result = consumer().process(session, P, row.event_id)
+    assert result.attention is ErrorCode.SOURCE_RATE_LIMITED
+    deadline = clock[0] + timedelta(seconds=retry_after or 1)
+    with session.transaction() as uow:
+        job = reads.get_job(uow, P, lid(1078))
+        pending_event = reads.get_event(uow, P, row.event_id)
+    assert job.state.value == "retry_wait"
+    assert job.next_attempt_at.value == deadline
+    assert pending_event.processing.value == "pending"
+    assert source.calls == 1
+    clock[0] += timedelta(seconds=2)
+    if retry_after is not None:
+        with pytest.raises(StorageFailure) as caught:
+            consumer().process(session, P, row.event_id)
+        assert caught.value.code is ErrorCode.REQUEST_CONFLICT
+        assert source.calls == 1
+    with reopen(state) as (_, _, restarted, _):
+        with restarted.transaction() as uow:
+            restarted_job = reads.get_job(uow, P, lid(1078))
+        assert restarted_job.next_attempt_at.value == deadline
+        if retry_after is not None:
+            with pytest.raises(StorageFailure) as caught:
+                consumer().process(restarted, P, row.event_id)
+            assert caught.value.code is ErrorCode.REQUEST_CONFLICT
+            assert source.calls == 1
+            clock[0] = deadline
+        assert (
+            consumer().process(restarted, P, row.event_id).attention
+            is ErrorCode.SOURCE_RATE_LIMITED
+        )
+        assert source.calls == 2
