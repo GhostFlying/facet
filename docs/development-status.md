@@ -31,28 +31,48 @@ Independent plan and exact-candidate documentation reviews passed; see the
 [review receipt](reviews/target-agent-outbound.md). Main integration and CI are
 separate gates, not implied by this documentation approval.
 
-### Controlled local Gmail preflight (no projection writes)
+### Bounded live Gmail projection trial
 
-On 2026-10-07 the exact local transport candidate, using this host's private
-proxy override, refreshed both expired existing role credentials through the
-normal StateOwner/CredentialManager journal and unchanged scope policies.
-Google profiles matched the existing role bindings. Read-only target metadata
-showed two unmapped SENT messages with unambiguous normalized source From,
-zero drafts and zero other unexpected items. They are permitted outbound,
-not projection mappings or content to clean. This was local operator inspection,
-not implementation of the missing production classifier/audit gate.
+On 2026-10-07 the user explicitly authorized one production `run --once` and
+a fresh-process continuation check for the existing bindings and one enabled
+sender rule. The unchanged reviewed candidate `3df74f3` ran in its exact
+non-root local image, with normal production Google SDK/runtime, real state
+and this host's private proxy override; no fake or application overlay was used.
+A stopped, writer-locked private backup used SQLite's backup API for both state
+journals and included config/credentials before either CLI process started.
+Existing role credentials had been refreshed normally; profiles matched bindings
+and account/scope/rule/epoch configuration remained unchanged throughout.
 
-Production mappings remain zero; the one old unknown insert remains pending
-recovery. A fresh read-only RFC-ID search returned zero candidates; that is not
-proof of no historic insert or permission to resend. No projection/recovery
-execution, Gmail write, source mutation or service resume occurred. Normal
-credential/profile metadata was updated; no account, scope, rule or epoch changed.
-One enabled sender rule exists; only one of three configured action labels was
-present. Missing labels do not invalidate CLI-managed rules. The current image
-does not dispatch `auth status` (returns `invalid_input`); its existing offline
-status reader was used locally without claiming that CLI gate complete.
-Next: verify the concrete live test scope before a bounded production cycle;
-do not reopen historic attention work or retry the old unknown automatically.
+The first process finished in 30.33 seconds: two History pages, 22 resolved
+events, **nine confirmed inserts and nine durable mappings**, zero new attention.
+The fresh process finished in 4.62 seconds: one History page, zero resolved
+events and **zero new insert attempts or mappings**. Read-only verification
+compared all nine source/target MIME digests and mapped IDs/thread assignments;
+three source threads map to three target threads. All nine valid Date headers
+match target internal dates, with zero fallbacks; copies have normal All Mail
+visibility without Inbox/Spam/Trash/draft labels. Target metadata now classifies
+nine mapped copies, the original two permitted source-From SENT items, zero
+drafts and zero other unmanaged items. This local inspection does not implement
+the still-open production outbound classifier/audit/recovery exclusion gate.
+
+The old unknown insert and all 58 historic attention jobs are unchanged. Its
+read-only RFC-ID search still found zero candidates, which is not proof of no
+historic insert or permission to resend. No old recovery retry, source mutation,
+cleanup, rule/scope expansion, epoch restart or long-running service resume
+occurred. The CLI receipt's `discovered: 4700` is the completed partition's
+historical observed-item count, **not 4,700 newly scanned or selected messages**;
+comparison with the backup confirms zero new initial-discovery items. The
+receipt's cumulative/delta naming remains an observability limitation.
+
+Remaining gates: qualified main integration/publication, full maintenance CLI
+(including missing `auth status` dispatch), action-label live acceptance (only
+one of three configured labels was present), production outbound classification,
+authorized old-unknown recovery, Gmail UI checks, broader failure/backup/restore
+and deployment acceptance, and 72-hour dogfood. The service remains stopped.
+This proves bounded real projection and restart deduplication, not whole Phase 1
+acceptance or an all-healthy historic queue. Next: integrate the qualified
+engineering stack; any continuous live run or recovery action needs its own
+scope/authorization. See [trial evidence](reviews/sync-single-dispatch-transport.md#bounded-authorized-live-gmail-trial-2026-10-07).
 
 ### Sync transport and source-missing repair (offline candidate)
 
@@ -145,7 +165,10 @@ reset, insert retry or sync restart occurred. CI/merge/publication and a
 live-service upgrade are not claimed. See [runbook](target-cleanup.md) and
 [review receipt](reviews/target-cleanup-cli.md). The live sync gaps below remain.
 
-### Current live gate and insert adapter correction
+### Historical pre-trial live gate and insert adapter correction
+
+The following records the earlier blockers; the bounded live trial above is
+the current projection result and supersedes its zero-mapping/live-gap status.
 
 The recent local build/Compose acceptance is not yet a working live projection.
 The real state was backed up with SQLite's backup API plus private config and
