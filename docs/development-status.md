@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Rule chronology simplification and gap candidate (not yet accepted)
+### Rule chronology simplification and gap recovery (local image validated)
 
 On 2026-10-07 the user confirmed processing/scan-time rule selection, without
 strict rule-change versus mail-arrival ordering. Known-gap recovery may admit
@@ -19,15 +19,24 @@ The revised [gap plan](implementation-plans/history-gap-recovery.md) passed
 independent review at SHA256
 `49acf9b5b0d1fb67fd268d2691cac9c8ce40d444c013615ebf3953c3733f20c1`.
 
-The working candidate now performs resumable known-gap discovery/active-thread
+Source candidate `75093dce1737f3427dff04e9908f746a177e1720` now performs resumable known-gap discovery/active-thread
 expansion and H1 pagination through production runtime. Processing-time allow
 evaluation is shared with ordinary History; internalDate only bounds gap scans.
 Affected admission/History/sync and real CLI external-wire tests passed, including
 pre-rule gap messages, scan/catchup interruption, mapping/readback and restarted
-no-resend. Related repository/worker/status tests also passed. Exact final checks,
-independent implementation acceptance, local non-root image E2E and CI remain
-pending; this is not qualified deployment or a completed milestone. Real sync
-remains stopped; no mailbox operation, unknown retry or service resume occurred.
+no-resend. Related repository/worker/status tests also passed. Independent
+implementation review passed after the sole query-boundary fix; the exact
+non-root image passed four production CLI gap cases with external networking
+disabled, read-only rootfs and no application-source or real-state overlay.
+Test-only candidate `a02236d7179b987382fa9230cbe96c6692c6c5bd` corrects a legacy
+fake receipt missing the new warnings field and checks its actual typed result;
+focused rereview passed and runtime/image inputs are unchanged.
+Final full-suite/CI and integration remain pending; no milestone, live gap or
+deployment acceptance is claimed. See [one review receipt](reviews/history-gap-recovery.md).
+Real sync remains stopped; no mailbox operation, unknown retry or service resume
+occurred. Unknown-range approval CLI, composed sync and broader maintenance gates
+remain separate; the next live step is still the previously scoped granular
+historical test, after these engineering gates and current preflight checks.
 
 ### Authorized historical test: preflight complete, bulk prerequisite unresolved
 

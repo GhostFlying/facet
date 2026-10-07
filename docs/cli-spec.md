@@ -169,7 +169,8 @@ binding 和 scopes，缺授权时引导既有 OAuth 交互，不默选账号、�
 完整入口调用细分命令背后的同一业务操作，不另造同步引擎、shell 子命令链或 IPC。
 已有规则/窗口工作继续、mapping 去重；新增历史范围创建独立 epoch，不清空旧
 discovery/cursor/intents。容器重启/普通 run 续跑已有范围；连续运行中的新规则和
-action 学习仍 prospective，不把重启、每日 reconcile 当作新的历史披露意图。
+action 学习不触发任意历史回扫，不把重启、每日 reconcile 当作新的历史披露意图；
+按 D11，History/gap 使用处理/扫描时规则，已知 gap 覆盖整个停机窗口。
 单独 init/setup/preview/status 保持原有无复制行为，维修/恢复许可不随 sync 扩张。
 
 当前真实验证继续用细分命令，按具体已批准范围执行。产品入口可自动编排不代表
@@ -180,7 +181,7 @@ agent 可以在当前测试中自动开始新历史补齐、retry unknown 或启
 unknown insert 留 recovery。`backfill pause` 只暂停历史 jobs，History ingestion 仍
 可持久化；重启不重置 cursor 或复活 stopped generations。
 
-Rules add 默认 prospectively effective；第一期通过 source History 读取用户手工 action
+Rules add 按处理时生效状态判断，不保证与邮件到达严格时序；第一期通过 source History 读取用户手工 action
 labels 更新规则，不把逐个手动 track 作为常规入口。Rules remove 不停止已 tracked
 thread。Blacklist 用 exact sender + 当前 thread，取消 unstarted generation，不停止
 同域所有 thread、不删除历史；去掉 blacklist 不自动恢复 tracking。

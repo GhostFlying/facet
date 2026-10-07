@@ -184,8 +184,10 @@ accidentally behaving differently is not authority to change the contract.
   default fixed six-month window, then automatically prepares/starts the guarded
   backfill and runs History/projection; no separate manual preview/start is
   required. Standalone preview stays zero-write; setup and ordinary run/restart
-  do not expand history. Rule/action learning remains prospective until a new
-  intentional sync scope or granular backfill start authorizes history. Preserve
+  do not authorize arbitrary historical expansion. Rule/action learning does not
+  initiate a historical scan; the bounded known-gap exception below uses current
+  processing/scan-time rules. Other historical expansion needs a new intentional
+  sync scope or granular backfill start. Preserve
   stable operation keys, confirmation/account/scope guards, H0/gap ordering,
   stopped generations and unknown-insert recovery. Current testing uses granular
   commands; this product decision is not authorization of new live bulk copying.

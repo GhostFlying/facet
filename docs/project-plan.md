@@ -198,7 +198,7 @@ Release 仍需决定。公开源码不自动代表 package 已公开，必须实
 | Insert 后 crash | 唯一且内容匹配的候选被绑定；模糊结果不盲目重试 | M2 |
 | Message-ID 缺失或重复 | 不能只凭 Message-ID 判定同一封；进入受限恢复或 review | M2 |
 | 六个月边界 | 用固定截止时间发现候选，纳入后复制完整 thread | M2 |
-| Domain 和 admission | PSL、子域边界、规则生效时间、metadata 歧义和账号边界均有覆盖；不验证 sender authentication | M1 M2 |
+| Domain 和 admission | PSL、子域边界、处理时规则状态、metadata 歧义和账号边界均有覆盖；不保证规则/邮件严格时序，不验证 sender authentication | M1 M2 |
 | 初始化和分页 crash | H0 之前 discovery 与 H0 之后 History 共同覆盖，事件可重放 | M2 |
 | 收信和自己回复 | 自动投影；已 tracked thread 的后续 sender 变化保留 | M2 |
 | History 404 | 对 active threads 补漏，并恢复停机窗口内 admission | M3 |
