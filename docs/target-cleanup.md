@@ -21,7 +21,10 @@ Sync keeps `gmail.insert` + `gmail.readonly`. Permanent deletion requires
 sending. The cleanup process requests it separately with online access, no
 incremental union, and validates the actual grant. Its access token stays only
 in memory; no refresh token or broad sync credential is saved. Wrong-account
-consent fails before deletion. [Google message deletion API](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/delete).
+consent fails before deletion. "Temporary" describes Facet's token handling,
+not an automatic expiry/revocation of the account's consent record at Google.
+Do not automatically revoke the application grant: that can also disrupt normal
+authorization. [Google message deletion API](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/delete).
 
 ## Commands
 

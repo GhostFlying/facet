@@ -32,5 +32,38 @@ cover response loss, redirects and 401; loss emits exactly one DELETE and the
 same-ID GET precedes resumed work. The focused cleanup suite passed 44 cases.
 Normal sync's analogous insert-transport risk remains a separate live blocker.
 
+## Accepted current candidate
+
+Independent reviewer approved exact
+`864670323790e4000327cd724a7d0b90267c6694`, retaining the unaffected original
+conclusions and independently passing the 44 focused cases. Full offline suite
+on that candidate: **2697 passed in 527.26 seconds**. Locked environment sync,
+repository Ruff/format, CLI help and tracked/staged safety checks passed.
+
+The unchanged pinned Dockerfile built on sgbox and was imported locally as
+`facet:8646703`, image ID
+`sha256:82d9f0dee8c5a37ab1dff8c014bc24de45e74514cee5f11bdeda00815ffd4029`,
+user `10001:10001`, OCI revision matching the exact candidate. The isolated
+Compose project `facet-cleanup-8646703` used its own new synthetic state volume
+and disabled external networking. Actual CLI init/fake authorization produced
+bindings; no readiness/binding/rule/epoch rows were directly seeded.
+Preview identified three unique synthetic messages, including a draft, with
+zero target writes. Explicit execute injected a post-deletion response loss;
+offline status retained one unknown deletion. A new container resumed via
+same-ID GET and completed the fixed manifest; a later arrival survived.
+Business-row/normal-credential hashes were unchanged, cleanup access-token
+sentinels were absent from production files, and completed JSON replay added
+zero provider calls (10 before and after). No host Python executed product
+commands. Fixture mounts replaced only external Google HTTP/OAuth interactions.
+
+The qualified local image additionally completed a real target read-only preview
+under the existing binding/normal target scopes; its account and fixed IDs stay
+private. Offline status read the same manifest with networking disabled. No
+source request, real mailbox mutation or full-scope OAuth was performed.
+
+CI, main integration, publication, real cleanup OAuth/delete and live-service
+upgrade are not claimed. The normal insert transport remains a known separate
+blocker. Real deletion awaits the user's separate actual-preview decision.
+
 No real deletion, expanded persistent credential, source mutation, normal-state
 reset or unknown insert retry is authorized by this engineering receipt.

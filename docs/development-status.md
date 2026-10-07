@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Explicit target cleanup (in implementation/acceptance)
+### Explicit target cleanup (local offline/image acceptance complete)
 
 The user approved an independent `target-cleanup` CLI maintenance exception and
 ephemeral full Gmail consent, not automatic sync deletion. The local commands
@@ -16,11 +16,21 @@ now provide fixed-ID preview, offline status and explicitly confirmed execution;
 normal sync credentials/business rows remain separate. Independent plan review
 passed; real CLI subprocesses have passed synthetic init/binding, preview,
 execution, response-loss/restart, wrong-account and writer-exclusion checks.
-Final candidate implementation review/full checks/non-root image acceptance are
-still pending. No actual target deletion, broad persistent credential, DB reset
-or unknown-insert retry has occurred. Real deletion awaits separate approval of
-its actual preview. See [runbook](target-cleanup.md) and
-[review receipt](reviews/target-cleanup-cli.md). The live sync gaps below remain.
+Candidate `864670323790e4000327cd724a7d0b90267c6694` has independent implementation
+approval, complete offline checks and non-root local Compose-image acceptance.
+Production CLI commands in an isolated synthetic volume completed init/binding,
+preview, explicit deletion with injected response loss, restarted recovery and
+completed replay with no new HTTP calls. Fixed IDs only were removed; later
+arrivals survived and normal credentials/business state remained unchanged.
+Real requests/urllib3 wire tests separately prove one destructive dispatch on
+response loss and same-ID GET on recovery. No actual target deletion, broad
+persistent credential, DB reset or unknown-insert retry has occurred. Real
+deletion awaits separate approval of its actual preview; CI/merge/publication
+and real-service upgrade are not claimed. See [runbook](target-cleanup.md) and
+[review receipt](reviews/target-cleanup-cli.md). A production read-only cleanup
+preview has now completed and its fixed manifest is stored privately; the user
+has not yet approved real deletion. No source API or mailbox mutation was used
+for that preview. The live sync gaps below remain.
 
 ### Current live gate and insert adapter correction
 
@@ -32,8 +42,9 @@ consumed History but confirmed zero mappings; one existing unknown insert
 remains in recovery and was not retried. Read-only recovery search found no
 candidate, which is not proof authorizing another insert.
 
-Read-only target inspection found unexpected/unmanaged content, including a
-draft, while the DB had no mappings. No further target writes or long-running
+Earlier read-only target inspection found unexpected/unmanaged content,
+including a draft at that time, while the DB had no mappings. No further target
+writes or long-running
 service startup are permitted until the operator resolves that target
 prerequisite. No mailbox cleanup, claiming, scope expansion or DB reset occurred.
 New message events on untracked threads also remain attention: incremental
