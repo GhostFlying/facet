@@ -533,6 +533,36 @@ def test_refresh_provider_failure_abandons_requesting_change(
         owner.close()
 
 
+def test_refresh_token_transport_failure_abandons_requesting_change(
+    trusted_state_parent, monkeypatch
+):
+    owner, _, manager, _, _ = _manager(trusted_state_parent, monkeypatch)
+    failure = ProviderFailure(
+        ErrorCode.NETWORK_UNAVAILABLE,
+        Role.SOURCE,
+        provider_stage=ProviderStage.TOKEN_REFRESH,
+        timeout_seconds=30,
+        attempt=1,
+        observed_at=FUTURE,
+    )
+    try:
+        manager.verify_and_publish(Profiles())
+
+        def exchange(_role, _old):
+            raise failure
+
+        with pytest.raises(ProviderFailure) as caught:
+            manager.refresh(Role.SOURCE, exchange)
+        assert caught.value is failure
+        assert caught.value.provider_stage is ProviderStage.TOKEN_REFRESH
+        assert owner.bindings()[Role.SOURCE].credential_revision == Revision(1)
+        assert owner.session._connection.execute(
+            "SELECT phase,error FROM credential_changes"
+        ).fetchone() == ("abandoned", "network_unavailable")
+    finally:
+        owner.close()
+
+
 def test_refresh_provider_failure_preserves_code_for_single_flight_waiter(
     trusted_state_parent, monkeypatch
 ):

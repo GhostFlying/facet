@@ -644,9 +644,7 @@ class Resource:
     def insert(self, **kwargs) -> Request:
         if self._resource != "messages":
             raise ValueError("unsupported provider method")
-        self._validate(
-            kwargs, {"userId", "body", "internalDateSource", "neverMarkSpam"}
-        )
+        self._validate(kwargs, {"userId", "body", "internalDateSource"})
         body = kwargs.get("body")
         if (
             not isinstance(body, dict)
@@ -688,7 +686,7 @@ class Resource:
         for key in ("id", "q", "pageToken", "labelId", "format"):
             if key in arguments and not isinstance(arguments[key], str):
                 raise ValueError("invalid provider argument type")
-        for key in ("includeSpamTrash", "neverMarkSpam"):
+        for key in ("includeSpamTrash",):
             if key in arguments and type(arguments[key]) is not bool:
                 raise ValueError("invalid provider argument type")
         for key in ("labelIds", "historyTypes", "metadataHeaders"):

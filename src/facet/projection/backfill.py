@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Protocol
 from uuid import uuid4
 
 from facet.contracts import (
     Count,
+    EpochState,
     ErrorCode,
     Generation,
     JobKind,
@@ -18,6 +20,7 @@ from facet.contracts import (
     PartitionState,
     PolicyVersion,
     Priority,
+    ProviderPageToken,
     Revision,
     RuleRef,
     Timestamp,
@@ -74,6 +77,36 @@ def _now() -> Timestamp:
     return Timestamp(datetime.now(UTC))
 
 
+def _query_digest(query, epoch) -> str:
+    window = (
+        f"after:{epoch.window_start.value.astimezone(UTC):%Y/%m/%d} "
+        f"before:{epoch.window_end.value.astimezone(UTC):%Y/%m/%d}"
+    )
+    try:
+        rendered = query.render(window)
+    except ValueError:
+        raise StorageFailure(ErrorCode.INVALID_INPUT) from None
+    return sha256(rendered.encode("utf-8")).hexdigest()[:32]
+
+
+def _encode_query_token(token, digest: str) -> ProviderPageToken | None:
+    if token is None:
+        return None
+    return ProviderPageToken(f"facet-q1:{digest}:{token.value}")
+
+
+def _decode_query_token(token, digest: str) -> ProviderPageToken | None:
+    if token is None:
+        return None
+    prefix = f"facet-q1:{digest}:"
+    if not token.value.startswith(prefix):
+        raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+    raw = token.value[len(prefix) :]
+    if not raw:
+        raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+    return ProviderPageToken(raw)
+
+
 class BackfillProducer:
     """Page source discovery and publish only durable expansion/message work."""
 
@@ -121,7 +154,21 @@ class BackfillProducer:
                 raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
             if partition.progress.state is PartitionState.COMPLETE:
                 return partition.progress.observed_items.value
-        token = partition.progress.page_token
+        query_planner = getattr(self._admission, "discovery_query", None)
+        if callable(query_planner):
+            query = query_planner(epoch)
+            if query is None:
+                return self._complete_selected_scope(
+                    owner, projection_id, epoch_id, partition
+                )
+        else:
+            raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+        query_digest = None if query is None else _query_digest(query, epoch)
+        token = (
+            partition.progress.page_token
+            if query_digest is None
+            else _decode_query_token(partition.progress.page_token, query_digest)
+        )
         observed = partition.progress.observed_items.value
         pages = 0
         while True:
@@ -129,6 +176,7 @@ class BackfillProducer:
                 window_start=epoch.window_start.value,
                 window_end=epoch.window_end.value,
                 page_token=token,
+                **({"query": query} if query is not None else {}),
             )
             # Candidate metadata/authentication is provider work and must not
             # execute while the SQLite writer transaction is open.
@@ -170,7 +218,11 @@ class BackfillProducer:
                                     current.progress.observed_items.value
                                     + len(response.items)
                                 ),
-                                response.next_page_token,
+                                _encode_query_token(
+                                    response.next_page_token, query_digest
+                                )
+                                if query_digest is not None
+                                else response.next_page_token,
                                 None,
                             )
                             epochs.advance_partition(
@@ -274,7 +326,9 @@ class BackfillProducer:
                     Count(
                         partition.progress.observed_items.value + len(response.items)
                     ),
-                    response.next_page_token,
+                    _encode_query_token(response.next_page_token, query_digest)
+                    if query_digest is not None
+                    else response.next_page_token,
                     None,
                 )
                 receipt = epochs.advance_partition(
@@ -303,6 +357,67 @@ class BackfillProducer:
                 break
             token = response.next_page_token
         return observed
+
+    def _complete_selected_scope(self, owner, projection_id, epoch_id, known_partition):
+        """Complete an empty sealed admission scope without mailbox claims."""
+
+        with owner.transaction() as uow:
+            epoch = _get(uow, projection_id, "epochs", (("epoch_id", epoch_id),))
+            partition = _get(
+                uow,
+                projection_id,
+                "epoch_partitions",
+                (
+                    ("epoch_id", epoch_id),
+                    ("partition_key", known_partition.partition_key),
+                ),
+            )
+            if epoch is None or partition is None:
+                raise ValueError("invalid_input")
+            if partition.progress.state is PartitionState.NEEDS_ATTENTION:
+                raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+            if epoch.discovery_complete:
+                if (
+                    partition.progress.state is not PartitionState.COMPLETE
+                    or partition.progress.page_token is not None
+                ):
+                    raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+                return 0
+            if not epoch.discovery_complete:
+                progress = partition.progress
+                if progress.state is not PartitionState.COMPLETE or (
+                    progress.page_token is not None
+                ):
+                    progress = replace(
+                        progress,
+                        state=PartitionState.COMPLETE,
+                        page_token=None,
+                    )
+                    updated = replace(
+                        partition,
+                        progress=progress,
+                        revision=Revision(partition.revision.value + 1),
+                    )
+                    epochs.advance_partition(
+                        uow,
+                        projection_id,
+                        updated,
+                        (),
+                        RevisionGuard(partition.revision),
+                    )
+                    epoch = _get(
+                        uow, projection_id, "epochs", (("epoch_id", epoch_id),)
+                    )
+                epochs.advance_epoch(
+                    uow,
+                    projection_id,
+                    epoch_id,
+                    EpochState.CATCHING_UP,
+                    True,
+                    Count(0),
+                    RevisionGuard(epoch.revision),
+                )
+        return 0
 
 
 DiscoveryProducer = BackfillProducer

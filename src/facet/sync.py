@@ -17,8 +17,10 @@ from facet.contracts import (
     Claim,
     ClaimPhase,
     Count,
+    EpochKind,
     EpochState,
     ErrorCode,
+    Generation,
     JobKind,
     JobState,
     LocalId,
@@ -27,9 +29,16 @@ from facet.contracts import (
     RestoreState,
     Revision,
     Role,
+    RuleKind,
     Timestamp,
 )
-from facet.contracts.records import JobSubjectProjectMessage
+from facet.contracts.records import (
+    AdmissionRefFutureRule,
+    JobSubjectExpandThread,
+    JobSubjectProjectMessage,
+    SourceEventKeyMessageDeleted,
+    ThreadGenerationGuardUntracked,
+)
 from facet.db.codecs import (
     EventProcessing,
     PollOrigin,
@@ -38,13 +47,22 @@ from facet.db.codecs import (
     timestamp_to_sql,
 )
 from facet.db.keys import event_key, job_key
-from facet.db.models import HistoryPollRow, RevisionGuard, SyncJobRow
-from facet.db.repositories import epochs, events, jobs, reads
+from facet.db.models import (
+    HistoryPollRow,
+    RevisionGuard,
+    SyncJobRow,
+    ThreadAdmissionRow,
+    TrackedThreadRow,
+)
+from facet.db.repositories import epochs, events, intents, jobs, policy, reads
 from facet.db.repositories.base import _decode, _get, _query
 from facet.db.repositories.serialization import COLUMNS
 from facet.gmail.retry import ProviderFailure
-from facet.gmail.source import CandidateAttentionReason
+from facet.gmail.source import CandidateAttentionReason, DiscoveryItem, DiscoveryQuery
 from facet.projection.action_consumer import ActionEffectConsumer
+from facet.projection.admission import (
+    AdmissionAttentionReason,
+)
 from facet.projection.admission import (
     AdmissionEvaluator as PolicyAdmissionEvaluator,
 )
@@ -79,6 +97,42 @@ class SourceCandidateAdmission:
             raise ValueError("invalid_input")
         self._source = source
         self._policy = policy
+
+    def discovery_query(self, epoch=None) -> DiscoveryQuery | None:
+        """Plan one bounded provider query from the sealed allow snapshot."""
+
+        policy_revision = self._policy.ruleset_revision
+        epoch_revision = getattr(
+            getattr(epoch, "decision", None), "ruleset_revision", None
+        )
+        if (
+            epoch is not None
+            and type(policy_revision) is Revision
+            and epoch_revision != policy_revision
+        ):
+            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+        rules = self._policy.enabled_allow_rules
+        if not rules:
+            return None
+        if any(rule.normalized.kind is RuleKind.ALLOW_DOMAIN for rule in rules):
+            # Gmail's broad domain search semantics are not yet accepted as a
+            # complete parent/subdomain candidate superset. Never fall back to
+            # an unfiltered mailbox scan while that evidence gate is closed.
+            raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
+        clauses = tuple(
+            sorted(
+                {
+                    'from:"'
+                    + rule.normalized.value.value.replace("\\", "\\\\").replace(
+                        '"', '\\"'
+                    )
+                    + '"'
+                    for rule in rules
+                    if rule.normalized.kind is RuleKind.ALLOW_SENDER
+                }
+            )
+        )
+        return DiscoveryQuery(clauses)
 
     def evaluate(self, item, epoch):
         from facet.projection.backfill import DiscoveryDecision
@@ -146,6 +200,8 @@ class ForegroundSync:
         admission,
         *,
         action_consumer: ActionEffectConsumer | None = None,
+        admission_for_epoch=None,
+        admission_for_history=None,
         max_raw_bytes: int = 35_000_000,
     ) -> None:
         if (
@@ -154,6 +210,11 @@ class ForegroundSync:
             or not hasattr(source, "history")
             or not hasattr(target, "insert")
             or not hasattr(admission, "evaluate")
+            or (admission_for_epoch is not None and not callable(admission_for_epoch))
+            or (
+                admission_for_history is not None
+                and not callable(admission_for_history)
+            )
         ):
             raise ValueError("invalid_input")
         if type(max_raw_bytes) is not int or not 1 <= max_raw_bytes <= 35_000_000:
@@ -162,6 +223,11 @@ class ForegroundSync:
         self._source = source
         self._target = target
         self._projection = owner.projection_id
+        self._admission_for_epoch = admission_for_epoch
+        self._admission_for_history = admission_for_history
+        self._history_admission = (
+            admission if isinstance(admission, PolicyAdmissionEvaluator) else None
+        )
         self._admission = (
             SourceCandidateAdmission(source, admission)
             if isinstance(admission, PolicyAdmissionEvaluator)
@@ -230,12 +296,29 @@ class ForegroundSync:
                     raise StorageFailure(ErrorCode.BINDING_PENDING)
 
     def _recover_pre_dispatch_claims(self) -> int:
-        """Requeue only claims with no remote-dispatch evidence.
+        """Requeue safe claims and materialize orphaned dispatch markers.
 
-        Dispatch-started and pending-recovery attempts are intentionally absent
-        from this transition and remain visible for explicit recovery.
+        Dispatch-started attempts with a live claim remain explicit recovery;
+        only a marker with no claim and no recovery job is materialized into
+        the existing unknown-insert recovery state machine.
         """
         with self._owner.session.transaction() as uow:
+            orphaned = _query(
+                uow,
+                "SELECT "
+                + ",".join(COLUMNS["insert_attempts"])
+                + " FROM insert_attempts a WHERE a.projection_id=? "
+                "AND a.state='dispatch_started' AND NOT EXISTS ("
+                "SELECT 1 FROM job_claims c WHERE c.projection_id=a.projection_id "
+                "AND c.job_id=a.job_id)",
+                (self._projection.value,),
+                maximum=10_000,
+            )
+            for values in orphaned:
+                attempt = _decode(uow, self._projection, "insert_attempts", values)
+                intents.reconcile_orphaned_attempt(
+                    uow, self._projection, attempt.attempt_id, _now()
+                )
             return jobs.requeue_preparing_claims(uow, self._projection)
 
     def _discover_initial_epoch(self) -> int:
@@ -252,6 +335,16 @@ class ForegroundSync:
         if not rows:
             return 0
         epoch_id = LocalId(rows[0][0])
+        if self._admission_for_epoch is not None:
+            with self._owner.session.transaction() as uow:
+                epoch = _get(uow, self._projection, "epochs", (("epoch_id", epoch_id),))
+            if epoch is None:
+                raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+            admission = self._admission_for_epoch(epoch)
+            if not isinstance(admission, PolicyAdmissionEvaluator):
+                raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+            self._admission = SourceCandidateAdmission(self._source, admission)
+            self._backfill = BackfillProducer(self._source, self._admission)
         discovered = self._backfill.discover(
             self._owner.session, self._projection, epoch_id
         )
@@ -296,8 +389,14 @@ class ForegroundSync:
         with self._owner.session.transaction() as uow:
             checkpoint = reads.get_checkpoint(uow, self._projection)
             if checkpoint.active_poll_id is not None:
-                poll = reads.get_history_poll(
-                    uow, self._projection, checkpoint.active_poll_id
+                # ``get_history_poll`` is a committed ReadSession facade.  We
+                # are already inside the owner transaction here; use the
+                # typed UoW getter so a resumed poll can actually continue.
+                poll = _get(
+                    uow,
+                    self._projection,
+                    "history_polls",
+                    (("poll_id", checkpoint.active_poll_id),),
                 )
                 if poll is None:
                     raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
@@ -385,7 +484,7 @@ class ForegroundSync:
                     continue
                 try:
                     result = self._action.process(
-                        self._owner,
+                        self._owner.session,
                         self._projection,
                         self._event_id(job),
                         epoch_id=self._active_live_epoch() or job.origin_epoch_id,
@@ -406,14 +505,112 @@ class ForegroundSync:
                     resolved += 1
                 continue
             if key.tag != "message_added":
+                if isinstance(
+                    key, SourceEventKeyMessageDeleted
+                ) and self._ignore_untracked_deletion(job):
+                    resolved += 1
+                    continue
                 self._defer_event_attention(job, ErrorCode.REQUEST_CONFLICT)
                 attention += 1
                 continue
-            if self._resolve_message_added(job):
-                resolved += 1
-            else:
+            try:
+                self._resolve_message_added(job)
+            except (ProviderFailure, StorageFailure) as error:
+                # A vanished source message is not malformed input. Keep this
+                # local: History 404 and target 404 have different recovery.
+                if (
+                    isinstance(error, ProviderFailure)
+                    and error.role is Role.SOURCE
+                    and error.status == 404
+                ):
+                    error = error.with_code(ErrorCode.SOURCE_MISSING)
+                retryable = error.code in {
+                    ErrorCode.SOURCE_AUTH_REQUIRED,
+                    ErrorCode.SOURCE_RATE_LIMITED,
+                    ErrorCode.NETWORK_UNAVAILABLE,
+                    ErrorCode.OWNER_BUSY,
+                }
+                self._defer_event_attention(
+                    job,
+                    error.code,
+                    retryable=retryable,
+                    retry_after_seconds=(
+                        error.retry_after_seconds
+                        if isinstance(error, ProviderFailure)
+                        else None
+                    ),
+                )
                 attention += 1
+            else:
+                resolved += 1
         return resolved, attention
+
+    def _ignore_untracked_deletion(self, resolve_job: SyncJobRow) -> bool:
+        """Close a deletion event only when its source thread was never tracked."""
+        with self._owner.session.transaction() as uow:
+            event = _get(
+                uow,
+                self._projection,
+                "source_events",
+                (
+                    (
+                        "event_key",
+                        event_key(self._projection, resolve_job.subject.event_key),
+                    ),
+                ),
+            )
+            job = reads.get_job(uow, self._projection, resolve_job.job_id)
+            if (
+                event is None
+                or job is None
+                or job.state
+                not in {
+                    JobState.QUEUED,
+                    JobState.RETRY_WAIT,
+                }
+            ):
+                return False
+            if event.event.source_thread_id is None:
+                return False
+            if (
+                reads.get_thread(uow, self._projection, event.event.source_thread_id)
+                is not None
+            ):
+                return False
+            now = _now()
+            claim = Claim(
+                _id(),
+                self._owner.owner_info.owner_run_id,
+                now,
+                None,
+                Revision(job.revision.value + 1),
+                ClaimPhase.PREPARING,
+            )
+            jobs.claim(
+                uow,
+                self._projection,
+                job.job_id,
+                claim,
+                RevisionGuard(job.revision),
+                now,
+            )
+            events.classify_event(
+                uow,
+                self._projection,
+                event.event_id,
+                EventProcessing.CONSUMED,
+                None,
+                (),
+                RevisionGuard(event.revision),
+            )
+            completed = reads.get_job(uow, self._projection, job.job_id)
+            jobs.complete_noninsert_job(
+                uow,
+                self._projection,
+                job.job_id,
+                RevisionGuard(completed.revision),
+            )
+            return True
 
     def _defer_event_attention(
         self,
@@ -421,6 +618,7 @@ class ForegroundSync:
         error: ErrorCode,
         *,
         retryable: bool = False,
+        retry_after_seconds: int | None = None,
     ) -> None:
         """Persist review or retry state for event work that did not converge."""
         with self._owner.session.transaction() as uow:
@@ -477,7 +675,9 @@ class ForegroundSync:
                     uow,
                     self._projection,
                     event.event_id,
-                    EventProcessing.NEEDS_ATTENTION,
+                    EventProcessing.SOURCE_MISSING
+                    if error is ErrorCode.SOURCE_MISSING
+                    else EventProcessing.NEEDS_ATTENTION,
                     error,
                     (),
                     RevisionGuard(event.revision),
@@ -486,9 +686,18 @@ class ForegroundSync:
                 uow,
                 self._projection,
                 claimed.job_id,
-                "retry_wait" if retryable else "needs_attention",
+                "retry_wait"
+                if retryable
+                else "source_missing"
+                if error is ErrorCode.SOURCE_MISSING
+                else "needs_attention",
                 error,
-                Timestamp(now.value + _RETRY_DELAY) if retryable else None,
+                Timestamp(
+                    now.value
+                    + max(_RETRY_DELAY, timedelta(seconds=retry_after_seconds or 0))
+                )
+                if retryable
+                else None,
                 RevisionGuard(claimed.revision),
             )
 
@@ -513,13 +722,66 @@ class ForegroundSync:
             return event.event_id
 
     def _resolve_message_added(self, resolve_job: SyncJobRow) -> bool:
+        """Read outside SQL; atomically consume, project or admit one event."""
         event_id = self._event_id(resolve_job)
-        now = _now()
         with self._owner.session.transaction() as uow:
             event = reads.get_event(uow, self._projection, event_id)
             job = reads.get_job(uow, self._projection, resolve_job.job_id)
             if event is None or job is None:
                 raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
+            thread_id = event.event.source_thread_id
+            if thread_id is None or event.processing is not EventProcessing.PENDING:
+                raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
+            thread = reads.get_thread(uow, self._projection, thread_id)
+            mapped = reads.get_mapping(
+                uow, self._projection, event.event.key.source_message_id
+            )
+            if mapped is not None and mapped.source_thread_id != thread_id:
+                raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+
+        selected_policy = decision = metadata = None
+        if mapped is None and (thread is None or thread.active):
+            item = DiscoveryItem(event.event.key.source_message_id, thread_id)
+            if thread is None:
+                selected_policy = (
+                    self._admission_for_history()
+                    if self._admission_for_history is not None
+                    else self._history_admission
+                )
+                if not isinstance(selected_policy, PolicyAdmissionEvaluator):
+                    raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+                if selected_policy.enabled_allow_rules:
+                    result = self._source.history_candidate(item)
+                    if result.attention is not None:
+                        raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
+                    decision = selected_policy.evaluate(
+                        result.candidate, _now(), prospective=True
+                    )
+                    if decision.attention_reason in {
+                        AdmissionAttentionReason.SOURCE_ACCOUNT_MISMATCH,
+                        AdmissionAttentionReason.CANDIDATE_INVALID,
+                    }:
+                        raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
+            else:
+                metadata = self._source.message_metadata(item.message_id)
+                if (
+                    metadata.message_id != item.message_id
+                    or metadata.thread_id != item.thread_id
+                ):
+                    raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
+
+        epoch_id = self._active_live_epoch() or resolve_job.origin_epoch_id
+        now = _now()
+        with self._owner.session.transaction() as uow:
+            current_event = reads.get_event(uow, self._projection, event_id)
+            current_job = reads.get_job(uow, self._projection, resolve_job.job_id)
+            current_thread = reads.get_thread(uow, self._projection, thread_id)
+            if current_event != event or current_job != job or current_thread != thread:
+                raise StorageFailure(ErrorCode.OWNER_BUSY)
+            if selected_policy is not None:
+                projection = _get(uow, self._projection, "projections", ())
+                if projection.ruleset_revision != selected_policy.ruleset_revision:
+                    raise StorageFailure(ErrorCode.OWNER_BUSY)
             claim = Claim(
                 _id(),
                 self._owner.owner_info.owner_run_id,
@@ -538,68 +800,95 @@ class ForegroundSync:
                     now,
                 )
                 job = reads.get_job(uow, self._projection, job.job_id)
-            if event.event.source_thread_id is None:
-                events.classify_event(
-                    uow,
-                    self._projection,
-                    event_id,
-                    EventProcessing.NEEDS_ATTENTION,
-                    ErrorCode.REQUEST_CONFLICT,
-                    (),
-                    RevisionGuard(event.revision),
+            subject = None
+            if (
+                mapped is None
+                and thread is None
+                and decision is not None
+                and decision.admit
+            ):
+                epoch = (
+                    _get(uow, self._projection, "epochs", (("epoch_id", epoch_id),))
+                    if epoch_id is not None
+                    else None
                 )
-                jobs.defer_job(
-                    uow,
+                if (
+                    epoch is None
+                    or epoch.kind is not EpochKind.INITIAL_BACKFILL
+                    or epoch.decision.tag != "backfill_start"
+                    or epoch.state
+                    not in {
+                        EpochState.SCANNING,
+                        EpochState.CATCHING_UP,
+                        EpochState.DRAINING,
+                    }
+                ):
+                    raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+                admitted = TrackedThreadRow(
                     self._projection,
-                    job.job_id,
-                    "needs_attention",
-                    ErrorCode.REQUEST_CONFLICT,
+                    thread_id,
+                    True,
+                    Generation(1),
+                    now,
                     None,
-                    RevisionGuard(job.revision),
-                )
-                return False
-            thread = reads.get_thread(
-                uow, self._projection, event.event.source_thread_id
-            )
-            if thread is None or not thread.active:
-                events.classify_event(
-                    uow,
-                    self._projection,
-                    event_id,
-                    EventProcessing.NEEDS_ATTENTION,
-                    ErrorCode.REQUEST_CONFLICT,
-                    (),
-                    RevisionGuard(event.revision),
-                )
-                jobs.defer_job(
-                    uow,
-                    self._projection,
-                    job.job_id,
-                    "needs_attention",
-                    ErrorCode.REQUEST_CONFLICT,
                     None,
-                    RevisionGuard(job.revision),
+                    Revision(1),
                 )
-                return False
-            key = event.event.key
-            subject = JobSubjectProjectMessage(
-                "project_message",
-                key.source_message_id,
-                event.event.source_thread_id,
-                thread.generation,
-            )
-            mapped = reads.get_mapping(uow, self._projection, key.source_message_id)
-            project = _get(
-                uow,
-                self._projection,
-                "sync_jobs",
-                (("stable_key", job_key(self._projection, subject)),),
-            )
-            if mapped is None:
-                project = project or SyncJobRow(
+                rule = _get(
+                    uow,
+                    self._projection,
+                    "rule_revisions",
+                    (
+                        ("rule_id", decision.rule.rule_id),
+                        ("revision", decision.rule.revision),
+                    ),
+                )
+                admission = ThreadAdmissionRow(
+                    self._projection,
+                    thread_id,
+                    Revision(1),
+                    Generation(1),
+                    now,
+                    AdmissionRefFutureRule(
+                        "future_rule", decision.rule, rule.policy_version
+                    ),
+                )
+                policy.admit_thread(
+                    uow,
+                    self._projection,
+                    admitted,
+                    admission,
+                    (),
+                    ThreadGenerationGuardUntracked("untracked"),
+                )
+                subject = JobSubjectExpandThread(
+                    "expand_thread", thread_id, epoch_id, Generation(1)
+                )
+            elif (
+                mapped is None
+                and thread is not None
+                and thread.active
+                and "DRAFT" not in metadata.labels
+            ):
+                subject = JobSubjectProjectMessage(
+                    "project_message",
+                    event.event.key.source_message_id,
+                    thread_id,
+                    thread.generation,
+                )
+            projects = ()
+            if subject is not None:
+                project = _get(
+                    uow,
+                    self._projection,
+                    "sync_jobs",
+                    (("stable_key", job_key(self._projection, subject)),),
+                ) or SyncJobRow(
                     self._projection,
                     _id(),
-                    JobKind.PROJECT_MESSAGE,
+                    JobKind.EXPAND_THREAD
+                    if thread is None
+                    else JobKind.PROJECT_MESSAGE,
                     Count(1),
                     job_key(self._projection, subject),
                     Priority.REALTIME,
@@ -610,30 +899,33 @@ class ForegroundSync:
                     None,
                     Count(0),
                     None,
-                    resolve_job.origin_epoch_id,
+                    epoch_id,
                     subject,
                 )
-            if project is None:
-                raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
-            events.classify_event(
-                uow,
-                self._projection,
-                event_id,
-                EventProcessing.RESOLVED,
-                None,
-                (project,),
-                RevisionGuard(event.revision),
-            )
-            refreshed = reads.get_event(uow, self._projection, event_id)
-            events.classify_event(
-                uow,
-                self._projection,
-                event_id,
-                EventProcessing.CONSUMED,
-                None,
-                (project,),
-                RevisionGuard(refreshed.revision),
-            )
+                projects = (project,)
+                events.classify_event(
+                    uow,
+                    self._projection,
+                    event_id,
+                    EventProcessing.RESOLVED,
+                    None,
+                    projects,
+                    RevisionGuard(event.revision),
+                )
+                refreshed = reads.get_event(uow, self._projection, event_id)
+                events.classify_event(
+                    uow,
+                    self._projection,
+                    event_id,
+                    EventProcessing.CONSUMED,
+                    None,
+                    projects,
+                    RevisionGuard(refreshed.revision),
+                )
+            else:
+                events.consume_message_added_no_effect(
+                    uow, self._projection, event_id, RevisionGuard(event.revision)
+                )
             refreshed_job = reads.get_job(uow, self._projection, job.job_id)
             jobs.complete_noninsert_job(
                 uow,

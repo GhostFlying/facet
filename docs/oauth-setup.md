@@ -89,6 +89,11 @@ UID/GID `10001`, mode `0700`, and no existing `production` child, for example:
 install -d -o 10001 -g 10001 -m 700 /srv/facet
 ```
 
+An explicit later `backfill start` applies the sealed allow ruleset through a
+bounded provider candidate query; it does not enumerate an unchecked mailbox.
+With no enabled allow rule, the selected discovery scope completes with zero
+admissions without claiming that the source mailbox is empty.
+
 The container refuses mismatched ownership, modes, types, symlinks, or an
 unexpected existing child before opening OAuth. It does not recursively change
 host permissions. The current empty `.facet/production` development tree is

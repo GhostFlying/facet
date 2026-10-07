@@ -360,6 +360,24 @@ def test_action_producer_attention_on_duplicate_typed_fact():
     assert attention.reason is ActionAttentionReason.DUPLICATE_EVENT
 
 
+def test_action_producer_does_not_mask_unexpected_source_exception():
+    labels = PrivateActionLabelMap(
+        pid("add-sender"), pid("add-domain"), pid("blacklist")
+    )
+
+    class Source:
+        def get_thread_facts(self, source_thread_id):
+            raise RuntimeError("synthetic programming defect")
+
+    with pytest.raises(RuntimeError, match="synthetic programming defect"):
+        ActionLabelProducer().consume(
+            event(labels.add_sender_label_id),
+            labels,
+            Source(),
+            (AccountAddress("source@example.invalid"),),
+        )
+
+
 def test_action_producer_requires_explicit_source_thread_context():
     labels = PrivateActionLabelMap(
         pid("add-sender"), pid("add-domain"), pid("blacklist")

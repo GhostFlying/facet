@@ -1,4 +1,65 @@
-# Provider request timeout plan (Rev9)
+# Provider request timeout plan (Rev10)
+
+## Rev10 change: OAuth token-refresh transport
+
+The existing 30-second `httplib2.Http` bound covers Gmail API discovery and
+requests, but `google-auth`'s token exchange uses a separate
+`google.auth.transport.requests.Request`; its default call has no timeout.
+Rev10 bounds that exchange without changing OAuth scope, refresh ownership, or
+recovery semantics:
+
+- Reuse the existing fixed `PROVIDER_REQUEST_TIMEOUT_SECONDS = 30` value; do
+  not add configuration or a second timeout policy.
+- Wrap the constructed `google.auth.transport.requests.Request` at its call
+  boundary so every token endpoint invocation receives
+  `timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS`. The wrapper must override a
+  caller-supplied timeout rather than relying on a constructor argument
+  (`Request` has no timeout constructor parameter).
+- Add the in-memory `ProviderStage.TOKEN_REFRESH` stage. Transport timeout,
+  `google.auth` transport failures, and provider `RefreshError` mappings retain
+  the existing closed error-code semantics while carrying this private stage,
+  fixed timeout, attempt one, and observed timestamp. No URL, account, token,
+  response body, exception text, or provider payload may cross the boundary.
+- Keep malformed/expired successful results as the existing typed
+  `invalid_input`/role-auth failures, and keep `invalid_grant`, scope,
+  auth/rate-limit, and retryable backend mappings unchanged. A bounded
+  timeout/network transport failure is `network_unavailable`.
+- Preserve the current `CredentialManager.refresh` cleanup and single-flight
+  behavior: a token-refresh failure after `credential_changes` enters
+  `requesting` is abandoned/held through the existing writer path, old
+  credential/binding revisions remain published, and concurrent waiters see
+  the same closed error code. No durable schema or public DTO changes.
+
+### Rev10 files and acceptance additions
+
+- `src/facet/gmail/refresh_exchange.py`: add the fixed-timeout request wrapper,
+  construct it for `Credentials.refresh`, and map transport/provider failures
+  to the typed private `TOKEN_REFRESH` stage without retaining raw data.
+- `src/facet/gmail/retry.py`: add `ProviderStage.TOKEN_REFRESH` and retain its
+  existing additive/private serialization rules.
+- `tests/unit/test_refresh_exchange.py`: assert the actual request call gets
+  `timeout=30`, including overriding an injected timeout; cover timeout,
+  `TransportError`/network, `invalid_grant`, scope/auth/rate-limit and backend
+  fixtures with the expected closed code/stage and no payload leakage. Cover
+  malformed/expired results separately as existing invalid-input/auth failures.
+- `tests/unit/test_credential_manager.py` (or the existing refresh fault
+  fixture): prove a token-refresh timeout after `begin_change` closes the
+  requesting row through the existing abandon/attention path, publishes no
+  revision, and propagates the same typed code to same-flight waiters.
+- Keep `service_factory.py`, Gmail API request timeout behavior, error-event
+  schema, public/default CLI output, preview/status/doctor, OAuth scopes,
+  refresh-token ownership, and insert/recovery behavior unchanged.
+
+### Rev10 stop gates and external actions
+
+- Stop before implementation if the timeout requires a new provider client,
+  retry policy, OAuth scope, persistence/public schema, or implicit token
+  writes outside `CredentialManager`.
+- Offline/synthetic tests only; do not invoke live OAuth, Gmail, the current
+  prepared state volume, Docker deployment, or image publication in this unit.
+- Independent plan review is required for this changed timeout boundary before
+  coding; implementation review and the normal offline/Ruff/format/safety
+  gates remain required afterward.
 
 ## Scope
 

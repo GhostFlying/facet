@@ -22,6 +22,12 @@ def insert_args(raw=None):
     }
 
 
+def test_insert_rejects_import_only_parameter_before_request(gmail_controller):
+    service = gmail_controller.service("target", scopes=frozenset({"gmail.insert"}))
+    with pytest.raises(ValueError, match="unsupported provider"):
+        service.messages().insert(**insert_args(), neverMarkSpam=True)
+
+
 def test_profile_wire_has_no_scope_or_binding_oracle(gmail_controller):
     service = gmail_controller.service("source")
     facts = service.users().getProfile(userId="me").execute()

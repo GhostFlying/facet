@@ -736,6 +736,7 @@ M3 gap/reconcile/Dashboard→M4 maintenance→真实部署/dogfood。只有 M6-0
 | D6 银行 allow domains | 未确认；不是默认 allowlist | 对应 domain 自动 admission | 根据获授权私密实样提出精确 domains 和认证覆盖；未确认关闭/review，其他功能继续 |
 | D7 不可归因 insert/未知 gap | 按真实运行触发；用户负责披露/重复风险决定 | 对应 work 恢复 | 只呈现受限 CLI 内的候选/范围/风险，推荐保 attention；不盲 retry/全历史披露/删除重复 |
 | D8 长期唤醒/monitor | 本轮未授权 automation 或新 chat | 跨 turn 72h 观察 | 在部署方案具体后提交观察频率/通知条件/终止条件；等待不等于已有自动调度 |
+| D9 显式 target-cleanup | 2026-10-07 用户批准 CLI 维护删除例外和独立临时完整 Gmail OAuth；随后单独批准实际固定 preview 并完成授权 | 停机、锁、固定 target message IDs preview/确认/逐项 receipt；常驻 sync scopes 不变 | 本次固定 134 封真实删除完成并只读确认 target 为空；后续清单仍需单独批准。不重置映射/unknown insert、不自动清理、不调整 M1-M6 gates |
 
 | 工程风险 | 先行门槛/检测 | 安全失败状态 |
 | --- | --- | --- |

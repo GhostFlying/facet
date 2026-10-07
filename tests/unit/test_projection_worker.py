@@ -15,6 +15,7 @@ from facet.contracts import (
     BindingState,
     ErrorCode,
     Generation,
+    LocalId,
     PolicyVersion,
     ProviderId,
     Revision,
@@ -25,7 +26,7 @@ from facet.contracts import (
     Sha256Hex,
     Timestamp,
 )
-from facet.db.codecs import RuleValue, ThreadStopReason
+from facet.db.codecs import PrivateAddress, RuleValue, StorageFailure, ThreadStopReason
 from facet.db.models import (
     BindingRevisionRow,
     RevisionGuard,
@@ -37,30 +38,46 @@ from facet.db.models import (
 from facet.gmail.credential_models import ScopePolicy, policy_scopes
 from facet.gmail.credentials import CredentialManager
 from facet.gmail.retry import ProviderFailure
-from facet.gmail.source import SourceAdapter
+from facet.gmail.source import DiscoveryQuery, SourceAdapter
 from facet.gmail.target import TargetAdapter
-from facet.projection.backfill import BackfillProducer, DiscoveryDecision
+from facet.projection.admission import AdmissionEvaluator, AdmissionRule
+from facet.projection.backfill import (
+    BackfillProducer,
+    DiscoveryDecision,
+    _decode_query_token,
+    _encode_query_token,
+)
 from facet.projection.fidelity import inspect
+from facet.projection.rules import normalize_rule
 from facet.projection.worker import ProjectionWorker
+from facet.runtime.foreground_runtime import load_persisted_admission
 from facet.runtime.state_owner import StateOwner
+from facet.sync import SourceCandidateAdmission
 
 NOW = Timestamp(datetime(2026, 10, 4, tzinfo=UTC))
 
 
 class _SourceDiscovery:
+    def __init__(self):
+        self.discover_calls = 0
+
     def profile(self):
         from facet.contracts import ProviderId
         from facet.gmail.source import SourceProfile
 
         return SourceProfile("source@example.invalid", ProviderId("h-1"), 2, 1)
 
-    def discover(self, *, window_start, window_end, page_token=None):
+    def discover(self, *, window_start, window_end, page_token=None, query=None):
+        self.discover_calls += 1
         from facet.contracts import ProviderId
         from facet.gmail.source import DiscoveryItem, DiscoveryPage
 
         return DiscoveryPage(
             (DiscoveryItem(ProviderId("m-new"), ProviderId("thread-1")),), None, 1
         )
+
+    def candidate(self, item):
+        raise AssertionError("candidate metadata must not be fetched")
 
 
 class _Admission:
@@ -69,6 +86,9 @@ class _Admission:
 
     def evaluate(self, item, epoch):
         return DiscoveryDecision(True, RuleRef(self.rule_id, Revision(1)))
+
+    def discovery_query(self, epoch=None):
+        return DiscoveryQuery(('from:"synthetic@example.com"',))
 
 
 def _trusted_parent():
@@ -113,7 +133,7 @@ def _payload(raw):
     }
 
 
-def _ready_owner(root, controller, monkeypatch, *, seed=True):
+def _ready_owner(root, controller, monkeypatch, *, seed=True, with_rule=True):
     config = initial_template("source@example.invalid", "target@example.invalid")
     owner = StateOwner.create(root / "state", config, b"synthetic-config")
     from test_m2_foundation_consumers import Profiles, write_credentials
@@ -160,36 +180,45 @@ def _ready_owner(root, controller, monkeypatch, *, seed=True):
             "UPDATE projections SET daemon_paused=0 WHERE projection_id=?",
             (projection.value,),
         )
-    rule = RuleRow(
-        projection,
-        __import__("test_m2_foundation_consumers").lid(900),
-        RuleKind.ALLOW_SENDER,
-        RuleValue("synthetic@example.invalid"),
-        Revision(1),
-    )
-    with owner.session.transaction() as uow:
-        from facet.db.repositories import policy
-
-        policy.publish_rules(
-            uow,
+    rule = None
+    if with_rule:
+        rule = RuleRow(
             projection,
-            (rule,),
-            (
-                RuleRevisionRow(
-                    projection,
-                    rule.rule_id,
-                    Revision(1),
-                    True,
-                    NOW,
-                    RuleOrigin.CLI,
-                    PolicyVersion("auth-v1"),
-                ),
-            ),
-            RulesetRow(projection, Revision(1), NOW, True),
-            (RulesetMemberRow(projection, Revision(1), rule.rule_id, Revision(1)),),
-            RevisionGuard(Revision(0)),
+            __import__("test_m2_foundation_consumers").lid(900),
+            RuleKind.ALLOW_SENDER,
+            RuleValue("synthetic@example.com"),
+            Revision(1),
         )
-    producer = BackfillProducer(_SourceDiscovery(), _Admission(rule.rule_id))
+        with owner.session.transaction() as uow:
+            from facet.db.repositories import policy
+
+            policy.publish_rules(
+                uow,
+                projection,
+                (rule,),
+                (
+                    RuleRevisionRow(
+                        projection,
+                        rule.rule_id,
+                        Revision(1),
+                        True,
+                        NOW,
+                        RuleOrigin.CLI,
+                        PolicyVersion("auth-v1"),
+                    ),
+                ),
+                RulesetRow(projection, Revision(1), NOW, True),
+                (RulesetMemberRow(projection, Revision(1), rule.rule_id, Revision(1)),),
+                RevisionGuard(Revision(0)),
+            )
+    producer = BackfillProducer(
+        _SourceDiscovery(),
+        _Admission(
+            rule.rule_id
+            if rule
+            else __import__("test_m2_foundation_consumers").lid(900)
+        ),
+    )
     from test_m2_foundation_consumers import lid
 
     from facet.db import command_store
@@ -229,6 +258,212 @@ def _ready_owner(root, controller, monkeypatch, *, seed=True):
     if seed:
         producer.discover(owner.session, projection, epoch.epoch_id)
     return owner
+
+
+def test_no_enabled_allow_completes_selected_scope_without_provider_calls(
+    monkeypatch,
+):
+    parent = _trusted_parent()
+    with TemporaryDirectory(prefix="facet-no-allow-", dir=parent) as root:
+        owner = _ready_owner(
+            Path(root), object(), monkeypatch, seed=False, with_rule=False
+        )
+        source = _SourceDiscovery()
+        policy = AdmissionEvaluator(
+            (),
+            source_account=PrivateAddress("source@example.invalid"),
+            ruleset_revision=Revision(0),
+        )
+        producer = BackfillProducer(source, SourceCandidateAdmission(source, policy))
+        projection = owner.projection_id
+        epoch_id = owner._connection.execute(
+            "SELECT epoch_id FROM epochs WHERE kind='initial_backfill'"
+        ).fetchone()[0]
+        owner._connection.execute(
+            "UPDATE epoch_partitions SET state='scanning',completed_pages=47,"
+            "observed_items=47,page_token='legacy-page'"
+        )
+        owner._connection.commit()
+        try:
+            assert producer.discover(owner.session, projection, LocalId(epoch_id)) == 0
+            assert source.discover_calls == 0
+            row = owner._connection.execute(
+                "SELECT state,completed_pages,observed_items,page_token "
+                "FROM epoch_partitions"
+            ).fetchone()
+            assert row == ("complete", 47, 47, None)
+            assert owner._connection.execute(
+                "SELECT state,discovery_complete,known_message_total "
+                "FROM epochs WHERE epoch_id=?",
+                (epoch_id,),
+            ).fetchone() == ("catching_up", 1, 0)
+            assert owner._connection.execute(
+                "SELECT fence_history_id FROM epochs WHERE epoch_id=?",
+                (epoch_id,),
+            ).fetchone() == ("h-1",)
+            owner._connection.execute(
+                "UPDATE epoch_partitions SET state='scanning',page_token='stale-page'"
+            )
+            owner._connection.commit()
+            with pytest.raises(StorageFailure) as error:
+                producer.discover(owner.session, projection, LocalId(epoch_id))
+            assert error.value.code is ErrorCode.MAINTENANCE_REQUIRED
+        finally:
+            owner.close()
+
+
+def test_rule_query_never_reuses_legacy_unfiltered_page_token(monkeypatch):
+    parent = _trusted_parent()
+    with TemporaryDirectory(prefix="facet-legacy-query-", dir=parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=False)
+        source = _SourceDiscovery()
+        policy = AdmissionEvaluator(
+            (
+                AdmissionRule(
+                    RuleRef(
+                        __import__("test_m2_foundation_consumers").lid(900), Revision(1)
+                    ),
+                    normalize_rule(RuleKind.ALLOW_SENDER, "synthetic@example.com"),
+                    NOW,
+                ),
+            ),
+            source_account=PrivateAddress("source@example.invalid"),
+            ruleset_revision=Revision(1),
+        )
+        producer = BackfillProducer(source, SourceCandidateAdmission(source, policy))
+        projection = owner.projection_id
+        epoch_id = owner._connection.execute(
+            "SELECT epoch_id FROM epochs WHERE kind='initial_backfill'"
+        ).fetchone()[0]
+        owner._connection.execute(
+            "UPDATE epoch_partitions SET state='scanning',completed_pages=47,"
+            "observed_items=47,page_token='legacy-page'"
+        )
+        owner._connection.commit()
+        try:
+            with pytest.raises(StorageFailure) as error:
+                producer.discover(owner.session, projection, LocalId(epoch_id))
+            assert error.value.code is ErrorCode.MAINTENANCE_REQUIRED
+            assert source.discover_calls == 0
+            assert owner._connection.execute(
+                "SELECT completed_pages,observed_items,page_token FROM epoch_partitions"
+            ).fetchone() == (47, 47, "legacy-page")
+        finally:
+            owner.close()
+
+
+def test_missing_discovery_planner_fails_closed_before_provider_call(monkeypatch):
+    parent = _trusted_parent()
+    with TemporaryDirectory(prefix="facet-missing-planner-", dir=parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=False)
+        source = _SourceDiscovery()
+
+        class NoPlanner:
+            def evaluate(self, item, epoch):
+                return DiscoveryDecision(False)
+
+        producer = BackfillProducer(source, NoPlanner())
+        projection = owner.projection_id
+        epoch_id = owner._connection.execute(
+            "SELECT epoch_id FROM epochs WHERE kind='initial_backfill'"
+        ).fetchone()[0]
+        try:
+            with pytest.raises(StorageFailure) as error:
+                producer.discover(owner.session, projection, LocalId(epoch_id))
+            assert error.value.code is ErrorCode.MAINTENANCE_REQUIRED
+            assert source.discover_calls == 0
+        finally:
+            owner.close()
+
+
+def test_same_query_page_token_round_trips_across_restart():
+    token = __import__("facet.contracts").contracts.ProviderPageToken("page-2")
+    wrapped = _encode_query_token(token, "a" * 32)
+    assert wrapped is not None
+    assert wrapped.value.startswith("facet-q1:")
+    assert _decode_query_token(wrapped, "a" * 32) == token
+    with pytest.raises(StorageFailure) as error:
+        _decode_query_token(token, "a" * 32)
+    assert error.value.code is ErrorCode.MAINTENANCE_REQUIRED
+
+
+def test_initial_discovery_can_load_pinned_ruleset_after_current_rules_change(
+    monkeypatch,
+):
+    parent = _trusted_parent()
+    with TemporaryDirectory(prefix="facet-pinned-rules-", dir=parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=False)
+        config = initial_template("source@example.invalid", "target@example.invalid")
+        owner._connection.execute(
+            "INSERT INTO rulesets(projection_id,revision,created_at,sealed) "
+            "SELECT projection_id,2,created_at,1 FROM projections "
+            "WHERE projection_id=?",
+            (owner.projection_id.value,),
+        )
+        owner._connection.execute(
+            "UPDATE projections SET ruleset_revision=2 WHERE projection_id=?",
+            (owner.projection_id.value,),
+        )
+        owner._connection.commit()
+        try:
+            pinned = load_persisted_admission(owner, config, Revision(1))
+            assert pinned.ruleset_revision == Revision(1)
+            assert pinned.enabled_allow_rules[0].normalized.value.value == (
+                "synthetic@example.com"
+            )
+        finally:
+            owner.close()
+
+
+def test_backfill_resumes_same_query_token_after_page_failure(monkeypatch):
+    parent = _trusted_parent()
+
+    class PagedSource(_SourceDiscovery):
+        def __init__(self, fail_once):
+            super().__init__()
+            self.fail_once = fail_once
+            self.tokens = []
+
+        def discover(self, *, window_start, window_end, page_token=None, query=None):
+            self.tokens.append(None if page_token is None else page_token.value)
+            if page_token is not None and self.fail_once:
+                self.fail_once = False
+                raise StorageFailure(ErrorCode.NETWORK_UNAVAILABLE)
+            from facet.contracts import ProviderPageToken
+            from facet.gmail.source import DiscoveryItem, DiscoveryPage
+
+            if page_token is None:
+                return DiscoveryPage(
+                    (DiscoveryItem(ProviderId("m-new"), ProviderId("thread-1")),),
+                    ProviderPageToken("page-2"),
+                    2,
+                )
+            return DiscoveryPage((), None, 2)
+
+    with TemporaryDirectory(prefix="facet-query-token-", dir=parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=False)
+        source = PagedSource(True)
+        producer = BackfillProducer(
+            source, _Admission(__import__("test_m2_foundation_consumers").lid(900))
+        )
+        projection = owner.projection_id
+        epoch_id = owner._connection.execute(
+            "SELECT epoch_id FROM epochs WHERE kind='initial_backfill'"
+        ).fetchone()[0]
+        try:
+            with pytest.raises(StorageFailure):
+                producer.discover(owner.session, projection, LocalId(epoch_id))
+            stored = owner._connection.execute(
+                "SELECT page_token FROM epoch_partitions"
+            ).fetchone()[0]
+            assert stored.startswith("facet-q1:")
+            resumed = PagedSource(False)
+            BackfillProducer(
+                resumed, _Admission(__import__("test_m2_foundation_consumers").lid(900))
+            ).discover(owner.session, projection, LocalId(epoch_id))
+            assert resumed.tokens == ["page-2"]
+        finally:
+            owner.close()
 
 
 def test_fidelity_ignores_transport_headers_and_keeps_raw_only_in_memory():
@@ -434,7 +669,6 @@ def test_worker_response_loss_stays_in_recovery_without_blind_retry(
                     "userId": "me",
                     "body": {"raw": encoded},
                     "internalDateSource": "dateHeader",
-                    "neverMarkSpam": True,
                 },
                 InsertReply(lose_response=True),
             )
@@ -506,7 +740,6 @@ def test_worker_target_failure_matrix_persists_safe_outcomes(
             "userId": "me",
             "body": {"raw": encoded},
             "internalDateSource": "dateHeader",
-            "neverMarkSpam": True,
         },
         failure,
     )

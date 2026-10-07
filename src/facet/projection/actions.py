@@ -20,6 +20,7 @@ from facet.contracts import (
 )
 from facet.contracts.records import SourceEvent, SourceEventKeyLabelChanged
 from facet.db.codecs import ActionKind, PrivateAddress, StorageFailure
+from facet.gmail.retry import ProviderFailure
 
 if TYPE_CHECKING:
     from facet.gmail.credentials import AccountAddress
@@ -42,9 +43,9 @@ def _fail(code=ErrorCode.INVALID_INPUT):
 
 @dataclass(frozen=True, slots=True, repr=False)
 class PrivateActionLabelMap:
-    add_sender_label_id: ProviderId
-    add_domain_label_id: ProviderId
-    blacklist_label_id: ProviderId
+    add_sender_label_id: ProviderId | None
+    add_domain_label_id: ProviderId | None
+    blacklist_label_id: ProviderId | None
 
     def __post_init__(self) -> None:
         values = (
@@ -52,19 +53,25 @@ class PrivateActionLabelMap:
             self.add_domain_label_id,
             self.blacklist_label_id,
         )
-        if any(type(value) is not ProviderId for value in values):
+        if any(type(value) not in {ProviderId, type(None)} for value in values):
             _fail()
-        if len({value.value for value in values}) != len(values):
+        present = tuple(value for value in values if value is not None)
+        if not present or len({value.value for value in present}) != len(present):
             _fail()
 
     def kind(self, label_id: ProviderId) -> ActionKind | None:
         if type(label_id) is not ProviderId:
             _fail()
-        return {
-            self.add_sender_label_id: ActionKind.ADD_SENDER,
-            self.add_domain_label_id: ActionKind.ADD_DOMAIN,
-            self.blacklist_label_id: ActionKind.BLACKLIST,
-        }.get(label_id)
+        labels = {
+            value: kind
+            for value, kind in (
+                (self.add_sender_label_id, ActionKind.ADD_SENDER),
+                (self.add_domain_label_id, ActionKind.ADD_DOMAIN),
+                (self.blacklist_label_id, ActionKind.BLACKLIST),
+            )
+            if value is not None
+        }
+        return labels.get(label_id)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -198,10 +205,10 @@ class ActionLabelProducer:
             _fail()
         try:
             facts = source.get_thread_facts(event.source_thread_id)
+        except ProviderFailure:
+            raise
         except StorageFailure:
             raise
-        except Exception:
-            _fail()
         if type(facts) is not tuple:
             _fail()
         if any(type(fact) is not ActionMessageFact for fact in facts):

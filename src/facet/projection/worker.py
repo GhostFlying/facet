@@ -409,8 +409,10 @@ class ProjectionWorker:
                 date_header=facts.date_policy is DatePolicy.VALID_DATE_HEADER,
             )
         except ProviderFailure as error:
-            unknown = error.code is ErrorCode.NETWORK_UNAVAILABLE or (
-                error.code is ErrorCode.INVALID_INPUT and error.status is None
+            unknown = (
+                error.code is ErrorCode.NETWORK_UNAVAILABLE
+                or (error.code is ErrorCode.INVALID_INPUT and error.status is None)
+                or (error.status is not None and 300 <= error.status < 400)
             )
             self._result(
                 attempt,
@@ -425,6 +427,14 @@ class ProjectionWorker:
             if not unknown:
                 self._defer(job, error.code, error.retry_after_seconds)
             return "recovery" if unknown else "deferred"
+        except Exception:
+            self._result(
+                attempt,
+                InsertState.PENDING_RECOVERY,
+                OutcomeCertainty.UNKNOWN,
+                ErrorCode.INSERT_RESULT_UNKNOWN,
+            )
+            return "recovery"
         finally:
             del raw
         attempt = self._result(

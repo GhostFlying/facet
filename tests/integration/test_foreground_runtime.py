@@ -21,6 +21,7 @@ from facet.contracts import ErrorCode, LocalId, Revision, Role, Timestamp
 from facet.db.codecs import StorageFailure
 from facet.gmail.credential_codec import encode_envelope
 from facet.gmail.credential_models import AccountAddress
+from facet.gmail.source import DiscoveryQuery
 from facet.projection.actions import PrivateActionLabelMap
 from facet.projection.backfill import DiscoveryDecision
 from facet.runtime.foreground_runtime import run_foreground_once
@@ -60,6 +61,67 @@ class _Admission:
                 LocalId("00000000000040008000000000000384"), Revision(1)
             ),
         )
+
+    def discovery_query(self, epoch=None):
+        return DiscoveryQuery(('from:"sender@example.invalid"',))
+
+
+@pytest.mark.parametrize("failure", [None, "target_build", "cycle"])
+def test_runtime_closes_services_on_success_cycle_failure_and_partial_build(
+    trusted_state_parent, monkeypatch, failure
+):
+    owner, _, _, _, _ = _manager(trusted_state_parent, monkeypatch)
+    closed = []
+
+    class Service:
+        def __init__(self, role):
+            self.role = role
+
+        def close(self):
+            closed.append(self.role)
+
+    class Factory(_Factory):
+        def service(self, role, snapshot):
+            if role is Role.TARGET and failure == "target_build":
+                raise StorageFailure(ErrorCode.NETWORK_UNAVAILABLE)
+            return Service(role)
+
+    class Cycle:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run_once(self, **kwargs):
+            if failure == "cycle":
+                raise StorageFailure(ErrorCode.NETWORK_UNAVAILABLE)
+            return "receipt"
+
+    monkeypatch.setattr(foreground_runtime, "ForegroundSync", Cycle)
+    try:
+        if failure:
+            with pytest.raises(StorageFailure):
+                run_foreground_once(
+                    owner,
+                    owner.config,
+                    Factory(None),
+                    _Admission(),
+                    action_consumer=object(),
+                )
+        else:
+            assert (
+                run_foreground_once(
+                    owner,
+                    owner.config,
+                    Factory(None),
+                    _Admission(),
+                    action_consumer=object(),
+                )
+                == "receipt"
+            )
+        assert closed == (
+            [Role.SOURCE] if failure == "target_build" else [Role.TARGET, Role.SOURCE]
+        )
+    finally:
+        owner.close()
 
 
 @pytest.mark.parametrize("mode", ["missing", "swapped", "expired", "mismatched"])
@@ -231,8 +293,6 @@ def test_runtime_composes_profiles_services_and_projection(
             "source",
             [
                 {"id": "add-sender", "name": "AI/AddSender", "type": "user"},
-                {"id": "add-domain", "name": "AI/AddDomain", "type": "user"},
-                {"id": "blacklist", "name": "AI/BlackList", "type": "user"},
             ],
         )
         captured = {}
@@ -302,6 +362,9 @@ def test_runtime_composes_profiles_services_and_projection(
         assert [role for role, _ in factory.profiles] == [Role.SOURCE, Role.TARGET]
         assert [role for role, _ in factory.services] == [Role.SOURCE, Role.TARGET]
         assert isinstance(captured["labels"], PrivateActionLabelMap)
+        assert captured["labels"].add_sender_label_id.value == "add-sender"
+        assert captured["labels"].add_domain_label_id is None
+        assert captured["labels"].blacklist_label_id is None
         assert captured["own_addresses"][0].value == "source@example.invalid"
         assert captured["source_primary"] == "source@example.invalid"
         assert owner.session._connection.execute(

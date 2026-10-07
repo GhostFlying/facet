@@ -46,7 +46,15 @@ BlackList 将当前选定的 external sender 加入精确 blacklist，并停止�
 
 停止操作取消尚未开始的相关 jobs。已经发出、结果尚未返回的 Gmail insert 可能仍然完成，服务会记录它；不能承诺撤销在途请求。
 
-已投影邮件保留在 target。Phase 1 没有 purge、retention 或删除权限。未来从 target 删除内容，也无法保证第三方 AI 产品删除其已有索引和缓存。
+已投影邮件默认保留在 target。Phase 1 没有 purge、retention 或自动删除。
+用户于 2026-10-07 批准唯一例外：独立的 `target-cleanup` CLI，供操作者显式清理
+专用 target。它不是同步的一部分：停机并持 writer lock，先用原只读凭据生成固定
+邮件 IDs 的 preview，再显式确认目标账号、不可逆删除及该 preview，单独申请临时
+`https://mail.google.com/` 权限。该 Google scope 实际允许读取、发送及永久删除，
+Facet 命令仅提供固定清单的删除，不发送；token 不落盘、不替换同步凭据。
+真实执行仍需独立批准实际 preview。清理不重建 DB、不改 jobs/mappings/cursors、
+不解除 unknown insert，也不能通过 metadata backup 恢复邮件。参见
+[操作流程](target-cleanup.md)。删除 target 内容也无法保证第三方 AI 产品删除其索引和缓存。
 
 ## 故障和一致性承诺
 

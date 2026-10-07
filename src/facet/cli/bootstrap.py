@@ -399,6 +399,33 @@ def build_parser() -> _Parser:
     recovery_check.add_argument(
         "--fake", action="store_true", help="use the offline synthetic Gmail transport"
     )
+    cleanup = commands.add_parser(
+        "target-cleanup",
+        add_help=False,
+        allow_abbrev=False,
+        help="explicit irreversible dedicated-target maintenance (never automatic)",
+    )
+    _common(cleanup)
+    cleanup_actions = cleanup.add_subparsers(dest="action", parser_class=_Parser)
+    cleanup_preview = cleanup_actions.add_parser(
+        "preview", add_help=False, allow_abbrev=False
+    )
+    _common(cleanup_preview)
+    cleanup_preview.add_argument("--request-id")
+    cleanup_status = cleanup_actions.add_parser(
+        "status", add_help=False, allow_abbrev=False
+    )
+    _common(cleanup_status)
+    cleanup_status.add_argument("--preview")
+    cleanup_execute = cleanup_actions.add_parser(
+        "execute", add_help=False, allow_abbrev=False
+    )
+    _common(cleanup_execute)
+    _mutations(cleanup_execute)
+    cleanup_execute.add_argument("--preview")
+    cleanup_execute.add_argument("--confirm-target")
+    cleanup_execute.add_argument("--oauth-client")
+    cleanup_execute.add_argument("--port", type=int, default=18082)
     web = commands.add_parser(
         "web",
         add_help=False,
@@ -2088,6 +2115,12 @@ def main(argv: list[str] | None = None) -> int:
                 data=result.data,
                 json_mode=json_mode,
             )
+        if options.family == "target-cleanup":
+            command = "target-cleanup." + str(options.action)
+            from facet.cli.target_cleanup import run_cleanup
+
+            data, warnings = run_cleanup(options)
+            return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
         if options.family == "web":
             command = "web"
             if not 1 <= options.port <= 65535:

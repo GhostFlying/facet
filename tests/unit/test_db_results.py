@@ -312,6 +312,34 @@ def test_unknown_result_blocks_original_and_preserves_one_old_attempt_recovery(s
     assert get_attempt(state) == row
 
 
+def test_orphaned_dispatch_marker_materializes_recovery_without_remote_retry(state):
+    _, connection, session, _ = state
+    original, _, _, old = ready(state)
+    with session.transaction() as uow:
+        jobs.defer_job(
+            uow,
+            P,
+            original.job_id,
+            "needs_attention",
+            ErrorCode.INVALID_INPUT,
+            None,
+            RevisionGuard(Revision(1)),
+        )
+    with session.transaction() as uow:
+        result = intents.reconcile_orphaned_attempt(
+            uow, P, old.attempt_id, Timestamp(NOW.value)
+        )
+    assert result.disposition == "updated"
+    assert get_attempt(state).state is InsertState.PENDING_RECOVERY
+    work = recovery(state, pending(get_attempt(state)))
+    assert work.state.value == "queued"
+    with view(state) as reader:
+        blocked = reader.get_job(P, original.job_id)
+        assert blocked.state.value == "blocked"
+        assert blocked.last_error_code is ErrorCode.INSERT_RESULT_UNKNOWN
+    assert connection.execute("SELECT COUNT(*) FROM job_claims").fetchone() == (0,)
+
+
 def test_pending_attention_after_actual_recovery_defer_and_reclaim_is_not_success(
     state,
 ):

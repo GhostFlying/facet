@@ -315,6 +315,7 @@ dependencies = [
     { name = "idna" },
     { name = "pysocks" },
     { name = "pyyaml" },
+    { name = "requests" },
     { name = "tldextract" },
 ]
 
@@ -334,6 +335,7 @@ requires-dist = [
     { name = "pysocks", specifier = ">=1.7,<2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4,<9" },
     { name = "pyyaml", specifier = ">=6,<7" },
+    { name = "requests", specifier = "==2.34.2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.13,<1" },
     { name = "tldextract", specifier = "==5.3.2" },
 ]

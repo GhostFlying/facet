@@ -181,6 +181,64 @@ def test_chunk_refusal_rolls_back_event_membership_and_jobs(state, bad):
     )
 
 
+def test_message_added_no_effect_completion_has_no_jobs_and_replays(state):
+    _, connection, session, _ = state
+    value, response = setup(session)
+    row = event(thread=T)
+    ingest(session, value, response, (row,))
+    with session.transaction() as uow:
+        receipt = events.consume_message_added_no_effect(
+            uow, P, row.event_id, RevisionGuard(Revision(0))
+        )
+    assert connection.execute("SELECT processing FROM source_events").fetchone() == (
+        "consumed",
+    )
+    with session.transaction() as uow:
+        replay = events.consume_message_added_no_effect(
+            uow, P, row.event_id, RevisionGuard(receipt.revision)
+        )
+    assert replay.disposition == "replayed"
+    assert connection.execute(
+        "SELECT COUNT(*) FROM sync_jobs WHERE kind='project_message'"
+    ).fetchone() == (0,)
+
+
+@pytest.mark.parametrize(
+    "case", ["no_thread", "label", "deletion", "attention", "resolved"]
+)
+def test_message_added_no_effect_cannot_close_other_or_terminal_events(state, case):
+    _, connection, session, _ = state
+    value, response = setup(session)
+    tag = {"label": "label_changed", "deletion": "message_deleted"}.get(
+        case, "message_added"
+    )
+    row = event(thread=None if case == "no_thread" else T, tag=tag)
+    ingest(session, value, response, (row,))
+    if case in {"attention", "resolved"}:
+        processing = (
+            EventProcessing.NEEDS_ATTENTION
+            if case == "attention"
+            else EventProcessing.RESOLVED
+        )
+        with session.transaction() as uow:
+            events.classify_event(
+                uow,
+                P,
+                row.event_id,
+                processing,
+                ErrorCode.REQUEST_CONFLICT if case == "attention" else None,
+                (),
+                RevisionGuard(Revision(0)),
+            )
+    before = connection.execute("SELECT * FROM source_events").fetchall()
+    revision = Revision(1 if case in {"attention", "resolved"} else 0)
+    with pytest.raises(StorageFailure), session.transaction() as uow:
+        events.consume_message_added_no_effect(
+            uow, P, row.event_id, RevisionGuard(revision)
+        )
+    assert connection.execute("SELECT * FROM source_events").fetchall() == before
+
+
 def test_added_deleted_and_label_add_remove_are_distinct_activation_keys(state):
     _, connection, session, _ = state
     value, response = setup(session, count=4)

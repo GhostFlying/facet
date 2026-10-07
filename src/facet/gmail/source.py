@@ -30,6 +30,7 @@ from .retry import ProviderFailure, ProviderStage, execute
 
 __all__ = (
     "SourceProfile",
+    "DiscoveryQuery",
     "DiscoveryItem",
     "DiscoveryPage",
     "HistoryPage",
@@ -86,6 +87,30 @@ class SourceProfile:
 class DiscoveryItem:
     message_id: ProviderId
     thread_id: ProviderId
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class DiscoveryQuery:
+    """Bounded provider candidate clauses for one source-window scan."""
+
+    clauses: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.clauses) is not tuple or not self.clauses:
+            raise ValueError("invalid_input")
+        if any(
+            type(clause) is not str
+            or not clause
+            or any(ord(char) < 0x20 for char in clause)
+            for clause in self.clauses
+        ):
+            raise ValueError("invalid_input")
+
+    def render(self, window: str) -> str:
+        query = f"{window} {{{' '.join(self.clauses)}}}"
+        if len(query.encode("utf-8")) > 4096:
+            raise ValueError("invalid_input")
+        return query
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -252,6 +277,7 @@ class SourceAdapter:
         window_start: datetime,
         window_end: datetime,
         page_token: ProviderPageToken | None = None,
+        query: DiscoveryQuery | None = None,
     ) -> DiscoveryPage:
         if (
             window_start.tzinfo is None
@@ -261,10 +287,20 @@ class SourceAdapter:
             raise ValueError("invalid_input")
         start = window_start.astimezone(UTC).strftime("%Y/%m/%d")
         end = window_end.astimezone(UTC).strftime("%Y/%m/%d")
-        query = f"after:{start} before:{end}"
+        window = f"after:{start} before:{end}"
+        if type(query) not in {DiscoveryQuery, type(None)}:
+            raise ValueError("invalid_input")
+        try:
+            rendered_query = window if query is None else query.render(window)
+        except ValueError:
+            raise ProviderFailure(
+                ErrorCode.INVALID_INPUT,
+                self.role,
+                provider_stage=ProviderStage.MESSAGE_LIST,
+            ) from None
         args = {
             "userId": "me",
-            "q": query,
+            "q": rendered_query,
             "includeSpamTrash": False,
             "maxResults": 100,
         }
@@ -275,11 +311,16 @@ class SourceAdapter:
             self.role,
             provider_stage=ProviderStage.MESSAGE_LIST,
         )
+        items = []
+        seen = set()
+        for item in value.get("messages", ()):
+            message_id = _id(item["id"])
+            if message_id in seen:
+                continue
+            seen.add(message_id)
+            items.append(DiscoveryItem(message_id, _id(item["threadId"])))
         return DiscoveryPage(
-            tuple(
-                DiscoveryItem(_id(item["id"]), _id(item["threadId"]))
-                for item in value.get("messages", ())
-            ),
+            tuple(items),
             _token(value.get("nextPageToken")),
             value.get("resultSizeEstimate"),
         )
@@ -329,7 +370,7 @@ class SourceAdapter:
         return CandidatePage(tuple(results), listed.next_page_token)
 
     def candidate(self, item: DiscoveryItem) -> CandidateResult:
-        """Fetch and authenticate one already-enumerated discovery item.
+        """Fetch one already-enumerated discovery item for rule admission.
 
         Enumeration and candidate metadata are deliberately separate calls so
         the foreground producer can perform provider work outside its SQLite
@@ -344,10 +385,20 @@ class SourceAdapter:
             self._source_account,
         )
 
+    def history_candidate(self, item: DiscoveryItem) -> CandidateResult:
+        """Read a prospective candidate, retaining provider failures and date."""
+        if type(item) is not DiscoveryItem:
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+        if type(self._source_account) is not PrivateAddress:
+            raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
+        return self._candidate_result(item, self._source_account, history=True)
+
     def _candidate_result(
         self,
         item: DiscoveryItem,
         account: PrivateAddress,
+        *,
+        history: bool = False,
     ) -> CandidateResult:
         try:
             value = execute(
@@ -358,6 +409,8 @@ class SourceAdapter:
                 provider_stage=ProviderStage.MESSAGE_GET,
             )
         except ProviderFailure:
+            if history:
+                raise
             return CandidateResult(
                 attention=CandidateAttention(
                     CandidateAttentionReason.PROVIDER_FAILURE,
@@ -399,7 +452,9 @@ class SourceAdapter:
                 attention=CandidateAttention(state, item.message_id, item.thread_id)
             )
         sender, visibility, is_draft = state
-        observed_at = Timestamp(datetime.now(UTC))
+        observed_at = Timestamp(
+            metadata.internal_date if history else datetime.now(UTC)
+        )
         return CandidateResult(
             candidate=DiscoveryCandidate(
                 source_message_id=item.message_id,
@@ -448,7 +503,10 @@ class SourceAdapter:
             self.role,
             provider_stage=ProviderStage.MESSAGE_GET,
         )
-        return _message(value)
+        try:
+            return _strict_message(value)
+        except (KeyError, TypeError, ValueError, OverflowError, OSError):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
 
     def thread_metadata(self, thread_id: ProviderId) -> ThreadMetadata:
         value = execute(
@@ -511,23 +569,39 @@ class SourceAdapter:
     def action_label_map(self, names=None) -> PrivateActionLabelMap | None:
         """Resolve exact configured action labels without writing Gmail.
 
-        Missing fixed labels are a normal opt-in state: ordinary sync can
-        continue, while any matching history work remains explicit attention.
-        Duplicate fixed labels and provider failures stay hard typed errors.
+        Each configured action category is independently optional at the
+        provider boundary. Missing labels leave that category disabled;
+        duplicate fixed labels and malformed provider responses stay typed
+        errors. A valid list with no configured labels is a normal no-match.
         """
-        names = names or {
-            ActionKind.ADD_SENDER: "AI/AddSender",
-            ActionKind.ADD_DOMAIN: "AI/AddDomain",
-            ActionKind.BLACKLIST: "AI/BlackList",
-        }
+        if names is None:
+            names = {
+                ActionKind.ADD_SENDER: "AI/AddSender",
+                ActionKind.ADD_DOMAIN: "AI/AddDomain",
+                ActionKind.BLACKLIST: "AI/BlackList",
+            }
+        if (
+            type(names) is not dict
+            or set(names) != set(ActionKind)
+            or any(type(kind) is not ActionKind for kind in names)
+            or any(type(name) is not str or not name for name in names.values())
+            or len(set(names.values())) != len(names)
+        ):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
         value = execute(
             self._service.users().labels().list(userId="me"),
             self.role,
             provider_stage=ProviderStage.LABEL_LIST,
         )
+        if (
+            type(value) is not dict
+            or "labels" not in value
+            or type(value["labels"]) is not list
+        ):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
         found = {}
-        for label in value.get("labels", ()):
-            if not isinstance(label, dict):
+        for label in value["labels"]:
+            if type(label) is not dict:
                 raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
             name, identifier = label.get("name"), label.get("id")
             if type(name) is not str or type(identifier) is not str:
@@ -536,12 +610,12 @@ class SourceAdapter:
                 if name in found:
                     raise ProviderFailure(ErrorCode.CONSISTENCY_FAILURE, self.role)
                 found[name] = _id(identifier)
-        if set(found) != set(names.values()):
+        if not found:
             return None
         return PrivateActionLabelMap(
-            found[names[ActionKind.ADD_SENDER]],
-            found[names[ActionKind.ADD_DOMAIN]],
-            found[names[ActionKind.BLACKLIST]],
+            found.get(names[ActionKind.ADD_SENDER]),
+            found.get(names[ActionKind.ADD_DOMAIN]),
+            found.get(names[ActionKind.BLACKLIST]),
         )
 
     def get_thread_facts(self, source_thread_id: ProviderId):

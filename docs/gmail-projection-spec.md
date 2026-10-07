@@ -10,6 +10,13 @@
 
 ## 配置和账号
 
+2026-10-07 用户批准了独立 `target-cleanup` CLI 的显式维护例外。Normal sync 仍
+仅持 target `gmail.insert` + `gmail.readonly`；临时完整 `https://mail.google.com/`
+权限只用于交互清理进程，不能落盘或交给 sync。Preview/execute 持现有 writer lock，
+固定不可变邮件 IDs（含草稿内邮件）及私密 metadata journal；不读邮件内容，不改
+投影 DB 的 jobs/mappings/cursors/unknown inserts，不自动清理。真实删除需单独批准
+实际 preview，详见 [CLI 契约](cli-spec.md) 和 [runbook](target-cleanup.md)。
+
 正式运行环境使用 Python 3.12 及以上、Google API Python 客户端、PSL 库和 SQLite。建议配置以 YAML 保存，初始规则首次导入数据库，之后通过 CLI 或 action 更新；再次启动不覆盖用户已学习或删除的规则。
 
 ```yaml
@@ -48,7 +55,8 @@ web:
 Source 默认 `gmail.readonly`，便利模式 `gmail.modify`。Action label metakinds 固定为
 `add_sender`、`add_domain`、`blacklist`；默认读取 `AI/AddSender`、`AI/AddDomain`、
 `AI/BlackList`，私有 CLI 可为每类设置一个精确名称并在 remove 时回退默认。Facet
-只读查找 source labels，不创建或修改 Gmail label，不扩大 scope，已有绑定无需 reauth；
+逐类只读查找 source labels；已存在的任意非空子集即可独立启用对应命令，缺失类别保持禁用，
+不创建或修改 Gmail label，不扩大 scope，已有绑定无需 reauth；
 旧 provider label ID 的 pending event 转为 typed attention/unknown，不重写历史或静默重放。
 Target 固定 `gmail.insert` 和 `gmail.readonly`；后者用于搜索、回读和 audit，insert scope 本身不提供这些能力。[Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes)、[messages.list scopes](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list)
 
@@ -189,7 +197,10 @@ Date/internalDate 也不是 target 创建时间。M2-04 insert-attribution ADR �
 首次启动可授权和 preview，不自动复制历史；显式 `backfill start` 创建初始化 epoch。
 
 1. 在任何 discovery 前获取并持久保存 H0 和固定时间 cutoff。
-2. 候选分页发现后本地复核规则与 admission，持续写入持久 thread jobs。
+2. Discovery 只从 sealed ruleset 的 enabled allow sender/domain 生成有界 Gmail
+   candidate query；不做无条件的全 mailbox enumeration。provider query 只是候选
+   superset，仍须本地复核规则与 admission 后才写入持久 thread jobs。没有 enabled
+   allow 时，完成的是 rule-selected empty scope，不代表 mailbox 已检查或为空。
 3. 从 H0 开始消费 History，与 backfill 共享 message 去重和 thread 调度。
 4. Discovery 完成且 History 追到一个明确边界后，标记发现阶段完成；backfill queue 清空后才标记初始投影完成。
 
@@ -213,7 +224,7 @@ Gmail History 可能过期并返回 404，不能假定固定保留时间。[Gmai
 
 ## Label 命令和 BlackList
 
-支持 `AI/AddSender`、`AI/AddDomain`、`AI/BlackList`。按 `(projection_id, history_record_id, label_id, source_thread_id)` 聚合，一次 UI thread 操作只执行一次。
+支持 `AI/AddSender`、`AI/AddDomain`、`AI/BlackList`；每类标签可独立缺省。按 `(projection_id, history_record_id, label_id, source_thread_id)` 聚合，一次 UI thread 操作只执行一次。
 
 倒序寻找最近 From 不属于 own-addresses 的消息；无法找到或 sender 格式有歧义时进入 review。AddDomain 使用 PSL，不学习用户 primary domain。Command、rule 和 thread jobs 先落盘，便利模式随后清理 label；清理失败只重试清理，不重放业务效果。
 

@@ -7,6 +7,7 @@ from enum import StrEnum
 
 from facet.contracts import (
     ProviderId,
+    Revision,
     RuleKind,
     RuleRef,
     Timestamp,
@@ -116,21 +117,47 @@ class AdmissionEvaluator:
         rules: tuple[AdmissionRule, ...],
         *,
         source_account: PrivateAddress,
+        ruleset_revision: Revision | None = None,
     ) -> None:
         if (
             type(rules) is not tuple
             or any(type(rule) is not AdmissionRule for rule in rules)
             or len(rules) > 1000
             or type(source_account) is not PrivateAddress
+            or type(ruleset_revision) not in {Revision, type(None)}
         ):
             raise ValueError("invalid_input")
         self._rules = rules
         self._source_account = source_account
+        self._ruleset_revision = ruleset_revision
+
+    @property
+    def ruleset_revision(self) -> Revision | None:
+        return self._ruleset_revision
+
+    @property
+    def enabled_allow_rules(self) -> tuple[AdmissionRule, ...]:
+        """Return the sealed enabled allow snapshot for discovery planning."""
+
+        return tuple(
+            rule
+            for rule in self._rules
+            if rule.enabled
+            and rule.normalized.kind in {RuleKind.ALLOW_SENDER, RuleKind.ALLOW_DOMAIN}
+        )
 
     def evaluate(
-        self, candidate: DiscoveryCandidate, now: Timestamp
+        self,
+        candidate: DiscoveryCandidate,
+        now: Timestamp,
+        *,
+        prospective: bool = False,
     ) -> AdmissionResult:
-        if type(candidate) is not DiscoveryCandidate or type(now) is not Timestamp:
+        if (
+            type(candidate) is not DiscoveryCandidate
+            or type(now) is not Timestamp
+            or type(prospective) is not bool
+        ):
             raise ValueError("invalid_input")
         if candidate.visibility is not Visibility.NORMAL:
             return _attention(AdmissionAttentionReason.SOURCE_STATE_INELIGIBLE)
@@ -145,7 +172,8 @@ class AdmissionEvaluator:
         for rule in enabled:
             if (
                 rule.normalized.kind is RuleKind.BLACKLIST_SENDER
-                and candidate.observed_at.value >= rule.effective_at.value
+                and (now if prospective else candidate.observed_at).value
+                >= rule.effective_at.value
                 and _matches(rule.normalized, candidate.sender)
             ):
                 return _attention(AdmissionAttentionReason.BLACKLISTED)

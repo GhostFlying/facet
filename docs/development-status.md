@@ -1,12 +1,139 @@
 # Facet development status
 
-Updated: 2026-10-05 (PRC; historical UTC receipts retain their original dates)
+Updated: 2026-10-07 (PRC; historical UTC receipts retain their original dates)
 
 This is the durable handoff for autonomous development. Update it with evidence
 at the end of each coherent implementation unit. Do not store account addresses,
 mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
+
+### Sync transport and source-missing repair (offline candidate)
+
+Candidate `3df74f31bb8a4a7d65ce5eae1d3294e7fb0867b6` replaces normal sync's
+httplib2 networking with access-only Requests: no automatic retries, redirects
+or credential refresh/replay. Actual production CLI subprocesses, normal Google
+SDK and real loopback TCP passed setup/binding, preview/start, new-rule History
+admission, full-thread insert/readback/mapping and restart deduplication. Accepted
+POST response loss, 503 and 307/308 remain durable unknown with no restart resend.
+Metadata 404 now becomes precise durable `source_missing`, not generic attention;
+existing terminal attention/unknown work is not automatically replayed.
+Independent plan and exact-candidate implementation reviews passed. The exact
+non-root local image passed the same five CLI cases with external networking
+disabled and isolated synthetic state; the factory/runtime were not replaced.
+Complete offline checks passed. GitHub CI/integration are tracked separately;
+main merge/publication, real Gmail and live upgrade are not claimed. This focused
+repair depends on the preceding History candidate, not yet on main. Real sync
+stays stopped and its existing unknown attempt remains unchanged. Next: qualified
+integration and container Google connectivity before authorized live validation. See
+[review receipt](reviews/sync-single-dispatch-transport.md).
+
+### History current-rule admission (offline candidate)
+
+Candidate `a3cd969e6529336fe60676dc8d8887e39a06e553` repairs new untracked
+message admission through current sender/domain rules, full-thread expansion,
+ordinary no-match consumption and durable retry. Stopped threads stay stopped;
+active threads retain authorization while drafts are excluded. The production
+CLI subprocess path passed empty preview/start, a later CLI rule addition,
+History admission, two-message insert/readback/mapping and restart without
+another metadata read or insert. No DB readiness/binding/rule/epoch bypass was
+used. Provider Retry-After scheduling is covered by a regression test.
+Independent plan and exact-candidate implementation reviews passed. The exact
+non-root local image passed the same CLI path with external networking disabled
+and isolated synthetic state. Complete offline checks passed; CI/merge and live
+upgrade are not claimed. Source metadata disappearance is corrected in the
+transport candidate above, without reopening old attention. Real sync remains
+stopped and the existing unknown insert is unchanged. See the
+[bounded review and replay research](reviews/history-incremental-admission.md).
+
+### Explicit target cleanup (controlled live cleanup complete)
+
+The user approved an independent `target-cleanup` CLI maintenance exception and
+ephemeral full Gmail consent, not automatic sync deletion. The local commands
+now provide fixed-ID preview, offline status and explicitly confirmed execution;
+normal sync credentials/business rows remain separate. Independent plan review
+passed; real CLI subprocesses have passed synthetic init/binding, preview,
+execution, response-loss/restart, wrong-account and writer-exclusion checks.
+Candidate `864670323790e4000327cd724a7d0b90267c6694` has independent implementation
+approval, complete offline checks and non-root local Compose-image acceptance.
+Production CLI commands in an isolated synthetic volume completed init/binding,
+preview, explicit deletion with injected response loss, restarted recovery and
+completed replay with no new HTTP calls. Fixed IDs only were removed; later
+arrivals survived and normal credentials/business state remained unchanged.
+Real requests/urllib3 wire tests separately prove one destructive dispatch on
+response loss and same-ID GET on recovery. On 2026-10-07 the user separately
+approved the actual fixed preview, then completed ephemeral target-only full
+Gmail consent. The qualified local image permanently removed all 134 approved
+messages: the durable receipt is completed, remaining and unknown deletions are
+zero. A subsequent read-only account-verified check found zero messages
+(including Spam/Trash), zero drafts and no remaining list pages. No new arrivals
+were added to the manifest. A fresh private metadata/credentials/journal backup
+passed SQLite integrity checks before execution; it cannot restore deleted mail.
+Comparison against that backup confirmed unchanged normal credentials, config
+and business rows except writer-owner lineage. Zero mappings and the existing
+one unknown insert remain; no source mutation, persistent full-scope token, DB
+reset, insert retry or sync restart occurred. CI/merge/publication and a
+live-service upgrade are not claimed. See [runbook](target-cleanup.md) and
+[review receipt](reviews/target-cleanup-cli.md). The live sync gaps below remain.
+
+### Current live gate and insert adapter correction
+
+The recent local build/Compose acceptance is not yet a working live projection.
+The real state was backed up with SQLite's backup API plus private config and
+credentials while the service was stopped. Existing action-label configuration
+was preserved. A bounded production `run --once` refreshed credentials and
+consumed History but confirmed zero mappings; one existing unknown insert
+remains in recovery and was not retried. Read-only recovery search found no
+candidate, which is not proof authorizing another insert.
+
+Earlier read-only target inspection found unexpected/unmanaged content,
+including a draft at that time, while the DB had no mappings. The separately
+authorized explicit cleanup above resolved that observed target prerequisite;
+the follow-up check found an empty mailbox. This is a point-in-time observation,
+not permission to delete future arrivals or waive subsequent startup checks.
+Normal sync remains stopped for the insert/recovery and admission gaps below.
+Existing attention events have not been automatically replayed. New untracked
+message admission is repaired in the offline candidate above; that is not yet a
+live-service or all-success claim.
+
+The concrete insert blocker was reproduced offline with the locked real Google
+client: `neverMarkSpam` is not supported by `messages.insert`, so request
+construction raises before HTTP. The bounded fix removes that keyword and adds
+real-discovery tests with only HTTP substituted, including Date policy, thread
+anchor, exact raw bytes and single-attempt provider failures. Four new cases
+failed on the old adapter; 90 focused adapter/worker/CLI cases pass after the
+fix. Independent implementation review approved exact candidate
+`1b09b8f629d00e7ba7573e311ff6c764664d76fe`; see the
+[bounded review record](reviews/gmail-insert-discovery-compatibility.md).
+The unchanged Dockerfile built on sgbox and the resulting non-root local image
+passed actual-client request construction with networking disabled. On an
+isolated synthetic Compose volume, production CLI subprocesses completed init,
+fake authorization/binding, sender rule, preview, explicit start, insert/readback
+and durable mapping; a second process confirmed the mapping without another
+insert. No readiness, rule, binding or epoch was seeded directly into the DB.
+The shared-fake alignment follow-up at
+`9d2d6ef1b799c10c864eab461cb27957538255e0` was independently approved and
+passed the complete offline suite: 2653 tests. Repository Ruff/format, locked
+environment sync, CLI help and safety checks passed. Production source and
+image build inputs did not change in that follow-up, so the prior local image
+evidence remains valid. No CI/merge/publication, real-service upgrade or
+successful live projection is claimed.
+Container Google connectivity also needs an environment-specific solution;
+temporary host-network/IPv6 resolution overrides proved the bounded live CLI
+path, not a generally usable Compose network or public Dashboard deployment.
+
+Next live gate: the dedicated-target prerequisite was checked after approved
+cleanup; the existing unknown attempt stays in recovery until an authorized,
+evidence-based recovery action is available. Cleanup review additionally reproduced a concrete
+httplib2 automatic wire resend despite Google `num_retries=0`. Normal sync's
+corresponding transport risk is now corrected and wire-tested in the offline
+candidate above, not yet deployed. Current-rule incremental admission is also
+an offline candidate; a usable container Google network path, qualified
+integration and authorized live/recovery evidence are still needed.
+
+The package ledger below retains historical package evidence; it is not the
+current executable-command checklist. The current live result and next gaps
+are stated above.
 
 | Unit | Status | Evidence / remaining gate |
 | --- | --- | --- |
@@ -122,15 +249,14 @@ as active gates.
   Gmail run still requires explicit live-account/test-scope authorization; no
   such operation was performed by PR #55.
 - PR #57 is integrated at main `5b6097f3f0a6e0ab2a0bf55157a9e9f7518bf5a8`.
-  When all three fixed source
-  labels exist, the verified production runtime composes the existing durable
-  `ActionEffectConsumer`; missing labels leave ordinary sync running and keep
-  label work explicit attention. Duplicate labels and provider failures remain
-  typed failures. The independent implementation review approved the exact
-  candidate `d94e4bc715484c7b5fbeaa9fab13318f821defa3`; focused
-  adapter/runtime/action tests passed 25 and the full local offline suite
-  passed 2519. Candidate CI passed before merge; this still does not prove a
-  live Gmail action event.
+  The historical all-three-label precondition is superseded by the approved
+  partial-map correction now under local validation: any nonempty configured
+  subset composes the existing durable `ActionEffectConsumer`, while missing
+  categories remain unmapped and their events stay explicit attention. All
+  labels absent still leaves ordinary sync running without an action consumer;
+  duplicate labels and malformed/provider failures remain typed failures. This
+  correction has not yet been merged or live-verified, so the prior candidate
+  evidence remains historical and does not prove a Gmail action event.
 
 - The offline maintenance CLI unit is integrated in PR #59 at main merge
   `2033be505e36217da7dbaf2b547caeef5819260b` (implementation candidate
@@ -748,6 +874,46 @@ this unit. Focused CLI/runtime tests and the complete offline suite (2512
 tests) passed, as did Ruff/format and repository safety. This is
 implemented/offline-verified only; a controlled live Gmail run remains a
 separately authorized external gate.
+
+## Product-first recovery correction (2026-10-06)
+
+The bounded correction in `implementation-plans/critical-path-simplification.md`
+is implemented locally and offline-verified. The foreground path now resumes a
+persisted History poll through the real owner transaction after a typed
+provider failure; Gmail system-label changes are filtered before business-event
+creation; untracked message deletions are consumed without false attention;
+and typed provider failures remain retryable while unexpected programming
+failures are no longer converted into permanent attention. The post-dispatch
+unknown-insert recovery path is unchanged.
+
+Focused sync/history/action tests passed 109 cases and the complete offline
+suite passed 2645 tests. This remains synthetic/offline evidence only: no live
+Gmail, OAuth, deployment or target mutation was performed. Removal of unused
+bootstrap/launcher modules and broader exception-taxonomy cleanup are deferred;
+the next product gate is controlled live Gmail sync after this unit is
+committed and reviewed under the existing authorization boundary.
+
+The local Compose runtime was then exercised with the candidate source under
+the image's non-root UID, read-only root filesystem, and persistent state
+volume. `init`, fake authorization, sender-rule publication, preview, explicit
+backfill start, and two `run --once --fake` invocations completed; the first
+reported one projection and the second reported zero new projections with no
+attention. The official Dockerfile rebuild itself was attempted but Docker Hub
+timed out before fetching the pinned base; the runtime check therefore used a
+cached local diagnostic base with only the committed source overlaid and is not
+an image-publication or Dockerfile-build claim.
+
+That build limitation is now resolved for this candidate: Tailscale SSH to
+sgbox allowed the unchanged Dockerfile to build against its pinned base digest
+and locked dependencies. The image was streamed back with `docker save/load`
+and verified locally as
+`sha256:9cf1757ae273353ab860fb33551f2e2375fc19e7e30ed82336c5c56ac81ce086`.
+The same Compose command path passed again using this freshly built image and
+a separate synthetic volume: first run projected one, second run projected
+zero, both with zero attention. The stopped DB confirmed one mapping and one
+verified insert attempt; image source and lockfile checksums match the local
+candidate. This is a local Dockerfile/Compose acceptance, not GHCR publication,
+multi-architecture acceptance, deployment to real state, or live Gmail evidence.
 
 ## Historical next-unit note (superseded)
 

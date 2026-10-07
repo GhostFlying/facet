@@ -5,6 +5,7 @@ import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
 from test_projection_worker import _raw, _ready_owner
@@ -14,15 +15,18 @@ from facet.contracts import (
     LocalId,
     ProviderId,
     Revision,
+    Role,
     RuleKind,
     RuleRef,
     Timestamp,
     Visibility,
 )
 from facet.db.codecs import PrivateAddress, StorageFailure
+from facet.gmail.retry import ProviderFailure, ProviderStage
 from facet.gmail.source import (
     DiscoveryItem,
     DiscoveryPage,
+    DiscoveryQuery,
     HistoryLabel,
     HistoryMessage,
     HistoryPage,
@@ -54,20 +58,32 @@ class _Admission:
             else None,
         )
 
+    def discovery_query(self, epoch=None):
+        return DiscoveryQuery(('from:"synthetic@example.com"',)) if self.admit else None
+
 
 class _Source:
-    def __init__(self, raw, *, discover=False, deleted=False, action=False):
+    def __init__(
+        self,
+        raw,
+        *,
+        discover=False,
+        deleted=False,
+        action=False,
+        system_label=False,
+    ):
         self.raw_bytes = raw
         self.discover_item = discover
         self.deleted = deleted
         self.action = action
+        self.system_label = system_label
         self.discover_calls = 0
         self.history_calls = 0
 
     def profile(self):
         return SourceProfile("source@example.invalid", ProviderId("h-1"), 1, 1)
 
-    def discover(self, *, window_start, window_end, page_token=None):
+    def discover(self, *, window_start, window_end, page_token=None, query=None):
         self.discover_calls += 1
         items = (
             (DiscoveryItem(ProviderId("m-new"), ProviderId("thread-1")),)
@@ -90,6 +106,11 @@ class _Source:
                 ),
             )
         if self.action:
+            label_id = (
+                ProviderId("UNREAD")
+                if self.system_label
+                else ProviderId("label-action")
+            )
             records = (
                 HistoryRecord(
                     ProviderId("history-action"),
@@ -100,7 +121,7 @@ class _Source:
                             HistoryMessage(
                                 ProviderId("m-action"), ProviderId("thread-1")
                             ),
-                            (ProviderId("label-action"),),
+                            (label_id,),
                         ),
                     ),
                     (),
@@ -143,9 +164,11 @@ class _Target:
 class _RetryAction:
     def __init__(self):
         self.calls = 0
+        self.owner = None
 
     def process(self, *args, **kwargs):
         self.calls += 1
+        self.owner = args[0]
         raise StorageFailure(ErrorCode.SOURCE_AUTH_REQUIRED)
 
 
@@ -181,6 +204,66 @@ def test_source_candidate_admission_uses_metadata_and_rules_only():
         object(),
     )
     assert result.admit is True
+
+
+def test_source_candidate_admission_plans_sender_query_and_no_rule_scope():
+    source = type("CandidateSource", (), {"candidate": lambda self, item: None})()
+    empty = AdmissionEvaluator(
+        (),
+        source_account=PrivateAddress("source@example.com"),
+        ruleset_revision=Revision(1),
+    )
+    assert SourceCandidateAdmission(source, empty).discovery_query() is None
+    policy = AdmissionEvaluator(
+        (
+            AdmissionRule(
+                RuleRef(LocalId("00000000000040008000000000000002"), Revision(1)),
+                normalize_rule(RuleKind.ALLOW_SENDER, "sender@example.com"),
+                Timestamp(datetime(2026, 1, 1, tzinfo=UTC)),
+            ),
+        ),
+        source_account=PrivateAddress("source@example.com"),
+        ruleset_revision=Revision(1),
+    )
+    query = SourceCandidateAdmission(source, policy).discovery_query()
+    assert query is not None
+    assert query.clauses == ('from:"sender@example.com"',)
+
+
+def test_source_candidate_admission_rejects_ruleset_lineage_mismatch():
+    source = type("CandidateSource", (), {"candidate": lambda self, item: None})()
+    epoch = SimpleNamespace(decision=SimpleNamespace(ruleset_revision=Revision(2)))
+    pinned = AdmissionEvaluator(
+        (),
+        source_account=PrivateAddress("source@example.com"),
+        ruleset_revision=Revision(2),
+    )
+    assert SourceCandidateAdmission(source, pinned).discovery_query(epoch) is None
+    policy = AdmissionEvaluator(
+        (),
+        source_account=PrivateAddress("source@example.com"),
+        ruleset_revision=Revision(3),
+    )
+    with pytest.raises(StorageFailure) as error:
+        SourceCandidateAdmission(source, policy).discovery_query(epoch)
+    assert error.value.code is ErrorCode.CONSISTENCY_FAILURE
+
+
+def test_source_candidate_admission_holds_domain_query_until_recall_evidence():
+    source = type("CandidateSource", (), {"candidate": lambda self, item: None})()
+    policy = AdmissionEvaluator(
+        (
+            AdmissionRule(
+                RuleRef(LocalId("00000000000040008000000000000003"), Revision(1)),
+                normalize_rule(RuleKind.ALLOW_DOMAIN, "example.com"),
+                Timestamp(datetime(2026, 1, 1, tzinfo=UTC)),
+            ),
+        ),
+        source_account=PrivateAddress("source@example.com"),
+    )
+    with pytest.raises(StorageFailure) as error:
+        SourceCandidateAdmission(source, policy).discovery_query()
+    assert error.value.code is ErrorCode.MAINTENANCE_REQUIRED
 
 
 @pytest.fixture
@@ -268,23 +351,80 @@ def test_foreground_cycle_refuses_paused_owner_before_provider_calls(
             owner.close()
 
 
-def test_unsupported_history_event_becomes_durable_attention(
+def test_untracked_deletion_is_consumed_without_attention(
     trusted_state_parent, monkeypatch
 ):
     with TemporaryDirectory(prefix="facet-sync-", dir=trusted_state_parent) as root:
-        owner = _ready_owner(Path(root), object(), monkeypatch)
+        owner = _ready_owner(
+            Path(root), object(), monkeypatch, seed=False, with_rule=False
+        )
         source = _Source(b"unused", deleted=True)
         try:
             receipt = ForegroundSync(
                 owner, source, _Target(b"unused"), _Admission()
             ).run_once()
-            assert receipt.attention == 1
+            assert receipt.attention == 0
             assert owner._connection.execute(
                 "SELECT state FROM sync_jobs WHERE kind='resolve_event'"
-            ).fetchone() == ("needs_attention",)
+            ).fetchone() == ("completed",)
             assert owner._connection.execute(
                 "SELECT processing FROM source_events"
-            ).fetchone() == ("needs_attention",)
+            ).fetchone() == ("consumed",)
+        finally:
+            owner.close()
+
+
+def test_system_label_changes_do_not_create_resolve_jobs(
+    trusted_state_parent, monkeypatch
+):
+    with TemporaryDirectory(prefix="facet-sync-", dir=trusted_state_parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch)
+        source = _Source(b"unused", action=True, system_label=True)
+        try:
+            receipt = ForegroundSync(
+                owner, source, _Target(b"unused"), _Admission()
+            ).run_once()
+            assert receipt.attention == 0
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM sync_jobs WHERE kind='resolve_event'"
+            ).fetchone() == (0,)
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM source_events"
+            ).fetchone() == (0,)
+        finally:
+            owner.close()
+
+
+def test_active_history_poll_continues_after_restartable_provider_failure(
+    trusted_state_parent, monkeypatch
+):
+    class ResumeSource(_Source):
+        def history(self, cursor, *, page_token=None):
+            self.history_calls += 1
+            if self.history_calls == 1:
+                raise ProviderFailure(
+                    ErrorCode.NETWORK_UNAVAILABLE,
+                    Role.SOURCE,
+                    provider_stage=ProviderStage.HISTORY_LIST,
+                )
+            return HistoryPage(ProviderId("h-resumed"), (), None)
+
+    with TemporaryDirectory(prefix="facet-sync-", dir=trusted_state_parent) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch)
+        source = ResumeSource(b"unused")
+        sync = ForegroundSync(owner, source, _Target(b"unused"), _Admission())
+        try:
+            with pytest.raises(ProviderFailure):
+                sync.run_once()
+            assert owner._connection.execute(
+                "SELECT active_poll_id FROM history_checkpoints"
+            ).fetchone()[0]
+            receipt = sync.run_once()
+            assert receipt.history_pages == 1
+            assert source.history_calls == 2
+            assert owner._connection.execute(
+                "SELECT active_poll_id FROM history_checkpoints"
+            ).fetchone() == (None,)
         finally:
             owner.close()
 
@@ -306,6 +446,7 @@ def test_retryable_history_effect_is_not_retried_in_same_cycle(
             ).run_once()
             assert receipt.attention == 1
             assert action.calls == 1
+            assert action.owner is owner.session
             row = owner._connection.execute(
                 "SELECT state,next_attempt_at FROM sync_jobs WHERE kind='resolve_event'"
             ).fetchone()

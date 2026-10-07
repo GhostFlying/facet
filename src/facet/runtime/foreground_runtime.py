@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from dataclasses import dataclass
 
 from facet.config import Config
@@ -46,8 +47,8 @@ class _ProfileProbe(ProfileReader):
         )
 
 
-def load_persisted_admission(owner, config):
-    """Load the sealed current ruleset into the existing policy evaluator."""
+def load_persisted_admission(owner, config, ruleset_revision=None):
+    """Load one sealed ruleset revision into the policy evaluator."""
 
     from facet.db.repositories.base import _get, _query
     from facet.db.repositories.serialization import COLUMNS
@@ -58,12 +59,19 @@ def load_persisted_admission(owner, config):
         projection = _get(uow, owner.projection_id, "projections", ())
         if projection is None:
             raise ValueError("owner_unavailable")
+        selected_revision = (
+            projection.ruleset_revision
+            if ruleset_revision is None
+            else ruleset_revision
+        )
+        if type(selected_revision) is not Revision:
+            raise ValueError("invalid_input")
         rows = _query(
             uow,
             "SELECT "
             + ",".join(COLUMNS["ruleset_members"])
             + " FROM ruleset_members WHERE projection_id=? AND ruleset_revision=?",
-            (owner.projection_id.value, projection.ruleset_revision.value),
+            (owner.projection_id.value, selected_revision.value),
         )
         rules = []
         for row in rows:
@@ -92,6 +100,7 @@ def load_persisted_admission(owner, config):
         return AdmissionEvaluator(
             tuple(rules),
             source_account=PrivateAddress(config.projection.source_email),
+            ruleset_revision=selected_revision,
         )
 
 
@@ -149,24 +158,51 @@ class ForegroundRuntime:
         manager.verify_and_publish(probe)
         source_snapshot = manager.snapshot(Role.SOURCE)
         target_snapshot = manager.snapshot(Role.TARGET)
-        source = SourceAdapter(
-            self.factory.service(Role.SOURCE, source_snapshot),
-            source_account=PrivateAddress(self.config.projection.source_email),
-        )
-        target = TargetAdapter(self.factory.service(Role.TARGET, target_snapshot))
-        return ForegroundSync(
-            self.owner,
-            source,
-            target,
-            load_persisted_admission(self.owner, self.config)
-            if admission is None
-            else admission,
-            action_consumer=(
-                action_consumer
-                if action_consumer is not None
-                else _action_consumer(source, self.config, self.owner)
-            ),
-        ).run_once(max_jobs=max_jobs, max_events=max_events)
+        with ExitStack() as services:
+            source_service = self.factory.service(Role.SOURCE, source_snapshot)
+            close = getattr(source_service, "close", None)
+            if callable(close):
+                services.callback(close)
+            target_service = self.factory.service(Role.TARGET, target_snapshot)
+            close = getattr(target_service, "close", None)
+            if callable(close):
+                services.callback(close)
+            source = SourceAdapter(
+                source_service,
+                source_account=PrivateAddress(self.config.projection.source_email),
+            )
+            target = TargetAdapter(target_service)
+            initial_admission = (
+                load_persisted_admission(self.owner, self.config)
+                if admission is None
+                else admission
+            )
+
+            def admission_for_epoch(epoch):
+                return load_persisted_admission(
+                    self.owner,
+                    self.config,
+                    epoch.decision.ruleset_revision,
+                )
+
+            epoch_loader = admission_for_epoch if admission is None else None
+            return ForegroundSync(
+                self.owner,
+                source,
+                target,
+                initial_admission,
+                action_consumer=(
+                    action_consumer
+                    if action_consumer is not None
+                    else _action_consumer(source, self.config, self.owner)
+                ),
+                admission_for_epoch=epoch_loader,
+                admission_for_history=(
+                    (lambda: load_persisted_admission(self.owner, self.config))
+                    if admission is None
+                    else None
+                ),
+            ).run_once(max_jobs=max_jobs, max_events=max_events)
 
 
 def run_foreground_once(

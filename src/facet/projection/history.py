@@ -39,6 +39,29 @@ from facet.db.repositories import epochs, events, history
 from facet.db.repositories.base import _get
 from facet.gmail.retry import ProviderFailure
 
+_SYSTEM_LABEL_IDS = frozenset(
+    {
+        "CHAT",
+        "DRAFT",
+        "IMPORTANT",
+        "INBOX",
+        "SENT",
+        "SPAM",
+        "STARRED",
+        "TRASH",
+        "UNREAD",
+        "CATEGORY_FORUMS",
+        "CATEGORY_PERSONAL",
+        "CATEGORY_PROMOTIONS",
+        "CATEGORY_SOCIAL",
+        "CATEGORY_UPDATES",
+    }
+)
+
+
+def _is_system_label(label_id: ProviderId) -> bool:
+    return label_id.value in _SYSTEM_LABEL_IDS
+
 
 def _now() -> Timestamp:
     return Timestamp(datetime.now(UTC))
@@ -118,6 +141,14 @@ def _typed_events(
                 message_id = message.message.message_id
                 thread_id = message.message.thread_id
                 for label in message.label_ids:
+                    # Gmail emits ordinary mailbox state changes through the
+                    # same History stream as Facet action labels.  The fixed
+                    # system-label set cannot be a configured action label,
+                    # so discard it before creating a business event. User
+                    # labels, including stale action-label IDs, remain typed
+                    # events and keep their existing attention semantics.
+                    if _is_system_label(label):
+                        continue
                     key = SourceEventKeyLabelChanged(
                         "label_changed",
                         projection_id,

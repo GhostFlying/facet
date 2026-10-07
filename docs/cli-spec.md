@@ -52,7 +52,7 @@ request keys 不进入日志或公开诊断；配置、凭据、backup 都是 ow
 | C：持久命令 | 前台 sync 运行时或 one-off container 取得唯一 writer lock；不经 IPC | 按命令分类，不因等待 token 丢请求 |
 | R：显式远端读取 | `--live`、preview、audit/recovery 检查；经绑定与 transport/refresh 协调 | 需要对应只读 scope；不 send/insert/delete |
 | W：受限业务写入 | durable jobs 经 worker、intent/generation/归属与授权检查后执行 | 仅获授权 insert 或便利 label mutation |
-| M：停机维护 | 必须停止 sync container 并取得 writer lock；迁移/恢复不能与服务同时写 | inspect/backup/restore/migrate 不要求 Gmail 可用 |
+| M：停机维护 | 必须停止 sync container 并取得 writer lock；迁移/恢复/显式 target-cleanup 不与服务同时写 | inspect/backup/restore/migrate 不要求 Gmail 可用；cleanup preview/execute 需要 target Gmail |
 | A：OAuth 凭据操作 | 单账号 refresh/replacement 所有权；原子私密文件替换 | Desktop OAuth 用户交互；不调用任意邮箱 mutation |
 
 Running sync process 拒绝第二 writer；maintenance one-off container 也不能绕过锁。只读
@@ -110,7 +110,7 @@ selected scope/preview 时拒绝；不能继续接受一个 `--yes` 就重插整
 --port <loopback-port> --request-id <rq1_uuid_uuid>`。它只适用于不存在的
 production state root：按 source、target 顺序授权，通过 `users.getProfile`
 发现地址，在同一个 controlling TTY 显示实际两角色并要求明确确认，然后才创建
-配置、binding 和 credential files。setup 是唯一允许 OAuth URL/实际账号地址
+配置、binding 和 credential files。setup 与显式 target-cleanup consent 是允许 OAuth URL/实际账号地址
 出现在 controlling terminal 的命令；它拒绝 `--json`、`--public`、private
 metadata 输出和 non-TTY，`--yes` 也不能跳过发现后的确认。setup 不列邮件、读取
 raw、insert、写 labels、创建规则、开始 preview/backfill 或启动 sync。
@@ -217,7 +217,22 @@ SQLite backup API 保存 DB 与配置/binding/credentials；不复制 raw，不�
 主 DB。Destination 必须新建/空的指定备份位置，不覆盖任意已有目录。`backup verify`
 离线检查完整性、schema、成套文件与私密权限，不要求 Gmail 可用。
 
-`setup` 的 target 前置条件是操作者在 OAuth 前声明 target 为全新、专用且 Facet 为唯一应用写入者；target OAuth 后、首次 projection/insert 前的只读检查核对账号 binding 及普通邮件、草稿、Spam、Trash。检查发现 unexpected/unmanaged 内容或账号不匹配时 fail closed，保持 blocked/report-only；Gmail/OAuth metadata 不证明所有第三方 writer。CLI 不提供认领、自动清理或删除路径，且本契约变更不声称当前 runtime 已新增 enforcement。
+`setup` 的 target 前置条件是操作者在 OAuth 前声明 target 为全新、专用且 Facet 为唯一应用写入者；target OAuth 后、首次 projection/insert 前的只读检查核对账号 binding 及普通邮件、草稿、Spam、Trash。检查发现 unexpected/unmanaged 内容或账号不匹配时 fail closed，保持 blocked/report-only；Gmail/OAuth metadata 不证明所有第三方 writer。CLI 不提供认领、自动清理或同步删除路径；唯一显式维护删除例外见下节。
+
+### 显式专用 target 清理（2026-10-07 用户授权例外）
+
+`target-cleanup preview --request-id <uuid4-hex>` 是持锁的只读 Gmail 操作，完整分页
+普通邮件/Spam/Trash/草稿，私密 journal 仅保存固定邮件 IDs 和进度，无内容。
+`target-cleanup status --preview <id>` 为 O 类 query-only，不取 writer lock、不读
+凭据或调用 Gmail。`target-cleanup execute --preview <id> --request-id <uuid4-hex>
+--yes --confirm-target <address> --oauth-client <path> [--port 18082]` 为 M 类；实际
+删除前核对 binding、profile、manifest 和临时完整 scope。只有交互终端能显示 OAuth
+URL；新执行拒绝 `--json`/非 TTY，已完成 receipt 可离线重放。正常 sync scopes/凭据不变。
+Expiry 限制首次 start（30 分钟），已开始任务以原 key/清单恢复；未知删除先 get
+核对同一 ID，网络不确定不继续。草稿编辑产生的新邮件 ID 不纳入旧清单。
+不提供 source 删除、DB reset、unknown insert retry 或隐式 resume。CLI 输出仅固定
+汇总和本地 preview ID，不支持 `--public` 导出；真实删除需另批准实际 preview。
+完整风险、备份和容器调用见 [target-cleanup runbook](target-cleanup.md)。
 
 `restore plan --backup <path>` 和 `maintenance inspect/check` 默认 offline、metadata
 only；`restore apply` 需明确 destination/backup、停机锁和确认，保留 recoverable 旧
