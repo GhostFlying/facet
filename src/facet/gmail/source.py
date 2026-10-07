@@ -35,7 +35,7 @@ def discovery_window(start: datetime, end: datetime, *, precise=False) -> str:
     if precise:
         return (
             f"after:{math.floor(start.timestamp()) - 1} "
-            f"before:{math.ceil(end.timestamp())}"
+            f"before:{math.floor(end.timestamp()) + 1}"
         )
     return (
         f"after:{start.astimezone(UTC):%Y/%m/%d} before:{end.astimezone(UTC):%Y/%m/%d}"

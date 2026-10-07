@@ -10,6 +10,7 @@ from test_db_repositories import state as state
 from test_db_schema import NOW, P, lid
 
 from facet.contracts import (
+    EpochKind,
     ErrorCode,
     PolicyVersion,
     ProviderId,
@@ -32,7 +33,12 @@ from facet.db.models import (
 )
 from facet.db.repositories import epochs, policy
 from facet.gmail.retry import ProviderFailure
-from facet.gmail.source import CandidateResult, DiscoveryItem, DiscoveryPage
+from facet.gmail.source import (
+    CandidateResult,
+    DiscoveryItem,
+    DiscoveryPage,
+    SourceAdapter,
+)
 from facet.projection.admission import (
     AdmissionEvaluator,
     AdmissionRule,
@@ -42,6 +48,73 @@ from facet.projection.backfill import BackfillProducer
 from facet.projection.gap_recovery import GapRecovery
 from facet.projection.rules import normalize_rule, normalize_sender
 from facet.sync import SourceCandidateAdmission
+
+
+@pytest.mark.parametrize("offset_ms", [0, 1])
+def test_integer_end_provider_superset_and_exact_local_membership(
+    monkeypatch, offset_ms
+):
+    end = NOW.value.replace(microsecond=0)
+    arrived = end.timestamp() + offset_ms / 1000
+    account = PrivateAddress("source@example.invalid")
+
+    class Service:
+        def users(self):
+            return self
+
+        def messages(self):
+            return self
+
+        def list(self, **kwargs):
+            # Model strict provider bounds, not a canned reply for any query.
+            bounds = dict(term.split(":", 1) for term in kwargs["q"].split())
+            found = int(bounds["after"]) < arrived < int(bounds["before"])
+            return SimpleNamespace(
+                execute=lambda **kw: {
+                    "messages": [{"id": "boundary", "threadId": "boundary"}]
+                    if found
+                    else [],
+                }
+            )
+
+        def get(self, **kwargs):
+            return SimpleNamespace(
+                execute=lambda **kw: {
+                    "id": "boundary",
+                    "threadId": "boundary",
+                    "labelIds": [],
+                    "internalDate": str(int(end.timestamp() * 1000) + offset_ms),
+                    "payload": {
+                        "headers": [{"name": "From", "value": "synthetic@example.com"}]
+                    },
+                }
+            )
+
+    source = SourceAdapter(Service(), source_account=account)
+    selected = SimpleNamespace(
+        kind=EpochKind.HISTORY_GAP,
+        window_start=Timestamp(end - timedelta(minutes=10)),
+        window_end=Timestamp(end),
+    )
+    rules = AdmissionEvaluator(
+        (
+            AdmissionRule(
+                RuleRef(lid(10), Revision(1)),
+                normalize_rule(RuleKind.ALLOW_SENDER, "synthetic@example.com"),
+                Timestamp(end + timedelta(hours=1)),
+            ),
+        ),
+        source_account=account,
+    )
+    monkeypatch.setattr("facet.sync._now", lambda: Timestamp(end + timedelta(hours=2)))
+    page = source.discover(
+        window_start=selected.window_start.value,
+        window_end=end,
+        precise_window=True,
+    )
+    assert len(page.items) == 1
+    result = SourceCandidateAdmission(source, rules).evaluate(page.items[0], selected)
+    assert result.admit is (offset_ms == 0)
 
 
 def recovery(state, *, known=True):

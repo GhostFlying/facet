@@ -315,7 +315,7 @@ def run_cli_wire(
                 ).fetchone()
                 expected_window = (
                     f"after:{start // 1_000_000 - 1} "
-                    f"before:{(end + 999_999) // 1_000_000}"
+                    f"before:{end // 1_000_000 + 1}"
                 )
                 assert start <= mailbox.gap_arrived_at * 1000 <= end
                 assert all(
