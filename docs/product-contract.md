@@ -34,7 +34,7 @@ OAuth 前由操作者声明 target 的专用用途及获准的 agent 发信/草�
 
 自动 admission 基于 Gmail source mailbox metadata 和配置的精确 sender/domain 规则。Gmail 负责 SMTP 认证与邮件分类，Facet 不重新验证 DKIM/SPF/DMARC，也不把认证 headers 作为 admission gate。Gmail 接收邮件不等于发件人真实或内容安全；规则匹配的正常非草稿邮件可以触发 thread 披露。格式歧义、账号不匹配和 provider 故障仍不放行。此边界由用户于 2026-10-05 明确确认，取代此前 source-path attestation 要求。
 
-新增 sender 或 domain rule 默认只对未来事件生效。通过 action label 学习时，当前 thread 立即纳入；不会自动回扫相同域名的所有旧 thread。历史范围扩展由新的有意完整同步调用自动准备/启动，或由细分 backfill 命令显式启动；普通运行、标签学习和 reconcile 不隐式扩大范围。显式历史范围可覆盖规则生效前的窗口，不回写或倒置该规则的 `effective_at`。
+新增 sender 或 domain rule 不自动回扫相同域名的所有旧 thread；通过 action label 学习时，当前 thread 立即纳入。按 2026-10-07 用户确认，规则变更与邮件到达不保证严格时序一致：正常 History 处理和 gap 恢复按处理/扫描时选定的生效规则判断，不还原邮件到达时的规则版本，`effective_at` 保留为审计记录。已知 gap 恢复可纳入停机窗口内早于规则创建的邮件；扫描范围仍固定为整个已知停机窗口，不因此扩成六个月或全邮箱。恢复扫描使用开始时选定的当前规则范围以稳定分页，期间移除规则阻止新的 admission，不保证并发规则变更的精确切换点。其他历史范围扩展仍由新的有意完整同步调用或细分 backfill 显式启动；普通重启、标签学习和 reconcile 不触发任意历史回扫。
 
 Agent 发信后的回复进入 source，由既有规则、tracked-thread 授权和 History 正常处理；未跟踪 thread 不因为是 agent 发信的回复就自动纳入。未来可考虑从 agent 发信的收件人发现候选规则，但 Phase 1 不实现，不从 target 的 SENT/草稿生成规则或授权，不新增 per-message To/Cc 存储。未来 sender/domain 选择、自动生效及历史范围需另行确定。
 

@@ -88,7 +88,7 @@ bounded pagination 和受控失败；涉及对象的 `list/show` 只显示持久
 | `facet status`；`facet doctor [--live]` | 本地汇总和诊断；默认 offline；O/R | M1-03/05/06、M3/M4；G1/G4 |
 | `facet run` | Docker image 内前台唯一 sync/HTTP owner；由 Docker/Compose 负责生命周期；O/C | M1-03、M3；G1/G4 |
 | 完整同步入口（拟 `facet sync [--once]`，未实现） | 自动检查配置/绑定/授权，按当前规则和固定六个月范围准备/启动或续跑 backfill，执行 History/投影；完全复用细分操作；C/R/W | M2/M3；CLI-02/03，最终 G6 |
-| `facet rules list/show/add-sender/add-domain/remove`；`facet rules action-label set/remove/list --kind ...`；`facet rules blacklist --sender <address> --thread <id>` | exact 规则、future effective_at；blacklist + 所选 thread stop，typed audit；action-label mapping is private, single-writer, exact-name, and source-readonly；O/C | M1-02/06、M3-01/03、M5-03；G3/G5 |
+| `facet rules list/show/add-sender/add-domain/remove`；`facet rules action-label set/remove/list --kind ...`；`facet rules blacklist --sender <address> --thread <id>` | exact 规则、处理时生效状态，effective_at 作审计；blacklist + 所选 thread stop，typed audit；action-label mapping is private, single-writer, exact-name, and source-readonly；O/C | M1-02/06、M3-01/03、M5-03；G3/G5 |
 | `facet backfill preview/start/status/pause/resume` | 固定 cutoff/H0/epoch、明确 start、自动 discovery/backfill、暂停/恢复与进度；R/C→W/O | M2、M3；G2/G3 |
 | `facet queue list/show`；`facet queue retry --job <id>` | 看互斥 job 状态、next attempt/error code；仅安全可重试 job 重新调度；O/C | M2-03/04/05、M4-06；G2/G4 |
 | `facet review list/show/preview --item <id>`；`facet review approve --item <id> --preview <id>`；`facet review reject --item <id>` | 仅处理认证未知、归属未知等异常 admission item；不作为常规逐 thread 入口；O/C→W | M2/M3/M4；G2/G3/G4 |
@@ -96,7 +96,7 @@ bounded pagination 和受控失败；涉及对象的 `list/show` 只显示持久
 | `facet audit target --full`；`facet audit list/show` | 可恢复的全 target 检查、异常/未映射内容报告；metadata 输出；C/R/O | M4-03；G4 |
 | `facet repair preview/start/status --audit <id>` | 只修指定、已管理且确认 missing 的消息；不含 unmanaged/spike；R/C→W/O | M4-03、M2-04、M5-03；G4/G5，部署流程 G6 |
 | `facet recovery list/show/check/preview --job <id>` | Check 核验归属；preview 生成受限 retry 的 scope/risk ID，禁止分支则返回拒绝而不生成许可；默认不 insert；O/C/R | M2、M3；G2/G4 |
-| `facet recovery gap preview --gap <id> --since <UTC> --until <UTC>`；`facet recovery gap approve --gap <id> --preview <id>` | 无可信 coverage time 时，用户明确选择恢复 range，保存 typed decision；H1/fence、生效时间/generation 不绕过；R/C | M4-02、M3-03；G4，决定 D7 |
+| `facet recovery gap preview --gap <id> --since <UTC> --until <UTC>`；`facet recovery gap approve --gap <id> --preview <id>` | 无可信 coverage time 时，用户明确选择恢复 range，保存 typed decision；H1/fence、范围/generation 不绕过，规则不按邮件时间重建；R/C | M4-02、M3-03；G4，决定 D7 |
 | `facet recovery retry --job <id> --preview <id> --acknowledge-duplicate-risk` | 仅 ADR 允许、预算未超且范围明确的受限 retry；不可 force-bind；C→W | M2-04、M3-03；G2/G3，实际许可 D7 |
 | `facet gmail mode show/set`；`facet gmail labels status/setup` | 实际 scopes 校验、readonly/便利 mode；legacy 仅报告，便利 setup 需明确许可；O/C/R/W | M1-04、M5-02；G5 |
 | `facet maintenance inspect/check`；`facet migrate plan/apply/status` | 离线 metadata/schema/迁移兼容性检查；apply 先 backup、停机持锁；O/M | M1-02/03、M6-01/02；G1/G6 |
@@ -169,7 +169,8 @@ binding 和 scopes，缺授权时引导既有 OAuth 交互，不默选账号、�
 完整入口调用细分命令背后的同一业务操作，不另造同步引擎、shell 子命令链或 IPC。
 已有规则/窗口工作继续、mapping 去重；新增历史范围创建独立 epoch，不清空旧
 discovery/cursor/intents。容器重启/普通 run 续跑已有范围；连续运行中的新规则和
-action 学习仍 prospective，不把重启、每日 reconcile 当作新的历史披露意图。
+action 学习不触发任意历史回扫，不把重启、每日 reconcile 当作新的历史披露意图；
+按 D11，History/gap 使用处理/扫描时规则，已知 gap 覆盖整个停机窗口。
 单独 init/setup/preview/status 保持原有无复制行为，维修/恢复许可不随 sync 扩张。
 
 当前真实验证继续用细分命令，按具体已批准范围执行。产品入口可自动编排不代表
@@ -180,7 +181,7 @@ agent 可以在当前测试中自动开始新历史补齐、retry unknown 或启
 unknown insert 留 recovery。`backfill pause` 只暂停历史 jobs，History ingestion 仍
 可持久化；重启不重置 cursor 或复活 stopped generations。
 
-Rules add 默认 prospectively effective；第一期通过 source History 读取用户手工 action
+Rules add 按处理时生效状态判断，不保证与邮件到达严格时序；第一期通过 source History 读取用户手工 action
 labels 更新规则，不把逐个手动 track 作为常规入口。Rules remove 不停止已 tracked
 thread。Blacklist 用 exact sender + 当前 thread，取消 unstarted generation，不停止
 同域所有 thread、不删除历史；去掉 blacklist 不自动恢复 tracking。
@@ -228,7 +229,8 @@ preview/retry、gap 恢复、repair 与 backup/restore 仍是后续门槛。
 
 Unknown History gap 通过 `recovery gap preview/approve` 显式选择 UTC range，approve
 引用同 gap/范围 preview、稳定请求键与确认。执行仍先持久 H1/fence，遵守 rule
-effective_at 和 stopped generation；不 reset cursor、默认披露全历史、认领当前 labels
+有边界的停机窗口和 stopped generation；按处理/扫描时规则判断，不保证邮件与
+规则变更的严格时序，effective_at 作审计；不 reset cursor、默认披露全历史、认领当前 labels
 或声称复原已过期 add/remove。CLI-04 测试未知起点的 range 选择与这些 guard。
 
 Repair 必须引用一个已完成或明确部分完成的 audit，以及明确选择的 source message/
@@ -344,7 +346,7 @@ spool 或内容缓存。Backup 私密 credential 文件是成套备份的一部�
 | --- | --- | --- |
 | CLI-01 / G1 | 新环境 init/config validate、绑定拒绝、auth-status/offline doctor、schema inspect；已有状态不覆盖，JSON/退出码与非 TTY guards 可测；spike 独立 | M1-01/03/04/05/06 |
 | CLI-02 / G2 | 完整同步入口复用细分操作自动完成当前规则的非空历史 discovery/backfill 和 History/action ingestion；细分 preview/start 也可独立完成；真实 CLI subprocess、insert/readback/映射、unknown recovery 和重启去重，不直接填 DB 绕命令；source_missing 可解释 | M2 |
-| CLI-03 / G3 | Rules effective_at；规则新增后新的有意 sync/细分 start 可通过新 epoch 补齐指定历史而不改 effective_at；普通 run/restart/action/reconcile 不隐式回扫；pause/resume/History gap range guards、无 scope/过期 preview 拒绝、init/setup/独立 preview 零 insert | M3 |
+| CLI-03 / G3 | 规则按处理时生效状态，effective_at 作审计，不保证邮件/规则严格时序；规则新增后新的有意 sync/细分 start 可通过新 epoch 补齐指定历史；普通 run/restart/action/reconcile 不回扫任意历史，已知 gap 可覆盖整个停机窗口；pause/resume/History gap range guards、无 scope/过期 preview 拒绝、init/setup/独立 preview 零 insert | M3 |
 | CLI-04 / G4 | 前台 sync/one-off 命令共享唯一 writer lock，status offline/Gmail down；reconcile/audit 可续、bounded repair；pause ingestion 和 mutation 边界正确 | M1-03、M3/M4 |
 | CLI-05 / G5 | mode/实际 scope 检查、legacy report、readonly 零 source mutation、blacklist/stop generation、cleanup 重放；resume 不复活 stopped | M4 |
 | CLI-06 / G6 | 全套 CLI 可从 Compose image 执行；stop/one-off DB+credential 协调锁；backup/restore 与 auth/refresh 并发不跨版本；verify/migrate/check offline，invalid_grant 时仍能看 pending；无 host Python | M6-01/02/03/06 |

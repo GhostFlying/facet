@@ -627,7 +627,7 @@ def _run_once_production(owner, config) -> tuple[dict, tuple[str, ...]]:
         "resolved_events": receipt.resolved_events,
         "projected": receipt.projected.verified,
         "attention": receipt.attention,
-    }, ()
+    }, receipt.warnings
 
 
 def _foreground_gate(owner) -> tuple[bool, ErrorCode | None]:
@@ -642,6 +642,7 @@ def _foreground_gate(owner) -> tuple[bool, ErrorCode | None]:
     with owner.session.transaction() as uow:
         row = uow._execute(
             "SELECT state FROM epochs WHERE projection_id=? "
+            "AND kind='initial_backfill' "
             "ORDER BY created_at DESC LIMIT 1",
             (owner.projection_id.value,),
         ).fetchone()

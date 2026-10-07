@@ -136,7 +136,7 @@ Preview/start 的范围校验、稳定 request key、epoch/H0 写入和 command 
 
 范围：`src/facet/projection/gap_recovery.py`、`reconcile.py`、`audit.py`、`src/facet/status/`、`src/facet/web/`，以及 gap/reconcile/doctor 的只读汇总接线。
 
-验收：History 404 不静默丢事件；恢复窗口、effective_at 和 generation 受控；source/target 缺失和重复有明确报告；Dashboard 只返回聚合状态，不含邮件细节；新增规则不会隐式扩大历史披露。
+验收：History 404 不静默丢事件；恢复窗口和 generation 受控；按扫描时规则恢复整个已知停机窗口，不保证规则变更与邮件到达的严格时序，effective_at 留作审计；source/target 缺失和重复有明确报告；Dashboard 只返回聚合状态，不含邮件细节；新增规则不触发任意历史回扫。
 
 Dashboard 验收：显示状态、已完成数量、历史进度、积压、异常分类和诊断，数据过期有提示；Discovery 未完成不虚构总量；重试不重复计数；所有 API 和页面都不包含邮件细节或原始异常。Web 请求不改变同步状态、不调用 Gmail，桌面与手机均可查看关键状态。
 
@@ -198,11 +198,11 @@ Release 仍需决定。公开源码不自动代表 package 已公开，必须实
 | Insert 后 crash | 唯一且内容匹配的候选被绑定；模糊结果不盲目重试 | M2 |
 | Message-ID 缺失或重复 | 不能只凭 Message-ID 判定同一封；进入受限恢复或 review | M2 |
 | 六个月边界 | 用固定截止时间发现候选，纳入后复制完整 thread | M2 |
-| Domain 和 admission | PSL、子域边界、规则生效时间、metadata 歧义和账号边界均有覆盖；不验证 sender authentication | M1 M2 |
+| Domain 和 admission | PSL、子域边界、处理时规则状态、metadata 歧义和账号边界均有覆盖；不保证规则/邮件严格时序，不验证 sender authentication | M1 M2 |
 | 初始化和分页 crash | H0 之前 discovery 与 H0 之后 History 共同覆盖，事件可重放 | M2 |
 | 收信和自己回复 | 自动投影；已 tracked thread 的后续 sender 变化保留 | M2 |
 | History 404 | 对 active threads 补漏，并恢复停机窗口内 admission | M3 |
-| 新规则与 action jobs | `effective_at`/generation 和 action-job 变更按未来生效边界处理，不隐式扩大历史披露 | M2 |
+| 新规则与 action jobs | 按处理时选定规则判断，不保证邮件/规则严格时序；`effective_at` 作审计，generation 生效；已知 gap 窗口外不隐式扩大历史披露 | M2 |
 | Reconcile | source/target 校对与显式历史回扫边界不被绕过 | M3 |
 | Action labels | 多 message 事件聚合；readonly 观察、effective_at/generation 和重复执行受控 | M2 |
 | BlackList 竞争 | 未开始的 jobs 被取消；已经在途的 insert 可能完成并被记录 | M2 |

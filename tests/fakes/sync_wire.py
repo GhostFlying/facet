@@ -43,6 +43,11 @@ class Mailbox:
         self.historical = False
         self.discovery_queries = []
         self.discovery_failure = False
+        self.gap = False
+        self.expired_cursors = set()
+        self.gap_page_failure = False
+        self.catchup_page_failure = False
+        self.gap_arrived_at = 0
 
     def arrive(self):
         self.revision += 1
@@ -51,15 +56,27 @@ class Mailbox:
     def message(self, identifier, raw=False):
         sender = (
             "sender@example.com"
-            if identifier in {"future-new", "historical-new", "blocked-new"}
+            if identifier
+            in {
+                "future-new",
+                "historical-new",
+                "blocked-new",
+                "gap-new",
+                "removed-new",
+                "catchup-new",
+            }
             else "other@example.com"
         )
         value = {
             "id": identifier,
-            "threadId": identifier.split("-", 1)[0] + "-thread",
+            "threadId": "future-thread"
+            if identifier == "future-gap"
+            else identifier.split("-", 1)[0] + "-thread",
             "labelIds": ["DRAFT"] if identifier.endswith("-draft") else [],
             "internalDate": str(
-                self.arrived_at
+                self.gap_arrived_at
+                if identifier in {"gap-new", "removed-new", "catchup-new", "future-gap"}
+                else self.arrived_at
                 if identifier == "future-new"
                 else int((time.time() - 10 * 86400) * 1000)
                 if identifier.endswith("-new")
@@ -119,6 +136,38 @@ class Mailbox:
                 elif path.endswith("/messages"):
                     if source:
                         mailbox.discovery_queries.append(query)
+                        if mailbox.gap:
+                            if query.get("pageToken") == ["gap-second"]:
+                                if mailbox.gap_page_failure:
+                                    self.reply(
+                                        {"error": {"message": "WIRE_ERROR_SENTINEL"}},
+                                        503,
+                                    )
+                                else:
+                                    self.reply(
+                                        {
+                                            "messages": [
+                                                {
+                                                    "id": "removed-new",
+                                                    "threadId": "removed-thread",
+                                                }
+                                            ]
+                                        }
+                                    )
+                            else:
+                                self.reply(
+                                    {
+                                        "messages": [
+                                            {"id": "gap-new", "threadId": "gap-thread"},
+                                            {
+                                                "id": "historical-new",
+                                                "threadId": "historical-thread",
+                                            },
+                                        ],
+                                        "nextPageToken": "gap-second",
+                                    }
+                                )
+                            return
                         if mailbox.historical:
                             if query.get("pageToken") == ["second"]:
                                 if mailbox.discovery_failure:
@@ -161,6 +210,38 @@ class Mailbox:
                         }
                     )
                 elif path.endswith("/history"):
+                    if query["startHistoryId"][0] in mailbox.expired_cursors:
+                        self.reply({"error": {"message": "WIRE_ERROR_SENTINEL"}}, 404)
+                        return
+                    if mailbox.gap:
+                        if query.get("pageToken") == ["catchup-second"]:
+                            if mailbox.catchup_page_failure:
+                                self.reply(
+                                    {"error": {"message": "WIRE_ERROR_SENTINEL"}}, 503
+                                )
+                            else:
+                                self.reply({"historyId": f"history-{mailbox.revision}"})
+                        else:
+                            self.reply(
+                                {
+                                    "historyId": f"history-{mailbox.revision}",
+                                    "history": [
+                                        {
+                                            "id": f"catchup-record-{mailbox.revision}",
+                                            "messagesAdded": [
+                                                {
+                                                    "message": {
+                                                        "id": "catchup-new",
+                                                        "threadId": "catchup-thread",
+                                                    }
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                    "nextPageToken": "catchup-second",
+                                }
+                            )
+                        return
                     rows = []
                     if mailbox.revision > 1 and query["startHistoryId"] != [
                         f"history-{mailbox.revision}"
@@ -193,7 +274,12 @@ class Mailbox:
                                     prefix + "-new",
                                     prefix + "-draft",
                                 )
-                            ],
+                            ]
+                            + (
+                                [mailbox.message("future-gap")]
+                                if mailbox.gap and prefix == "future"
+                                else []
+                            ),
                         }
                     )
                 elif "/messages/" in path:

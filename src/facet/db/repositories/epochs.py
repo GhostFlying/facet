@@ -44,14 +44,24 @@ _TERMINAL = {
 
 
 def _latest_unresolved_gap(uow, projection_id):
-    from .serialization import COLUMNS
-
     # A later H1 may itself expire before recovery. Completion of its exact
     # descendant lineage closes ancestor polling gates, not their factual rows.
     # UNION deduplicates and strictly increasing checkpoint revisions exclude
     # cycles. Provider History IDs are only compared for identity, never ordered.
     rows = _query(
         uow,
+        unresolved_gap_query(),
+        (projection_id.value, projection_id.value, projection_id.value),
+        maximum=1,
+    )
+    return None if not rows else _decode(uow, projection_id, "history_gaps", rows[0])
+
+
+def unresolved_gap_query():
+    """Share the exact read-only lineage predicate with offline status."""
+    from .serialization import COLUMNS
+
+    return (
         "WITH RECURSIVE resolved(gap_id) AS ("
         "SELECT g.gap_id FROM history_gaps g JOIN epochs e "
         "ON e.projection_id=g.projection_id AND e.gap_id=g.gap_id "
@@ -81,11 +91,8 @@ def _latest_unresolved_gap(uow, projection_id):
         + ",".join("g." + c for c in COLUMNS["history_gaps"])
         + " FROM history_gaps g WHERE g.projection_id=? "
         "AND NOT EXISTS(SELECT 1 FROM resolved r WHERE r.gap_id=g.gap_id) "
-        "ORDER BY g.checkpoint_revision DESC LIMIT 1",
-        (projection_id.value, projection_id.value, projection_id.value),
-        maximum=1,
+        "ORDER BY g.checkpoint_revision DESC LIMIT 1"
     )
-    return None if not rows else _decode(uow, projection_id, "history_gaps", rows[0])
 
 
 @_mutating

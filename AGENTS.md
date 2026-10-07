@@ -184,8 +184,10 @@ accidentally behaving differently is not authority to change the contract.
   default fixed six-month window, then automatically prepares/starts the guarded
   backfill and runs History/projection; no separate manual preview/start is
   required. Standalone preview stays zero-write; setup and ordinary run/restart
-  do not expand history. Rule/action learning remains prospective until a new
-  intentional sync scope or granular backfill start authorizes history. Preserve
+  do not authorize arbitrary historical expansion. Rule/action learning does not
+  initiate a historical scan; the bounded known-gap exception below uses current
+  processing/scan-time rules. Other historical expansion needs a new intentional
+  sync scope or granular backfill start. Preserve
   stable operation keys, confirmation/account/scope guards, H0/gap ordering,
   stopped generations and unknown-insert recovery. Current testing uses granular
   commands; this product decision is not authorization of new live bulk copying.
@@ -228,10 +230,15 @@ rule and recovery invariants remain.
   remain provider responsibilities; Facet does not infer sender or content safety.
 - Source Spam/Trash/drafts do not cause new automatic admission. A tracked
   thread's available non-draft history may include Spam/Trash; preview this.
-- Dynamic rules apply prospectively, plus the currently explicitly selected
-  thread. Preserve `effective_at`. Reconcile cannot turn a new domain rule into
-  implicit historical backfill. Removing an allow rule does not stop previously
-  tracked threads.
+- Product decision (2026-10-07): rule changes and mail arrival have no strict
+  temporal ordering guarantee. History/gap admission uses effective rules
+  selected at processing/scan time; do not reconstruct historical rule versions
+  or reject in-window gap candidates solely for preceding rule creation.
+  Preserve `effective_at` as audit metadata. Recovery may cover the entire known
+  downtime window, not arbitrary older history. Its initial current-rules query
+  stays stable for pagination; rule removal blocks new admission. Reconcile,
+  normal restart and new rules cannot trigger arbitrary historical backfill.
+  Removing an allow rule does not stop previously tracked threads.
 - Support `AI/AddSender`, `AI/AddDomain`, `AI/BlackList`. Deduplicate action commands
   by `(projection, history record, label, source thread)`. Learn the latest valid
   external sender, excluding explicitly configured own addresses. Never learn

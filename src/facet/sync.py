@@ -137,9 +137,25 @@ class SourceCandidateAdmission:
     def evaluate(self, item, epoch):
         from facet.projection.backfill import DiscoveryDecision
 
+        recovering = getattr(epoch, "kind", None) is EpochKind.HISTORY_GAP
         try:
-            result = self._source.candidate(item)
+            result = (
+                self._source.history_candidate(item)
+                if recovering
+                else self._source.candidate(item)
+            )
         except ProviderFailure as error:
+            if (
+                recovering
+                and error.code
+                in {
+                    ErrorCode.SOURCE_AUTH_REQUIRED,
+                    ErrorCode.SOURCE_RATE_LIMITED,
+                    ErrorCode.NETWORK_UNAVAILABLE,
+                }
+                and error.status != 404
+            ):
+                raise
             return DiscoveryDecision(False, attention=error.code)
         if result.attention is not None:
             code = (
@@ -148,7 +164,15 @@ class SourceCandidateAdmission:
                 else ErrorCode.REQUEST_CONFLICT
             )
             return DiscoveryDecision(False, attention=code)
-        decision = self._policy.evaluate(result.candidate, _now())
+        if recovering and not (
+            epoch.window_start.value
+            <= result.candidate.observed_at.value
+            <= epoch.window_end.value
+        ):
+            return DiscoveryDecision(False)
+        decision = self._policy.evaluate(
+            result.candidate, _now(), prospective=recovering
+        )
         if decision.admit:
             return DiscoveryDecision(True, decision.rule)
         return DiscoveryDecision(False)
@@ -163,6 +187,7 @@ class SyncCycleReceipt:
     resolved_events: int = 0
     projected: WorkerReceipt = WorkerReceipt()
     attention: int = 0
+    warnings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -176,6 +201,15 @@ class SyncCycleReceipt:
                 )
             )
             or type(self.projected) is not WorkerReceipt
+            or type(self.warnings) is not tuple
+            or any(
+                warning
+                not in {
+                    "history_gap_scan_pending",
+                    "expired_action_events_not_reconstructable",
+                }
+                for warning in self.warnings
+            )
         ):
             raise ValueError("invalid_input")
 
@@ -251,8 +285,31 @@ class ForegroundSync:
             raise ValueError("invalid_input")
         self._require_ready()
         self._recover_pre_dispatch_claims()
+        from facet.projection.gap_recovery import GapRecovery
+
+        recovery = GapRecovery(
+            self._owner,
+            self._source,
+            self._worker,
+            self._admission_for_epoch,
+            self._history_admission,
+        )
+        recovery_epoch = recovery.prepare()
+        recovery_pages = 0
+        if recovery_epoch is not None:
+            if not recovery.scan(recovery_epoch, max_jobs=max_jobs):
+                return SyncCycleReceipt(
+                    attention=1,
+                    warnings=(
+                        "history_gap_scan_pending",
+                        "expired_action_events_not_reconstructable",
+                    ),
+                )
+            recovery_pages = recovery.catchup(recovery_epoch, self._history)
         discovered = self._discover_backfill_epoch()
-        history_pages = self._poll_history()
+        history_pages = (
+            recovery_pages if recovery_epoch is not None else self._poll_history()
+        )
         resolved, attention = self._resolve_events(max_events)
         projected = self._worker.run(max_jobs=max_jobs)
         # An action effect may enqueue a thread expansion.  Drain the newly
@@ -276,6 +333,7 @@ class ForegroundSync:
             resolved,
             projected,
             attention,
+            recovery.warnings(),
         )
 
     def _require_ready(self) -> None:
@@ -973,7 +1031,8 @@ class ForegroundSync:
             rows = _query(
                 uow,
                 "SELECT epoch_id FROM epochs WHERE projection_id=? "
-                "AND kind='historical_expansion' AND discovery_complete=1 "
+                "AND kind IN ('historical_expansion','history_gap') "
+                "AND discovery_complete=1 "
                 "AND state IN ('catching_up','draining') ORDER BY created_at,epoch_id",
                 (self._projection.value,),
             )
@@ -984,7 +1043,10 @@ class ForegroundSync:
                     "epochs",
                     (("epoch_id", LocalId(identifier)),),
                 )
-                if not epochs.historical_coverage_complete(
+                if epoch.kind is EpochKind.HISTORY_GAP:
+                    if epoch.catchup_history_id is None:
+                        continue
+                elif not epochs.historical_coverage_complete(
                     uow, self._projection, epoch
                 ):
                     continue

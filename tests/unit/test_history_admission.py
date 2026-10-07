@@ -158,14 +158,17 @@ def test_history_new_thread_admission_or_normal_no_effect(monkeypatch, case):
         try:
             result = _runner(owner, source, target).run_once()
             assert result.attention == 0
-            assert target.inserted == (1 if case == "sender" else 0)
+            # Processing-time rules also apply to delayed History events whose
+            # message internalDate precedes the allow rule's creation.
+            admitted = case in {"sender", "old"}
+            assert target.inserted == int(admitted)
             assert owner._connection.execute(
                 "SELECT processing FROM source_events"
             ).fetchone() == ("consumed",)
             assert owner._connection.execute(
                 "SELECT state FROM sync_jobs WHERE kind='resolve_event'"
             ).fetchone() == ("completed",)
-            if case == "sender":
+            if admitted:
                 assert owner._connection.execute(
                     "SELECT tag FROM thread_admissions"
                 ).fetchone() == ("future_rule",)

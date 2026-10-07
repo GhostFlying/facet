@@ -134,11 +134,11 @@ Action、规则变更、thread active 状态和对应 jobs 尽可能在同一 SQ
 
 先解析唯一有效的 From address，规范化 domain 和 IDNA，再做 exact sender 与带点边界的 domain 匹配。`hyatt.com` 可匹配 `mail.hyatt.com`，不能匹配 `evil-hyatt.com` 或 `hyatt.com.attacker.example`。PSL 用于学习 registrable domain 和拒绝公共后缀；其版本可审计，更新不隐式改写已有 rule。
 
-新 thread 的自动决策顺序为 mailbox eligibility、blacklist、allow sender 或 domain，再决定 admission 或 review。没有匹配为忽略；格式歧义、账号不匹配或 provider 故障不放行。初始 backfill 的规则可在六个月窗口内应用；动态规则保存生效时间，自动 discovery 和 reconcile 不越过该时间向历史扩张。
+新 thread 的自动决策顺序为 mailbox eligibility、blacklist、allow sender 或 domain，再决定 admission 或 review。没有匹配为忽略；格式歧义、账号不匹配或 provider 故障不放行。初始 backfill 的规则可在六个月窗口内应用。动态规则保存 effective_at 作审计，不保证规则变更与邮件到达的严格时序；History/gap 按处理或扫描时选定的生效规则判断。新增规则不触发任意历史回扫，gap 仅覆盖已知停机窗口。
 
 用户于 2026-10-05 正式删除 source-path attestation 和 sender authentication gate。Gmail 负责 SMTP 认证与邮件分类；Facet 只读取 metadata 并执行披露规则，不调用 DNS/DKIM、不为 admission 获取 raw、不使用 `Authentication-Results` 决策，也不声明发件人真实或内容安全。旧配置中的 `rules.authenticity: require_trusted_auth` 仅兼容读取、无行为效果，新配置不再写出该字段。持久化的 `auth-v1` 保持为兼容的规则策略 token，不再表示认证证明，无 DB migration。
 
-Review 是 metadata/provider 等异常处理，不是第一期的常规 thread 选择入口。Action 学习可以更新规则；future rule 仍遵守精确匹配和 effective_at。已 tracked thread 继承 thread 授权，其未来消息不再逐封要求 sender 匹配；这一披露范围必须在 preview 和文档中说明。
+Review 是 metadata/provider 等异常处理，不是第一期的常规 thread 选择入口。Action 学习可以更新规则；future rule 遵守精确匹配和有边界的 discovery，不按邮件时间重建规则。已 tracked thread 继承 thread 授权，其未来消息不再逐封要求 sender 匹配；这一披露范围必须在 preview 和文档中说明。
 
 Source `SPAM`、`TRASH`、草稿默认不触发新 admission。Tracked thread 复制可用且非草稿的完整消息；其中包含 Spam 或 Trash 状态的历史应在 preview 提示。Source 删除和 mailbox 状态不会同步为 target 删除。
 
@@ -233,7 +233,7 @@ History polling、分页、cursor、事件持久化/去重和 `messagesAdded`/ac
 
 Gmail History 可能过期并返回 404，不能假定固定保留时间。[Gmail synchronization](https://developers.google.com/workspace/gmail/api/guides/sync)、[history.list pagination](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list)
 
-恢复步骤为记录新的 H1，再对全部 active tracked threads 比较 source message 集合，并按上次可靠覆盖时间减 safety margin 到恢复开始时间重新 discovery。窗口覆盖整个停机期，即使超过原六个月；动态规则仍受 effective_at 限制。恢复工作持久入队后，从 H1 消费扫描期间新增事件。
+恢复步骤为记录新的 H1，再对全部 active tracked threads 比较 source message 集合，并按上次可靠覆盖时间减 safety margin 到恢复开始时间重新 discovery。窗口覆盖整个停机期，即使超过原六个月；使用恢复扫描开始时选定的当前规则，不排除窗口内早于规则创建的邮件，不重建历史规则。查询范围保持稳定以续跑分页，移除规则仍阻止新的 admission。恢复工作持久入队后，从 H1 消费扫描期间新增事件。此例外不授权普通重启扩大到任意历史。
 
 若没有可信的上次覆盖时间，报告未知 gap 并要求明确恢复范围，不自行披露全历史。History 已过期且 action label 在 gap 中添加后又移除时，单凭当前快照无法重建该命令；如实报告这一限制，保留现有规则，不虚构成功处理。
 

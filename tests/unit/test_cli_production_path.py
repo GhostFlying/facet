@@ -1,10 +1,15 @@
-from types import SimpleNamespace
+import pytest
 
 from facet.cli import bootstrap
+from facet.sync import SyncCycleReceipt
 
 
+@pytest.mark.parametrize(
+    "expected_warnings", [(), ("expired_action_events_not_reconstructable",)]
+)
 def test_production_run_dispatches_reviewed_factory_without_exposing_provider_data(
     monkeypatch,
+    expected_warnings,
 ):
     factory = object()
     seen = {}
@@ -20,12 +25,12 @@ def test_production_run_dispatches_reviewed_factory_without_exposing_provider_da
             factory=received_factory,
             kwargs=kwargs,
         )
-        return SimpleNamespace(
+        return SyncCycleReceipt(
             discovered=2,
             history_pages=1,
             resolved_events=3,
-            projected=SimpleNamespace(verified=0),
             attention=2,
+            warnings=expected_warnings,
         )
 
     monkeypatch.setattr(
@@ -45,7 +50,7 @@ def test_production_run_dispatches_reviewed_factory_without_exposing_provider_da
         "projected": 0,
         "attention": 2,
     }
-    assert warnings == ()
+    assert warnings == expected_warnings
     assert seen == {
         "owner": owner,
         "config": config,

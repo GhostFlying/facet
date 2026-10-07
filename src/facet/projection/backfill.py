@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from facet.contracts import (
     Count,
+    EpochKind,
     EpochState,
     ErrorCode,
     Generation,
@@ -26,13 +27,15 @@ from facet.contracts import (
     Timestamp,
 )
 from facet.contracts.records import (
+    AdmissionRefFutureRule,
     AdmissionRefInitialBackfill,
     JobSubjectExpandThread,
+    PartitionRefSourceWindow,
     ThreadGenerationGuardTracked,
     ThreadGenerationGuardUntracked,
 )
 from facet.db.codecs import StorageFailure
-from facet.db.keys import job_key
+from facet.db.keys import job_key, partition_key
 from facet.db.models import (
     EpochPartitionRow,
     RevisionGuard,
@@ -42,6 +45,7 @@ from facet.db.models import (
 )
 from facet.db.repositories import epochs, policy
 from facet.db.repositories.base import _get
+from facet.gmail.source import discovery_window
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,9 +82,10 @@ def _now() -> Timestamp:
 
 
 def _query_digest(query, epoch) -> str:
-    window = (
-        f"after:{epoch.window_start.value.astimezone(UTC):%Y/%m/%d} "
-        f"before:{epoch.window_end.value.astimezone(UTC):%Y/%m/%d}"
+    window = discovery_window(
+        epoch.window_start.value,
+        epoch.window_end.value,
+        precise=epoch.kind is EpochKind.HISTORY_GAP,
     )
     try:
         rendered = query.render(window)
@@ -146,7 +151,18 @@ class BackfillProducer:
         with owner.transaction() as uow:
             epoch = _get(uow, projection_id, "epochs", (("epoch_id", epoch_id),))
             partition = _get(
-                uow, projection_id, "epoch_partitions", (("epoch_id", epoch_id),)
+                uow,
+                projection_id,
+                "epoch_partitions",
+                (
+                    ("epoch_id", epoch_id),
+                    (
+                        "partition_key",
+                        partition_key(
+                            projection_id, PartitionRefSourceWindow("source_window")
+                        ),
+                    ),
+                ),
             )
             if epoch is None or partition is None:
                 raise ValueError("invalid_input")
@@ -177,6 +193,11 @@ class BackfillProducer:
                 window_end=epoch.window_end.value,
                 page_token=token,
                 **({"query": query} if query is not None else {}),
+                **(
+                    {"precise_window": True}
+                    if epoch.kind is EpochKind.HISTORY_GAP
+                    else {}
+                ),
             )
             # Candidate metadata/authentication is provider work and must not
             # execute while the SQLite writer transaction is open.
@@ -251,6 +272,44 @@ class BackfillProducer:
                     # thread still matches the discovery window.
                     if existing is not None:
                         continue
+                    if epoch.kind is EpochKind.HISTORY_GAP:
+                        projection = _get(uow, projection_id, "projections", ())
+                        member = _get(
+                            uow,
+                            projection_id,
+                            "ruleset_members",
+                            (
+                                ("ruleset_revision", projection.ruleset_revision),
+                                ("rule_id", decision.rule.rule_id),
+                            ),
+                        )
+                        identity = _get(
+                            uow,
+                            projection_id,
+                            "rules",
+                            (("rule_id", decision.rule.rule_id),),
+                        )
+                        current_rule = (
+                            None
+                            if identity is None
+                            else _get(
+                                uow,
+                                projection_id,
+                                "rule_revisions",
+                                (
+                                    ("rule_id", identity.rule_id),
+                                    ("revision", identity.current_revision),
+                                ),
+                            )
+                        )
+                        if (
+                            member is None
+                            or member.rule_revision != decision.rule.revision
+                            or current_rule is None
+                            or not current_rule.enabled
+                            or current_rule.revision != decision.rule.revision
+                        ):
+                            continue
                     generation = Generation(
                         1 if existing is None else existing.generation.value + 1
                     )
@@ -274,7 +333,11 @@ class BackfillProducer:
                         thread.admission_revision,
                         generation,
                         now,
-                        AdmissionRefInitialBackfill(
+                        AdmissionRefFutureRule(
+                            "future_rule", decision.rule, PolicyVersion("auth-v1")
+                        )
+                        if epoch.kind is EpochKind.HISTORY_GAP
+                        else AdmissionRefInitialBackfill(
                             "initial_backfill",
                             epoch_id,
                             decision.rule,
@@ -408,6 +471,8 @@ class BackfillProducer:
                     epoch = _get(
                         uow, projection_id, "epochs", (("epoch_id", epoch_id),)
                     )
+                if epoch.kind is EpochKind.HISTORY_GAP:
+                    return 0
                 epochs.advance_epoch(
                     uow,
                     projection_id,

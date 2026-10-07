@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from facet.contracts import (
     Count,
+    ErrorCode,
     JobKind,
     JobState,
     LabelChange,
@@ -279,7 +280,7 @@ class HistoryProducer:
                         observed_at,
                     )
                     epochs.record_gap(uow, projection_id, gap)
-                raise
+                raise error.with_code(ErrorCode.MAINTENANCE_REQUIRED) from None
             # The poll start is the stable observation timestamp for replay;
             # restarting after a page fault must reconstruct the same closed
             # page row rather than allocate a second local fact.

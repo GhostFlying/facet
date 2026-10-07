@@ -80,11 +80,20 @@ class ProjectionWorker:
         self._projection = owner.projection_id
 
     def run(self, *, max_jobs=1):
+        return self._run(max_jobs=max_jobs)
+
+    def expand_epoch(self, epoch_id: LocalId, *, max_jobs=1000):
+        """Scan a recovery epoch without selecting any target-write jobs."""
+        if type(epoch_id) is not LocalId:
+            raise ValueError("invalid_input")
+        return self._run(max_jobs=max_jobs, expansion_epoch=epoch_id)
+
+    def _run(self, *, max_jobs, expansion_epoch=None):
         if type(max_jobs) is not int or not 1 <= max_jobs <= 10_000:
             raise ValueError("invalid_input")
         counts = {field: 0 for field in WorkerReceipt.__dataclass_fields__}
         for _ in range(max_jobs):
-            job = self._claim_next()
+            job = self._claim_next(expansion_epoch)
             if job is None:
                 break
             counts["processed"] += 1
@@ -119,7 +128,7 @@ class ProjectionWorker:
             counts[outcome] += 1
         return WorkerReceipt(**counts)
 
-    def _claim_next(self):
+    def _claim_next(self, expansion_epoch=None):
         now = _now()
         with self._owner.session.transaction() as uow:
             rows = _query(
@@ -134,8 +143,14 @@ class ProjectionWorker:
                 "AND j.state IN('queued','retry_wait') AND "
                 "(j.next_attempt_at IS NULL OR j.next_attempt_at<=?) "
                 "AND t.active=1 AND t.generation=j.generation "
-                "ORDER BY j.created_at,j.job_id LIMIT 1",
-                (self._projection.value, timestamp_to_sql(now)),
+                + (
+                    "AND j.kind='expand_thread' AND j.subject_epoch_id=? "
+                    if expansion_epoch is not None
+                    else ""
+                )
+                + "ORDER BY j.created_at,j.job_id LIMIT 1",
+                (self._projection.value, timestamp_to_sql(now))
+                + ((expansion_epoch.value,) if expansion_epoch is not None else ()),
                 maximum=1,
             )
             if not rows:
@@ -287,6 +302,14 @@ class ProjectionWorker:
                     job.subject.epoch_id,
                     subject,
                 )
+                existing = _get(
+                    uow,
+                    self._projection,
+                    "sync_jobs",
+                    (("stable_key", child.stable_key),),
+                )
+                if existing is not None:
+                    child = replace(child, priority=existing.priority)
                 children.append(child)
                 items.append(
                     ThreadExpansionItemRow(

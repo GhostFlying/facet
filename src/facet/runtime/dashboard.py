@@ -26,7 +26,7 @@ from facet.contracts import (
     Timestamp,
 )
 from facet.db.codecs import timestamp_from_sql
-from facet.db.repositories import reads
+from facet.db.repositories import epochs, reads
 from facet.db.repositories.base import _decode, _query
 from facet.db.repositories.serialization import COLUMNS
 from facet.status.errors import catalog_entry
@@ -230,6 +230,7 @@ def snapshot_from_owner(
             else (None, None)
         )
         issues = _issues(uow, owner.projection_id, sampled_at, error_code)
+        unresolved_gap = epochs._latest_unresolved_gap(uow, owner.projection_id)
         last_poll = uow._execute(
             "SELECT MAX(finished_at) FROM history_polls WHERE projection_id=? "
             "AND state='completed'",
@@ -261,6 +262,10 @@ def snapshot_from_owner(
             else PublicHealth.DEGRADED
         )
     phase = _phase(projection, epoch)
+    if unresolved_gap is not None:
+        phase = PublicPhase.RECOVERING
+        if health not in {PublicHealth.BLOCKED, PublicHealth.DEGRADED}:
+            health = PublicHealth.DEGRADED
     role_status = tuple(
         RoleStatus(
             role,
