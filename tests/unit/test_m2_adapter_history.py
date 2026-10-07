@@ -320,7 +320,6 @@ def test_target_adapter_has_insert_and_readback_only(gmail_controller):
             "userId": "me",
             "body": {"raw": "aGVsbG8"},
             "internalDateSource": "dateHeader",
-            "neverMarkSpam": True,
         },
         InsertReply(thread_id="target-thread"),
     )

@@ -12,7 +12,12 @@ blocked/recovery rather than being silently reset.
 
 - Remove the unsupported keyword from `src/facet/gmail/target.py`.
 - Update two exact synthetic request expectations in
-  `tests/unit/test_projection_worker.py`.
+  `tests/unit/test_projection_worker.py` and the existing adapter expectation in
+  `tests/unit/test_m2_adapter_history.py`.
+- Remove this unsupported keyword from `tests/fakes/gmail.py`'s supported insert
+  arguments and add a rejection regression in `tests/unit/test_fakes_gmail.py`.
+  This aligns the shared fake with the production request; no production
+  transport or recovery behavior changes.
 - Add `tests/unit/test_gmail_target_discovery.py`, using the real locked
   Google discovery/client with only HTTP responses substituted. Cover both
   Date policies, optional thread anchor, unchanged raw bytes, zero automatic

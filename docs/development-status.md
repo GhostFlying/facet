@@ -1,6 +1,6 @@
 # Facet development status
 
-Updated: 2026-10-05 (PRC; historical UTC receipts retain their original dates)
+Updated: 2026-10-07 (PRC; historical UTC receipts retain their original dates)
 
 This is the durable handoff for autonomous development. Update it with evidence
 at the end of each coherent implementation unit. Do not store account addresses,
@@ -31,10 +31,25 @@ construction raises before HTTP. The bounded fix removes that keyword and adds
 real-discovery tests with only HTTP substituted, including Date policy, thread
 anchor, exact raw bytes and single-attempt provider failures. Four new cases
 failed on the old adapter; 90 focused adapter/worker/CLI cases pass after the
-fix. Full candidate checks and independent implementation review remain pending.
+fix. Independent implementation review approved exact candidate
+`1b09b8f629d00e7ba7573e311ff6c764664d76fe`; see the
+[bounded review record](reviews/gmail-insert-discovery-compatibility.md).
+The unchanged Dockerfile built on sgbox and the resulting non-root local image
+passed actual-client request construction with networking disabled. On an
+isolated synthetic Compose volume, production CLI subprocesses completed init,
+fake authorization/binding, sender rule, preview, explicit start, insert/readback
+and durable mapping; a second process confirmed the mapping without another
+insert. No readiness, rule, binding or epoch was seeded directly into the DB.
+The full offline candidate suite is still running; no CI/merge/publication or
+successful live projection is claimed.
 Container Google connectivity also needs an environment-specific solution;
 temporary host-network/IPv6 resolution overrides proved the bounded live CLI
 path, not a generally usable Compose network or public Dashboard deployment.
+
+Next live gate: the operator resolves the dedicated-target prerequisite; the
+existing unknown attempt stays in recovery until an authorized, evidence-based
+recovery action is available. Next engineering gaps are incremental admission
+for new untracked message events and a usable container Google network path.
 
 | Unit | Status | Evidence / remaining gate |
 | --- | --- | --- |
