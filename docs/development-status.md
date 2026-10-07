@@ -40,7 +40,12 @@ isolated synthetic Compose volume, production CLI subprocesses completed init,
 fake authorization/binding, sender rule, preview, explicit start, insert/readback
 and durable mapping; a second process confirmed the mapping without another
 insert. No readiness, rule, binding or epoch was seeded directly into the DB.
-The full offline candidate suite is still running; no CI/merge/publication or
+The shared-fake alignment follow-up at
+`9d2d6ef1b799c10c864eab461cb27957538255e0` was independently approved and
+passed the complete offline suite: 2653 tests. Repository Ruff/format, locked
+environment sync, CLI help and safety checks passed. Production source and
+image build inputs did not change in that follow-up, so the prior local image
+evidence remains valid. No CI/merge/publication, real-service upgrade or
 successful live projection is claimed.
 Container Google connectivity also needs an environment-specific solution;
 temporary host-network/IPv6 resolution overrides proved the bounded live CLI
@@ -50,6 +55,10 @@ Next live gate: the operator resolves the dedicated-target prerequisite; the
 existing unknown attempt stays in recovery until an authorized, evidence-based
 recovery action is available. Next engineering gaps are incremental admission
 for new untracked message events and a usable container Google network path.
+
+The package ledger below retains historical package evidence; it is not the
+current executable-command checklist. The current live result and next gaps
+are stated above.
 
 | Unit | Status | Evidence / remaining gate |
 | --- | --- | --- |

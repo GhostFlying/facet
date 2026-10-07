@@ -38,3 +38,27 @@ deployment volume and stopped service were not upgraded by these checks.
 This evidence does not authorize live repair, another insert for an existing
 unknown outcome, target cleanup or unmanaged-content adoption. The real target
 prerequisite, container network path and incremental admission gap remain open.
+
+## Shared-fake alignment follow-up
+
+The same independent reviewer approved the narrow delta from `1b09b8f` to
+`9d2d6ef1b799c10c864eab461cb27957538255e0`, with no findings; 66 shared-fake,
+adapter/history and real-discovery tests passed independently. A missed older
+adapter expectation had still required the invalid keyword. The delta corrects
+that expectation, removes the keyword from the fake's allowed arguments and
+tests rejection before request construction. Existing result and forbidden
+send/delete assertions remain. The coordinator's 90-test focused set also
+passed. Production source, lockfile, package inputs and Dockerfile are unchanged;
+the prior production review and image/Compose evidence remain valid.
+
+The earlier full run is not acceptance: it encountered the obsolete adapter
+expectation and an operator SIGINT surfaced in a subprocess fixture. The
+corrected candidate requires its own uninterrupted full-suite result, recorded
+in current status. Neither failure was hidden or treated as a passing gate.
+
+Final coordinator acceptance at `9d2d6ef`: the complete offline suite passed
+2653 tests in 500.10 seconds. Locked environment sync, repository Ruff/format,
+spike help and safety also passed. This receipt changes documentation only;
+it does not modify tested production source or test behavior. CI, integration,
+image publication, real-service upgrade and successful live projection are
+not claimed.
