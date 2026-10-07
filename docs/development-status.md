@@ -48,8 +48,26 @@ Complete offline checks passed. GitHub CI/integration are tracked separately;
 main merge/publication, real Gmail and live upgrade are not claimed. This focused
 repair depends on the preceding History candidate, not yet on main. Real sync
 stays stopped and its existing unknown attempt remains unchanged. Next: qualified
-integration and container Google connectivity before authorized live validation. See
+integration and deployment-network configuration before authorized live validation. See
 [review receipt](reviews/sync-single-dispatch-transport.md).
+
+User-requested local revalidation on 2026-10-07 passed all five real CLI/SDK/TCP
+cases again in the exact non-root image (66.93 seconds), with no external network
+or real-state mount. Normal History admission projected two non-draft messages,
+read them back and durably mapped them; a new process inserted no duplicates.
+Response loss, 503, 307 and 308 retained unknown recovery with no restart resend.
+Initial preview/start was empty in this fixture; this is not evidence of nonempty
+six-month backfill or live Gmail/API/UI acceptance.
+
+Unauthenticated HTTPS probes from an isolated one-off container on the existing
+Compose bridge failed on direct Google connections. Passing the host's existing
+proxy environment made Gmail/OAuth/Accounts HTTPS endpoints reachable in
+0.44–0.63 seconds (404/404/302 at public roots; connectivity, not API authorization).
+The current Compose recipe does not pass proxy variables; no recipe, live container
+or host networking was changed. Real sync stays stopped; no mailbox credential,
+real state, OAuth exchange, recovery retry or Gmail write was used. This narrows
+the local connectivity blocker to direct egress versus the tested proxy path;
+production proxy/network configuration and controlled live validation remain open.
 
 ### History current-rule admission (offline candidate)
 

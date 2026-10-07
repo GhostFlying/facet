@@ -63,3 +63,25 @@ events, credentials and scope are unchanged. No Gmail call, mailbox deletion,
 service resume, scope expansion or old-insert retry occurred. Container Gmail
 connectivity, qualified integration, and separately authorized live/recovery
 validation remain explicit next gates.
+
+## User-requested local revalidation, 2026-10-07
+
+The same immutable image ID/revision passed all five existing production CLI wire
+cases again in 66.93 seconds, non-root/read-only with external networking disabled
+and synthetic state on tmpfs. App source and real state were not mounted; only the
+read-only existing test driver/fake was mounted. No implementation or test fixture
+changed, so the existing exact-source independent review remains applicable.
+Preview/start in this fixture is empty; full-thread copying is triggered by the
+subsequent prospective History arrival, not a nonempty initial discovery scan.
+
+Separate no-credential HTTPS probes on the actual Compose bridge reproduced direct
+Google connection timeouts. Explicitly passing the existing host proxy environment
+to that isolated one-off container reached Gmail/OAuth/Accounts public HTTPS roots
+in 0.63/0.44/0.46 seconds (404/404/302). Those responses demonstrate TLS/HTTP
+connectivity only, not account binding, token refresh or live mail projection.
+Neither proxy values nor provider response bodies were logged in this receipt.
+No proxy configuration was persisted or added to Compose, and no real credential
+or state volume was mounted. The live sync container remains stopped; the old
+unknown insert was not retried. Deployment-network configuration and controlled
+live verification remain open. No full suite/image rebuild was repeated because
+source, dependencies and image did not change.
