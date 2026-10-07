@@ -67,8 +67,12 @@ path, not a generally usable Compose network or public Dashboard deployment.
 
 Next live gate: the operator resolves the dedicated-target prerequisite; the
 existing unknown attempt stays in recovery until an authorized, evidence-based
-recovery action is available. Next engineering gaps are incremental admission
-for new untracked message events and a usable container Google network path.
+recovery action is available. Cleanup review additionally reproduced a concrete
+httplib2 automatic wire resend despite Google `num_retries=0`. Cleanup's bounded
+transport correction does not fix the normal sync factory's corresponding
+insert risk: keep new live inserts stopped until it is independently corrected
+and wire-tested. Other engineering gaps are incremental admission for new
+untracked message events and a usable container Google network path.
 
 The package ledger below retains historical package evidence; it is not the
 current executable-command checklist. The current live result and next gaps

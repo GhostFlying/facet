@@ -146,6 +146,7 @@ def run_cleanup(options):
             return journal.receipt(options.preview), WARNINGS
         from facet.cli.bootstrap import _setup_oauth_callback_timeout
         from facet.gmail.cleanup_oauth import authorize_cleanup
+        from facet.gmail.cleanup_transport import build_cleanup_service
         from facet.gmail.oauth import read_desktop_client
 
         access = authorize_cleanup(
@@ -153,12 +154,15 @@ def run_cleanup(options):
             port=options.port,
             callback_timeout_seconds=_setup_oauth_callback_timeout(),
         )
-        service = GoogleGmailServiceFactory._build(Role.TARGET, access.token.value)
-        check_profile(service, config.projection.target_email)
-        # No normal credential envelope is loaded or replaced for execute.
-        if _identity(owner, config, raw) != identity:
-            raise StorageFailure(ErrorCode.BINDING_MISMATCH)
-        return journal.execute(service, options.preview), WARNINGS
+        service = build_cleanup_service(access.token.value)
+        try:
+            check_profile(service, config.projection.target_email)
+            # No normal credential envelope is loaded or replaced for execute.
+            if _identity(owner, config, raw) != identity:
+                raise StorageFailure(ErrorCode.BINDING_MISMATCH)
+            return journal.execute(service, options.preview), WARNINGS
+        finally:
+            service.close()
     finally:
         if journal is not None:
             journal.close()

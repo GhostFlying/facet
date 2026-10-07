@@ -39,6 +39,9 @@ class CleanupHttp:
                     )
                 )
 
+    def close(self):
+        pass
+
     def respond(self, path, query, method):
         if path.endswith("/profile"):
             value = {"emailAddress": self.profile}

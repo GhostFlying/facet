@@ -21,6 +21,11 @@ mutation, retention policy, duplicate repair, DB reset or insert retry.
 - `src/facet/gmail/cleanup_oauth.py`: ephemeral full-scope installed-app flow;
   reuse Desktop-client parsing and existing silent callback/state validation.
   Do not change normal credential enums, envelopes, policies or token files.
+- `src/facet/gmail/cleanup_transport.py`: bounded cleanup-only requests.Session
+  transport for the actual Google client. Reuse locked requests 2.34.2 as an
+  explicit dependency; HTTPAdapter(max_retries=0), redirects disabled, 30-second
+  timeout and in-memory access-only Authorization. No native layer or runtime
+  framework. Keep normal sync factory unchanged in this unit.
 - `src/facet/cli/target_cleanup.py` and small `cli/bootstrap.py` dispatch:
   reuse managed config, StateOwner lock, binding checks, target-only credential
   manager refresh and access-only Google transport. Status works offline.
@@ -68,6 +73,12 @@ completion, present permits the same ID's delete;
 auth/network ambiguity stays unresolved. IDs are never replaced or expanded.
 Persist request-key/payload identity before deletes and reject key reuse with a
 different preview/confirmation. Completed replay does not request OAuth or delete.
+
+Implementation review reproduced two DELETE wire dispatches from httplib2 after
+BadStatusLine despite Google num_retries=0. The cleanup-only transport above
+avoids that implicit resend; acceptance adds a real requests/urllib3 loopback TCP
+response-loss test. The normal sync factory shares this concrete insert risk;
+record it as a separate live-sync blocker, not a solved side effect of cleanup.
 
 Show existing mapping and unknown-insert counts as warnings; cleanup can remove
 recovery evidence and cannot be undone via a metadata backup. Preserve all main

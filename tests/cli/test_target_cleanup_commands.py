@@ -28,11 +28,15 @@ from facet.gmail.cleanup_oauth import CleanupAccess
 from facet.gmail.credential_models import SecretText
 from facet.gmail.service_factory import GoogleGmailServiceFactory
 import facet.gmail.cleanup_oauth as oauth
+import facet.gmail.cleanup_transport as cleanup_transport
 
 def client(role, access_token):
     return build("gmail", "v1", http=CleanupHttp(os.environ["CLEANUP_HTTP_STATE"]),
                  cache_discovery=False, num_retries=0)
 GoogleGmailServiceFactory._build = staticmethod(client)
+def cleanup_http(token):
+    return CleanupHttp(os.environ["CLEANUP_HTTP_STATE"])
+cleanup_transport.CleanupHttp = cleanup_http
 def authorize(client, **kwargs):
     return CleanupAccess(SecretText("CLEANUP_ACCESS_SENTINEL"),
                          datetime.now(UTC) + timedelta(hours=1))

@@ -19,5 +19,18 @@ tests. The cleanup and existing CLI bootstrap selection passed 85 cases before
 the final help-only parser correction. Final candidate review, complete checks
 and non-root image acceptance are pending; do not infer live deletion or merge.
 
+Candidate `1c502043c36ce65deefb55ae3df41b15e38658cb` received
+`changes_requested`: locked httplib2 can resend DELETE after a lost response
+despite Google `num_retries=0`. Reviewer reproduced two wire dispatches and
+independently passed the 41 focused tests; the old fake did not exercise that
+connection layer. The pre-fix full-suite run was stopped as superseded, not
+counted as acceptance. No live deletion or service upgrade occurred.
+Supplemental plan `ef894e55b55cd1228ae4f423785b16b469f3e223bb449ee60967b130b14f8d72`
+was independently approved for a cleanup-only requests transport, with retries
+and redirects disabled. Three real requests/urllib3 loopback wire cases now
+cover response loss, redirects and 401; loss emits exactly one DELETE and the
+same-ID GET precedes resumed work. The focused cleanup suite passed 44 cases.
+Normal sync's analogous insert-transport risk remains a separate live blocker.
+
 No real deletion, expanded persistent credential, source mutation, normal-state
 reset or unknown insert retry is authorized by this engineering receipt.
