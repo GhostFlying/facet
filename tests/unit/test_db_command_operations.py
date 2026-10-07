@@ -8,14 +8,17 @@ from unittest.mock import patch
 import pytest
 from fakes.privacy import inspect_files, inspect_sqlite, markers
 from test_command_bootstrap_storage import storage
-from test_db_history import poll
-from test_db_repositories import T, admit, publish, ready_test_metadata
+from test_db_history import page, poll
+from test_db_repositories import T, admit, job, publish, ready_test_metadata
 from test_db_schema import NOW, P, lid
 
 from facet.contracts import (
+    Count,
     EpochKind,
+    EpochState,
     ErrorCode,
     Generation,
+    PartitionState,
     ProviderId,
     Revision,
     Sha256Hex,
@@ -28,7 +31,8 @@ from facet.db.command_records import (
 )
 from facet.db.command_store import _find_backfill, preview_backfill, start_backfill
 from facet.db.models import RevisionGuard
-from facet.db.repositories import history, policy
+from facet.db.repositories import epochs, history, policy, reads
+from facet.db.repositories.base import _get
 
 
 @contextmanager
@@ -302,3 +306,226 @@ def test_initial_history_poll_consumes_owner_committed_h0_epoch():
         assert connection.execute(
             "SELECT active_poll_id,cursor FROM history_checkpoints"
         ).fetchone() == (value.poll_id.value, None)
+
+
+def finish_poll(session, value, revision):
+    with session.transaction() as uow:
+        history.begin_history_poll(uow, P, value, RevisionGuard(Revision(revision)))
+        row = page(value)
+        begun = history.begin_history_page(uow, P, row, RevisionGuard(Revision(0)))
+        finished = history.finish_history_page(
+            uow,
+            P,
+            value.poll_id,
+            row.ordinal,
+            row.metadata_digest,
+            RevisionGuard(begun.revision),
+        )
+        history.finish_history_poll(
+            uow,
+            P,
+            value.poll_id,
+            row.response_history_id,
+            RevisionGuard(finished.revision),
+        )
+
+
+def establish_initial(session):
+    with session.transaction() as uow:
+        preview = preview_backfill(uow, P, preview_request(400))
+        _, initial = start_backfill(uow, P, start_request(402, preview.operation_id))
+    finish_poll(
+        session,
+        poll(
+            406,
+            origin=PollOrigin.INITIAL_EPOCH,
+            origin_epoch_id=initial.epoch_id,
+            cursor=initial.fence_history_id,
+        ),
+        0,
+    )
+
+
+def test_expansion_needs_established_checkpoint_and_preserves_it_on_start():
+    with owner_storage() as (_, _, connection, session, _, *_):
+        with session.transaction() as uow:
+            first = preview_backfill(uow, P, preview_request(410))
+            _, initial = start_backfill(uow, P, start_request(412, first.operation_id))
+            fresh = preview_backfill(uow, P, preview_request(416))
+        with pytest.raises(StorageFailure), session.transaction() as uow:
+            start_backfill(uow, P, start_request(418, fresh.operation_id))
+        finish_poll(
+            session,
+            poll(
+                423,
+                origin=PollOrigin.INITIAL_EPOCH,
+                origin_epoch_id=initial.epoch_id,
+                cursor=initial.fence_history_id,
+            ),
+            0,
+        )
+        before = connection.execute("SELECT * FROM history_checkpoints").fetchall()
+        with session.transaction() as uow:
+            _, expansion = start_backfill(
+                uow, P, start_request(418, fresh.operation_id)
+            )
+        assert expansion.kind is EpochKind.HISTORICAL_EXPANSION
+        assert (
+            connection.execute("SELECT * FROM history_checkpoints").fetchall() == before
+        )
+        with pytest.raises(StorageFailure), session.transaction() as uow:
+            start_backfill(uow, P, start_request(425, fresh.operation_id))
+        assert connection.execute("SELECT COUNT(*) FROM epochs").fetchone() == (2,)
+
+
+@pytest.mark.parametrize("linked_state", [None, "queued", "failed"])
+def test_expansion_completion_requires_fence_coverage_and_terminal_linked_work(
+    linked_state,
+):
+    with owner_storage() as (_, _, connection, session, _, *_):
+        establish_initial(session)
+        invalidation = 0
+        if linked_state:
+            publish(session)
+            admit(session)
+            invalidation = 1
+        fence = Timestamp(NOW.value + timedelta(seconds=1))
+        with session.transaction() as uow:
+            preview = preview_backfill(
+                uow,
+                P,
+                replace(
+                    preview_request(430), invalidating_revision=Revision(invalidation)
+                ),
+            )
+            _, expansion = start_backfill(
+                uow,
+                P,
+                start_request(
+                    432, preview.operation_id, fence_at=fence, accepted_at=fence
+                ),
+            )
+            partition = _get(
+                uow, P, "epoch_partitions", (("epoch_id", expansion.epoch_id),)
+            )
+            complete = replace(
+                partition,
+                revision=Revision(1),
+                progress=replace(
+                    partition.progress,
+                    state=PartitionState.COMPLETE,
+                    completed_pages=Count(1),
+                ),
+            )
+            batch = (
+                (replace(job(440), origin_epoch_id=expansion.epoch_id),)
+                if linked_state
+                else ()
+            )
+            epochs.advance_partition(
+                uow, P, complete, batch, RevisionGuard(Revision(0))
+            )
+            epochs.advance_epoch(
+                uow,
+                P,
+                expansion.epoch_id,
+                EpochState.CATCHING_UP,
+                True,
+                Count(0),
+                RevisionGuard(Revision(0)),
+            )
+        # Earlier complete coverage cannot finish a newly fenced expansion.
+        with pytest.raises(StorageFailure), session.transaction() as uow:
+            epochs.advance_epoch(
+                uow,
+                P,
+                expansion.epoch_id,
+                EpochState.COMPLETED,
+                True,
+                Count(0),
+                RevisionGuard(Revision(1)),
+            )
+        later = replace(
+            poll(445, cursor=ProviderId("response-1"), checkpoint_revision=1),
+            started_at=Timestamp(NOW.value + timedelta(seconds=2)),
+        )
+        with session.transaction() as uow:
+            history.begin_history_poll(uow, P, later, RevisionGuard(Revision(1)))
+        with pytest.raises(StorageFailure), session.transaction() as uow:
+            epochs.advance_epoch(
+                uow,
+                P,
+                expansion.epoch_id,
+                EpochState.COMPLETED,
+                True,
+                Count(0),
+                RevisionGuard(Revision(1)),
+            )
+        with session.transaction() as uow:
+            row = page(later)
+            begun = history.begin_history_page(uow, P, row, RevisionGuard(Revision(0)))
+            finished = history.finish_history_page(
+                uow,
+                P,
+                later.poll_id,
+                row.ordinal,
+                row.metadata_digest,
+                RevisionGuard(begun.revision),
+            )
+            history.finish_history_poll(
+                uow,
+                P,
+                later.poll_id,
+                row.response_history_id,
+                RevisionGuard(finished.revision),
+            )
+        if linked_state == "queued":
+            with pytest.raises(StorageFailure), session.transaction() as uow:
+                epochs.advance_epoch(
+                    uow,
+                    P,
+                    expansion.epoch_id,
+                    EpochState.COMPLETED,
+                    True,
+                    Count(0),
+                    RevisionGuard(Revision(1)),
+                )
+            with session.transaction() as uow:
+                assert (
+                    reads.get_epoch(uow, P, expansion.epoch_id).state
+                    is EpochState.CATCHING_UP
+                )
+            return
+        if linked_state == "failed":
+            # Bounded synthetic terminal-failure injection, not a CLI shortcut.
+            with session.transaction() as uow:
+                uow._execute(
+                    "UPDATE sync_jobs SET state='failed' WHERE job_id=?",
+                    (lid(440).value,),
+                )
+            with pytest.raises(StorageFailure), session.transaction() as uow:
+                epochs.advance_epoch(
+                    uow,
+                    P,
+                    expansion.epoch_id,
+                    EpochState.COMPLETED,
+                    True,
+                    Count(0),
+                    RevisionGuard(Revision(1)),
+                )
+        final = (
+            EpochState.COMPLETED_WITH_ISSUES if linked_state else EpochState.COMPLETED
+        )
+        with session.transaction() as uow:
+            epochs.advance_epoch(
+                uow,
+                P,
+                expansion.epoch_id,
+                final,
+                True,
+                Count(0),
+                RevisionGuard(Revision(1)),
+            )
+        assert connection.execute(
+            "SELECT state FROM epochs WHERE epoch_id=?", (expansion.epoch_id.value,)
+        ).fetchone() == (final.value,)

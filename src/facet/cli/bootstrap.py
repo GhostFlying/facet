@@ -1638,6 +1638,7 @@ def _backfill_preview(options: object) -> tuple[dict, tuple[str, ...]]:
     from facet.contracts import Sha256Hex
     from facet.db.command_records import BackfillPreviewRequest
     from facet.db.command_store import (
+        _backfill_guards,
         _find_backfill,
         _find_backfill_by_id,
         preview_backfill,
@@ -1692,18 +1693,36 @@ def _backfill_preview(options: object) -> tuple[dict, tuple[str, ...]]:
                 microsecond=0,
             )
         )
-        request = BackfillPreviewRequest(
-            LocalId(uuid4().hex),
-            request_nonce,
-            window_start,
-            now,
-            Timestamp(now.value.replace(day=1)),
-            Sha256Hex(hashlib.sha256(b"facet-synthetic-scope-v1").hexdigest()),
-            Timestamp(now.value + timedelta(minutes=10)),
-            Revision(0),
-            now,
-        )
         with owner.session.transaction() as uow:
+            projection, binding_revision, _, invalidation = _backfill_guards(
+                uow, config.projection.id
+            )
+            cutoff = Timestamp(now.value.replace(day=1))
+            scope = json.dumps(
+                (
+                    "facet-backfill-scope-v1",
+                    config.projection.id.value,
+                    binding_revision.value,
+                    projection.config_revision.value,
+                    projection.ruleset_revision.value,
+                    invalidation.value,
+                    window_start.value.isoformat(),
+                    now.value.isoformat(),
+                    cutoff.value.isoformat(),
+                ),
+                separators=(",", ":"),
+            ).encode()
+            request = BackfillPreviewRequest(
+                LocalId(uuid4().hex),
+                request_nonce,
+                window_start,
+                now,
+                cutoff,
+                Sha256Hex(hashlib.sha256(scope).hexdigest()),
+                Timestamp(now.value + timedelta(minutes=10)),
+                invalidation,
+                now,
+            )
             operation = preview_backfill(uow, config.projection.id, request)
         with owner.session.transaction() as uow:
             saved_operation, payload = _find_backfill_by_id(
@@ -1722,8 +1741,7 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
     from facet.db.command_records import BackfillStartRequest
     from facet.db.command_store import (
         _find_backfill,
-        _find_backfill_by_id,
-        resume_projection,
+        preflight_backfill_start,
     )
     from facet.gmail.credential_models import policy_scopes
     from facet.gmail.credentials import CredentialManager, ProfileEvidence
@@ -1783,16 +1801,13 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
                     ),
                 ).fetchall()
                 epoch_id = row[0][0] if len(row) == 1 else None
-                if epoch_id is not None:
-                    resume_projection(uow, config.projection.id)
             if epoch_id is None:
                 raise ConfigError(ErrorCode.MAINTENANCE_REQUIRED)
             return {"epoch_id": epoch_id}, ()
         with owner.session.transaction() as uow:
-            existing = _find_backfill_by_id(uow, config.projection.id, preview_id)
-        if existing[0] is None:
-            raise ConfigError(ErrorCode.PREVIEW_INVALID)
-        preview, payload = existing
+            _, _, preview, _, _ = preflight_backfill_start(
+                uow, config.projection.id, preview_id, Timestamp(datetime.now(UTC))
+            )
         if any(
             binding is None or binding.state.value != "verified"
             for binding in owner.bindings().values()

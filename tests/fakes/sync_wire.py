@@ -40,6 +40,9 @@ class Mailbox:
         self.fault = None
         self.source_missing = False
         self.source_metadata_reads = 0
+        self.historical = False
+        self.discovery_queries = []
+        self.discovery_failure = False
 
     def arrive(self):
         self.revision += 1
@@ -47,14 +50,20 @@ class Mailbox:
 
     def message(self, identifier, raw=False):
         sender = (
-            "sender@example.com" if identifier == "future-new" else "other@example.com"
+            "sender@example.com"
+            if identifier in {"future-new", "historical-new", "blocked-new"}
+            else "other@example.com"
         )
         value = {
             "id": identifier,
-            "threadId": "future-thread",
-            "labelIds": ["DRAFT"] if identifier == "future-draft" else [],
+            "threadId": identifier.split("-", 1)[0] + "-thread",
+            "labelIds": ["DRAFT"] if identifier.endswith("-draft") else [],
             "internalDate": str(
-                self.arrived_at if identifier == "future-new" else 1767225600000
+                self.arrived_at
+                if identifier == "future-new"
+                else int((time.time() - 10 * 86400) * 1000)
+                if identifier.endswith("-new")
+                else 1767225600000
             ),
             "payload": {
                 "headers": [
@@ -108,6 +117,39 @@ class Mailbox:
                 elif path.endswith("/labels"):
                     self.reply({"labels": []})
                 elif path.endswith("/messages"):
+                    if source:
+                        mailbox.discovery_queries.append(query)
+                        if mailbox.historical:
+                            if query.get("pageToken") == ["second"]:
+                                if mailbox.discovery_failure:
+                                    self.reply(
+                                        {"error": {"message": "WIRE_ERROR_SENTINEL"}},
+                                        503,
+                                    )
+                                else:
+                                    self.reply(
+                                        {
+                                            "messages": [
+                                                {
+                                                    "id": "blocked-new",
+                                                    "threadId": "blocked-thread",
+                                                }
+                                            ]
+                                        }
+                                    )
+                            else:
+                                self.reply(
+                                    {
+                                        "messages": [
+                                            {
+                                                "id": "historical-new",
+                                                "threadId": "historical-thread",
+                                            }
+                                        ],
+                                        "nextPageToken": "second",
+                                    }
+                                )
+                            return
                     self.reply(
                         {
                             "messages": []
@@ -140,12 +182,17 @@ class Mailbox:
                         {"historyId": f"history-{mailbox.revision}", "history": rows}
                     )
                 elif "/threads/" in path:
+                    prefix = path.rsplit("/", 1)[1].removesuffix("-thread")
                     self.reply(
                         {
-                            "id": "future-thread",
+                            "id": prefix + "-thread",
                             "messages": [
                                 mailbox.message(mid)
-                                for mid in ("future-old", "future-new", "future-draft")
+                                for mid in (
+                                    prefix + "-old",
+                                    prefix + "-new",
+                                    prefix + "-draft",
+                                )
                             ],
                         }
                     )
