@@ -45,3 +45,18 @@ removed by this plan.
 - Stop if an unexpected target-insert exception can bypass
   `PENDING_RECOVERY/INSERT_RESULT_UNKNOWN`.
 - Stop if tests require changing the product privacy or authorization contract.
+
+## Integration correction: action-provider retry deadline (2026-10-08)
+
+Independent integration review reproduced a source thread-read 429 with
+Retry-After 120 being persisted as a one-second action-job retry. Carry the
+existing typed provider delay through `action_consumer.py` into its durable
+retry deadline, retaining the one-second fallback when no delay is provided.
+No schema, transport, disclosure, error inventory or insert-recovery change.
+In `tests/unit/test_projection_action_consumer.py`, verify the exact persisted
+deadline, no provider call after two seconds, and the same guard after reopening
+the SQLite writer. Exercise all three action kinds and the no-header fallback.
+Run focused action/sync checks and independent focused rereview; preserve the
+valid parent reviews. Carry this same bounded fix and the reviewed twenty-minute
+CI budget through the existing PR stack before ordered main integration. Each
+actual PR candidate still needs complete CI; no live mailbox action in this fix.
