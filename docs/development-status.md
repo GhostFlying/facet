@@ -8,6 +8,51 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Rule chronology simplification and gap candidate (not yet accepted)
+
+On 2026-10-07 the user confirmed processing/scan-time rule selection, without
+strict rule-change versus mail-arrival ordering. Known-gap recovery may admit
+pre-rule messages inside the complete downtime window, not arbitrary older mail.
+Effective timestamps remain audit metadata; stable recovery query scope, current
+rule-removal checks, stopped generations and unknown-insert recovery remain.
+The revised [gap plan](implementation-plans/history-gap-recovery.md) passed
+independent review at SHA256
+`49acf9b5b0d1fb67fd268d2691cac9c8ce40d444c013615ebf3953c3733f20c1`.
+
+The working candidate now performs resumable known-gap discovery/active-thread
+expansion and H1 pagination through production runtime. Processing-time allow
+evaluation is shared with ordinary History; internalDate only bounds gap scans.
+Affected admission/History/sync and real CLI external-wire tests passed, including
+pre-rule gap messages, scan/catchup interruption, mapping/readback and restarted
+no-resend. Related repository/worker/status tests also passed. Exact final checks,
+independent implementation acceptance, local non-root image E2E and CI remain
+pending; this is not qualified deployment or a completed milestone. Real sync
+remains stopped; no mailbox operation, unknown retry or service resume occurred.
+
+### Authorized historical test: preflight complete, bulk prerequisite unresolved
+
+On 2026-10-07 the user accepted the next-step real historical test and requested
+continued testing. The qualified image passed current-account/scope preflight:
+one enabled sender rule, nine mapped target messages, two permitted source-From
+SENT items, no other unmanaged items and no drafts. Fresh offline CLI preview/
+stable-key replay succeeded; protected business state stayed unchanged, with
+zero new attempts or epochs. No historical start/run or service restart occurred.
+
+Read-only Gmail search in the **original** six-month discovery window returned
+4203 candidate messages across 777 threads in nine pages. These are provider
+query candidates, not exact-sender eligibility or final copy counts; full thread
+history can be larger. The fresh preview has a later end boundary.
+
+Independent safety review identified the explicit real-bulk prerequisite in
+AGENTS.md and project-plan.md: gap recovery capability must exist. Current
+deployed production History 404 persists H1/gap and stops before worker inserts, but does
+not implement the complete recovery scan/H1 continuation. The reordered M2 live
+scope does not explicitly waive that gate. Hold start/run pending either the
+missing capability or an explicit, single-test user exception; read-only evidence
+does not complete gap recovery or any Phase 1 milestone. Old unknown/attention
+remain untouched. This is a gate/authority decision, not failed OAuth or target
+classification, and not a reason to reset state or retry unknown inserts.
+
 ### Granular historical backfill repair (qualified local candidate)
 
 Production source candidate `e391e982f9e2065aebc7d2f087d04829c920fe34` fixes

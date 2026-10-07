@@ -7,6 +7,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -23,6 +24,8 @@ def run_cli_wire(
     historical=False,
     expansion_fault=None,
     partial_discovery=False,
+    gap=False,
+    gap_fault=None,
 ):
     if lost_response:
         fault = "lost_response"
@@ -260,6 +263,81 @@ def run_cli_wire(
                 assert raw == base64.urlsafe_b64decode(
                     encoded + "=" * (-len(encoded) % 4)
                 )
+        if gap:
+            with sqlite3.connect(state / "facet.db") as db:
+                cursor = db.execute(
+                    "SELECT cursor FROM history_checkpoints"
+                ).fetchone()[0]
+                old_attempts = db.execute("SELECT * FROM insert_attempts").fetchall()
+                effective = db.execute(
+                    "SELECT effective_at FROM rule_revisions WHERE enabled=1"
+                ).fetchone()[0]
+            mailbox.expired_cursors.add(cursor)
+            mailbox.revision += 1
+            mailbox.gap = True
+            # The known gap includes these messages, but their arrival precedes
+            # rule creation. Recovery uses the scan-time rule, not that order.
+            mailbox.gap_arrived_at = int(time.time() * 1000) - 120_000
+            assert mailbox.gap_arrived_at * 1000 < effective
+            invoke("run", "--once", error="maintenance_required")
+            assert len(mailbox.inserted_raw) == inserts
+            with sqlite3.connect(state / "facet.db") as db:
+                assert db.execute(
+                    "SELECT cursor FROM history_checkpoints"
+                ).fetchone() == (cursor,)
+                assert db.execute("SELECT COUNT(*) FROM history_gaps").fetchone() == (
+                    1,
+                )
+                assert (
+                    db.execute("SELECT * FROM insert_attempts").fetchall()
+                    == old_attempts
+                )
+            status = invoke("status")
+            assert status["status"]["data"]["phase"] == "recovering"
+            assert status["status"]["data"]["health"] != "healthy"
+            mailbox.gap_page_failure = gap_fault == "discovery"
+            mailbox.catchup_page_failure = gap_fault == "catchup"
+            if gap_fault:
+                invoke("run", "--once", error="network_unavailable")
+                assert len(mailbox.inserted_raw) == inserts
+                with sqlite3.connect(state / "facet.db") as db:
+                    assert db.execute(
+                        "SELECT cursor FROM history_checkpoints"
+                    ).fetchone() == (cursor,)
+                mailbox.gap_page_failure = mailbox.catchup_page_failure = False
+            result = invoke("run", "--once")
+            assert result["projected"] == (7 if not fault else 6)
+            assert len(mailbox.inserted_raw) == inserts + (7 if not fault else 6)
+            with sqlite3.connect(state / "facet.db") as db:
+                start, end = db.execute(
+                    "SELECT window_start,window_end FROM epochs "
+                    "WHERE kind='history_gap'"
+                ).fetchone()
+                expected_window = (
+                    f"after:{start // 1_000_000 - 1} "
+                    f"before:{(end + 999_999) // 1_000_000}"
+                )
+                assert start <= mailbox.gap_arrived_at * 1000 <= end
+                assert all(
+                    expected_window in q["q"][0] for q in mailbox.discovery_queries
+                )
+                assert db.execute(
+                    "SELECT cursor FROM history_checkpoints"
+                ).fetchone() == (f"history-{mailbox.revision}",)
+                assert db.execute(
+                    "SELECT COUNT(*) FROM tracked_threads "
+                    "WHERE source_thread_id='historical-thread'"
+                ).fetchone() == (0,)
+                assert db.execute(
+                    "SELECT state FROM epochs WHERE kind='history_gap'"
+                ).fetchone() == ("catching_up" if fault else "completed",)
+                for attempt in old_attempts:
+                    assert (
+                        attempt
+                        in db.execute("SELECT * FROM insert_attempts").fetchall()
+                    )
+            assert invoke("run", "--once")["projected"] == 0
+            assert len(mailbox.inserted_raw) == inserts + (7 if not fault else 6)
         for path in state.rglob("*"):
             if path.is_file():
                 for sentinel in (
@@ -272,6 +350,22 @@ def run_cli_wire(
 
 def test_cli_production_wire_projects_and_restarts(tmp_path):
     run_cli_wire(tmp_path)
+
+
+def test_cli_gap_scans_catches_up_maps_and_restarts(tmp_path):
+    run_cli_wire(tmp_path, gap=True)
+
+
+def test_cli_gap_resumes_failed_discovery_page(tmp_path):
+    run_cli_wire(tmp_path, gap=True, gap_fault="discovery")
+
+
+def test_cli_gap_resumes_failed_catchup_page(tmp_path):
+    run_cli_wire(tmp_path, gap=True, gap_fault="catchup")
+
+
+def test_cli_gap_preserves_unknown_insert_without_resend(tmp_path):
+    run_cli_wire(tmp_path, gap=True, lost_response=True)
 
 
 def test_cli_historical_expansion_after_initial_empty_scope(tmp_path):

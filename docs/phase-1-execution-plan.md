@@ -66,7 +66,8 @@ target，AI agents 只连接 target。Facet 自身的 source OAuth 仍是邮箱�
    target Gmail API/UI 是内容验收入口。
 5. 调整选择：用户在 source Gmail 手工添加 `AI/AddSender`、`AI/AddDomain` 或
    `AI/BlackList`；History 事件持久化、去重并更新规则/jobs。便利清理后移；
-   新规则默认按 effective_at 生效，历史扩展不隐式扩大披露；
+   规则按处理/扫描时选定的生效状态判断，不保证与邮件到达严格时序一致；
+   已知 gap 可覆盖整个停机窗口，其他历史扩展不隐式扩大披露；
    remove allow rule 或移除 blacklist 不暗中停止/恢复已有 tracking。
 6. 处理异常：CLI queue/review/recovery/audit 解释 blocked、unknown insert、
    source_missing、target missing 和 History gap；按受限 preview/approve/repair
@@ -379,10 +380,11 @@ API/UI 日期、会话、附件证据分开记录。
 文件：`projection/admission.py`、`rules.py`、policy tests。
 
 交付：blacklist→allow match→metadata eligibility→admit/review 的决策、规则 effective_at 和
-action-label 触发的当前/未来 admission，
-规则 effective_at。验收：公共后缀/相似恶意域名/多 From/未知 auth 不能 admission；
-Spam/Trash/drafts 不引起新自动纳入；动态新增仅未来与 action-label/规则命中的当前
-thread；删除 allow
+action-label 触发的当前/未来 admission，effective_at 作审计。按 D11，规则与邮件
+不保证严格时序，History/gap 使用处理/扫描时选定的生效规则。
+验收：公共后缀/相似恶意域名/多 From/未知 auth 不能 admission；
+Spam/Trash/drafts 不引起新自动纳入；动态新增不触发任意历史回扫，已知 gap
+可覆盖整个停机窗口；删除 allow
 不停止已 tracked thread。认证 header 不参与 admission；不再把逐个 explicit thread
 approval 作为第一期入口。
 
@@ -438,7 +440,8 @@ Owner：验收 agent，S；review：A。文件：M3 integration tests、G3 evide
 
 交付：先持久 H1，再扫描所有 active thread 和整个可信停机 admission 窗口，扫描期间
 事件由 H1 接续。验收：超过六个月/24h 的停机不被缩窗；未知起点进入用户决策；rule
-effective_at 与 stopped generation 生效；label add 后 remove 已过期无法重建时报告
+按扫描时规则判断，窗口内早于规则创建的邮件可纳入，effective_at 作审计，
+stopped generation 生效；label add 后 remove 已过期无法重建时报告
 限制；分页、restart、source auth 中断可续；不能认领未管理副本或重启 stopped tracking。
 
 **M4-03 Source reconcile、target audit 与 repair 边界**
@@ -757,6 +760,7 @@ M3 gap/reconcile/Dashboard→M4 maintenance→真实部署/dogfood。只有 M6-0
 | D8 长期唤醒/monitor | 本轮未授权 automation 或新 chat | 跨 turn 72h 观察 | 在部署方案具体后提交观察频率/通知条件/终止条件；等待不等于已有自动调度 |
 | D9 显式 target-cleanup | 2026-10-07 用户批准 CLI 维护删除例外和独立临时完整 Gmail OAuth；随后单独批准实际固定 preview 并完成授权 | 停机、锁、固定 target message IDs preview/确认/逐项 receipt；常驻 sync scopes 不变 | 本次固定 134 封真实删除完成并只读确认 target 为空；后续清单仍需单独批准。不重置映射/unknown insert、不自动清理、不调整 M1-M6 gates |
 | D10 完整同步入口与细分命令 | 2026-10-07 用户决定并要求记录；拟 `facet sync [--once]`，尚未实现 | 一次有意同步调用按当前规则/默认固定六个月窗口自动准备/start 并运行，完全复用细分操作；细分命令继续用于当前测试 | 不要求用户手动 preview/start；setup/独立 preview 零 insert，普通 run/restart/标签学习仍不扩历史；M1-M6、H0/gap/unknown/generation 和 D3 live 范围不变 |
+| D11 规则时序简化 | 2026-10-07 用户确认 | 不保证规则变更与邮件到达严格一致；History/gap 按处理/扫描时选定的规则，effective_at 作审计，不重建旧规则 | 已知 gap 整个停机窗口内早于规则创建的邮件可纳入；不授权任意旧历史、当前 labels 代替丢失事件、stopped 复活、unknown 重试或新的 live 操作 |
 
 | 工程风险 | 先行门槛/检测 | 安全失败状态 |
 | --- | --- | --- |

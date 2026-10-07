@@ -8,6 +8,7 @@ consumer; this module never discovers credentials or imports the spike.
 from __future__ import annotations
 
 import base64
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import getaddresses
@@ -27,6 +28,19 @@ from facet.projection.admission import DiscoveryCandidate
 from facet.projection.rules import RuleInputError, normalize_sender
 
 from .retry import ProviderFailure, ProviderStage, execute
+
+
+def discovery_window(start: datetime, end: datetime, *, precise=False) -> str:
+    """Render recovery bounds outward; Gmail date literals use PST midnight."""
+    if precise:
+        return (
+            f"after:{math.floor(start.timestamp()) - 1} "
+            f"before:{math.ceil(end.timestamp())}"
+        )
+    return (
+        f"after:{start.astimezone(UTC):%Y/%m/%d} before:{end.astimezone(UTC):%Y/%m/%d}"
+    )
+
 
 __all__ = (
     "SourceProfile",
@@ -278,16 +292,16 @@ class SourceAdapter:
         window_end: datetime,
         page_token: ProviderPageToken | None = None,
         query: DiscoveryQuery | None = None,
+        precise_window: bool = False,
     ) -> DiscoveryPage:
         if (
             window_start.tzinfo is None
             or window_end.tzinfo is None
             or window_start >= window_end
+            or type(precise_window) is not bool
         ):
             raise ValueError("invalid_input")
-        start = window_start.astimezone(UTC).strftime("%Y/%m/%d")
-        end = window_end.astimezone(UTC).strftime("%Y/%m/%d")
-        window = f"after:{start} before:{end}"
+        window = discovery_window(window_start, window_end, precise=precise_window)
         if type(query) not in {DiscoveryQuery, type(None)}:
             raise ValueError("invalid_input")
         try:

@@ -202,7 +202,8 @@ class AdmissionEvaluator:
         selected = min(
             matches, key=lambda rule: (rule.effective_at.value, rule.ref.rule_id.value)
         )
-        if candidate.observed_at.value < selected.effective_at.value:
+        eligible_at = now if prospective else candidate.observed_at
+        if eligible_at.value < selected.effective_at.value:
             return _attention(AdmissionAttentionReason.RULE_NOT_EFFECTIVE)
         return AdmissionResult(True, selected.ref)
 

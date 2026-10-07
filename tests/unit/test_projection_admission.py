@@ -111,6 +111,31 @@ def test_effective_at_is_prospective() -> None:
     assert result.attention_reason is AdmissionAttentionReason.RULE_NOT_EFFECTIVE
 
 
+def test_processing_time_rule_admits_message_preceding_rule_creation() -> None:
+    observed = Timestamp(NOW.value - timedelta(hours=1))
+    result = evaluator(rule(RuleKind.ALLOW_DOMAIN, "example.com")).evaluate(
+        candidate(observed=observed), NOW, prospective=True
+    )
+    assert result.admit
+
+
+def test_processing_time_rule_still_requires_current_effectiveness() -> None:
+    future = Timestamp(NOW.value + timedelta(hours=1))
+    result = evaluator(
+        rule(RuleKind.ALLOW_DOMAIN, "example.com", effective=future)
+    ).evaluate(candidate(), NOW, prospective=True)
+    assert result.attention_reason is AdmissionAttentionReason.RULE_NOT_EFFECTIVE
+
+
+def test_processing_time_blacklist_blocks_pre_rule_message() -> None:
+    observed = Timestamp(NOW.value - timedelta(hours=1))
+    result = evaluator(
+        rule(RuleKind.ALLOW_DOMAIN, "example.com"),
+        rule(RuleKind.BLACKLIST_SENDER, "user@example.com"),
+    ).evaluate(candidate(observed=observed), NOW, prospective=True)
+    assert result.attention_reason is AdmissionAttentionReason.BLACKLISTED
+
+
 def test_candidate_observation_must_fit_current_time() -> None:
     observed = Timestamp(NOW.value + timedelta(hours=2))
     result = evaluator(rule(RuleKind.ALLOW_DOMAIN, "example.com")).evaluate(

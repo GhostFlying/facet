@@ -300,6 +300,11 @@ def _read_snapshot(
         ).fetchone()
         epoch_counts = (int(epoch_counts[0]), int(epoch_counts[1] or 0))
     issues = _issues(connection, projection_id)
+    from facet.db.repositories.epochs import unresolved_gap_query
+
+    unresolved_gap = connection.execute(
+        unresolved_gap_query(), (projection_id,) * 3
+    ).fetchone()
     ready_bindings = all(
         state == BindingState.VERIFIED.value for state, _ in bindings.values()
     )
@@ -317,7 +322,8 @@ def _read_snapshot(
     ):
         health = PublicHealth.BLOCKED
     elif (
-        epoch[2]
+        unresolved_gap is not None
+        or epoch[2]
         in {
             EpochState.NEEDS_ATTENTION.value,
             EpochState.COMPLETED_WITH_ISSUES.value,
@@ -332,6 +338,8 @@ def _read_snapshot(
 
     if restore_state != "normal":
         phase = PublicPhase.MAINTENANCE
+    elif unresolved_gap is not None:
+        phase = PublicPhase.RECOVERING
     elif paused or (epoch is not None and epoch[2] == EpochState.PAUSED.value):
         phase = PublicPhase.PAUSED
     elif epoch is None:
