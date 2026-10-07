@@ -102,7 +102,6 @@ class TargetAdapter:
                 userId="me",
                 body=body,
                 internalDateSource="dateHeader" if date_header else "receivedTime",
-                neverMarkSpam=True,
             ),
             self.role,
             provider_stage=ProviderStage.TARGET_INSERT,

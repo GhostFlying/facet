@@ -669,7 +669,6 @@ def test_worker_response_loss_stays_in_recovery_without_blind_retry(
                     "userId": "me",
                     "body": {"raw": encoded},
                     "internalDateSource": "dateHeader",
-                    "neverMarkSpam": True,
                 },
                 InsertReply(lose_response=True),
             )
@@ -741,7 +740,6 @@ def test_worker_target_failure_matrix_persists_safe_outcomes(
             "userId": "me",
             "body": {"raw": encoded},
             "internalDateSource": "dateHeader",
-            "neverMarkSpam": True,
         },
         failure,
     )

@@ -8,6 +8,34 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Current live gate and insert adapter correction
+
+The recent local build/Compose acceptance is not yet a working live projection.
+The real state was backed up with SQLite's backup API plus private config and
+credentials while the service was stopped. Existing action-label configuration
+was preserved. A bounded production `run --once` refreshed credentials and
+consumed History but confirmed zero mappings; one existing unknown insert
+remains in recovery and was not retried. Read-only recovery search found no
+candidate, which is not proof authorizing another insert.
+
+Read-only target inspection found unexpected/unmanaged content, including a
+draft, while the DB had no mappings. No further target writes or long-running
+service startup are permitted until the operator resolves that target
+prerequisite. No mailbox cleanup, claiming, scope expansion or DB reset occurred.
+New message events on untracked threads also remain attention: incremental
+admission needs a further product-path correction, not an all-success claim.
+
+The concrete insert blocker was reproduced offline with the locked real Google
+client: `neverMarkSpam` is not supported by `messages.insert`, so request
+construction raises before HTTP. The bounded fix removes that keyword and adds
+real-discovery tests with only HTTP substituted, including Date policy, thread
+anchor, exact raw bytes and single-attempt provider failures. Four new cases
+failed on the old adapter; 90 focused adapter/worker/CLI cases pass after the
+fix. Full candidate checks and independent implementation review remain pending.
+Container Google connectivity also needs an environment-specific solution;
+temporary host-network/IPv6 resolution overrides proved the bounded live CLI
+path, not a generally usable Compose network or public Dashboard deployment.
+
 | Unit | Status | Evidence / remaining gate |
 | --- | --- | --- |
 | Phase 0 Gmail spike | Complete within its scope | See [redacted results](phase-0-gmail-spike-results.md); production behavior not implied |
