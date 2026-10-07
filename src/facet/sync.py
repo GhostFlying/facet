@@ -251,7 +251,7 @@ class ForegroundSync:
             raise ValueError("invalid_input")
         self._require_ready()
         self._recover_pre_dispatch_claims()
-        discovered = self._discover_initial_epoch()
+        discovered = self._discover_backfill_epoch()
         history_pages = self._poll_history()
         resolved, attention = self._resolve_events(max_events)
         projected = self._worker.run(max_jobs=max_jobs)
@@ -269,6 +269,7 @@ class ForegroundSync:
                 }
             )
         self._retain_live_epoch()
+        self._finish_historical_epochs()
         return SyncCycleReceipt(
             discovered,
             history_pages,
@@ -321,13 +322,14 @@ class ForegroundSync:
                 )
             return jobs.requeue_preparing_claims(uow, self._projection)
 
-    def _discover_initial_epoch(self) -> int:
+    def _discover_backfill_epoch(self) -> int:
         with self._owner.session.transaction() as uow:
             rows = _query(
                 uow,
                 "SELECT epoch_id FROM epochs WHERE projection_id=? "
-                "AND kind='initial_backfill' AND state NOT IN "
-                "('completed','completed_with_issues','needs_attention') "
+                "AND kind IN ('initial_backfill','historical_expansion') "
+                "AND discovery_complete=0 AND state NOT IN "
+                "('completed','completed_with_issues','needs_attention','paused') "
                 "ORDER BY created_at,epoch_id LIMIT 1",
                 (self._projection.value,),
                 maximum=1,
@@ -343,11 +345,12 @@ class ForegroundSync:
             admission = self._admission_for_epoch(epoch)
             if not isinstance(admission, PolicyAdmissionEvaluator):
                 raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
-            self._admission = SourceCandidateAdmission(self._source, admission)
-            self._backfill = BackfillProducer(self._source, self._admission)
-        discovered = self._backfill.discover(
-            self._owner.session, self._projection, epoch_id
-        )
+            backfill = BackfillProducer(
+                self._source, SourceCandidateAdmission(self._source, admission)
+            )
+        else:
+            backfill = self._backfill
+        discovered = backfill.discover(self._owner.session, self._projection, epoch_id)
         with self._owner.session.transaction() as uow:
             epoch = _get(uow, self._projection, "epochs", (("epoch_id", epoch_id),))
             partition = _get(
@@ -964,6 +967,51 @@ class ForegroundSync:
                 epoch.known_message_total,
                 RevisionGuard(epoch.revision),
             )
+
+    def _finish_historical_epochs(self) -> None:
+        with self._owner.session.transaction() as uow:
+            rows = _query(
+                uow,
+                "SELECT epoch_id FROM epochs WHERE projection_id=? "
+                "AND kind='historical_expansion' AND discovery_complete=1 "
+                "AND state IN ('catching_up','draining') ORDER BY created_at,epoch_id",
+                (self._projection.value,),
+            )
+            for (identifier,) in rows:
+                epoch = _get(
+                    uow,
+                    self._projection,
+                    "epochs",
+                    (("epoch_id", LocalId(identifier)),),
+                )
+                if not epochs.historical_coverage_complete(
+                    uow, self._projection, epoch
+                ):
+                    continue
+                work = _query(
+                    uow,
+                    "SELECT DISTINCT j.state FROM sync_jobs j JOIN epoch_jobs e "
+                    "ON e.projection_id=j.projection_id AND e.job_id=j.job_id "
+                    "WHERE e.projection_id=? AND e.epoch_id=?",
+                    (self._projection.value, identifier),
+                    maximum=9,
+                )
+                if any(status not in epochs._TERMINAL for (status,) in work):
+                    continue
+                state = (
+                    EpochState.COMPLETED_WITH_ISSUES
+                    if any(status != "completed" for (status,) in work)
+                    else EpochState.COMPLETED
+                )
+                epochs.advance_epoch(
+                    uow,
+                    self._projection,
+                    epoch.epoch_id,
+                    state,
+                    True,
+                    epoch.known_message_total,
+                    RevisionGuard(epoch.revision),
+                )
 
 
 __all__ = ("ForegroundSync", "SyncCycleReceipt")

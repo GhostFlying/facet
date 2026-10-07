@@ -6,7 +6,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 
 from facet.config import Config
-from facet.contracts import LocalId, Revision, Role, RuleRef, SourceMode
+from facet.contracts import LocalId, Revision, Role, RuleKind, RuleRef, SourceMode
 from facet.db.codecs import PrivateAddress
 from facet.gmail.credential_models import (
     AccountAddress,
@@ -70,10 +70,16 @@ def load_persisted_admission(owner, config, ruleset_revision=None):
             uow,
             "SELECT "
             + ",".join(COLUMNS["ruleset_members"])
-            + " FROM ruleset_members WHERE projection_id=? AND ruleset_revision=?",
-            (owner.projection_id.value, selected_revision.value),
+            + " FROM ruleset_members WHERE projection_id=? "
+            "AND ruleset_revision IN (?,?)",
+            (
+                owner.projection_id.value,
+                selected_revision.value,
+                projection.ruleset_revision.value,
+            ),
         )
         rules = []
+        current_blacklists = []
         for row in rows:
             member = _get(
                 uow,
@@ -89,18 +95,25 @@ def load_persisted_admission(owner, config, ruleset_revision=None):
             )
             if member is None or revision is None:
                 raise ValueError("consistency_failure")
-            rules.append(
-                AdmissionRule(
-                    RuleRef(member.rule_id, revision.revision),
-                    normalize_rule(member.kind, member.normalized_value.value),
-                    revision.effective_at,
-                    revision.enabled,
-                )
+            rule = AdmissionRule(
+                RuleRef(member.rule_id, revision.revision),
+                normalize_rule(member.kind, member.normalized_value.value),
+                revision.effective_at,
+                revision.enabled,
             )
+            if row[1] == selected_revision.value:
+                rules.append(rule)
+            if (
+                row[1] == projection.ruleset_revision.value
+                and rule.enabled
+                and rule.normalized.kind is RuleKind.BLACKLIST_SENDER
+            ):
+                current_blacklists.append(rule)
         return AdmissionEvaluator(
             tuple(rules),
             source_account=PrivateAddress(config.projection.source_email),
             ruleset_revision=selected_revision,
+            current_blacklists=tuple(current_blacklists),
         )
 
 

@@ -118,6 +118,7 @@ class AdmissionEvaluator:
         *,
         source_account: PrivateAddress,
         ruleset_revision: Revision | None = None,
+        current_blacklists: tuple[AdmissionRule, ...] = (),
     ) -> None:
         if (
             type(rules) is not tuple
@@ -125,11 +126,19 @@ class AdmissionEvaluator:
             or len(rules) > 1000
             or type(source_account) is not PrivateAddress
             or type(ruleset_revision) not in {Revision, type(None)}
+            or type(current_blacklists) is not tuple
+            or len(current_blacklists) > 1000
+            or any(
+                type(rule) is not AdmissionRule
+                or rule.normalized.kind is not RuleKind.BLACKLIST_SENDER
+                for rule in current_blacklists
+            )
         ):
             raise ValueError("invalid_input")
         self._rules = rules
         self._source_account = source_account
         self._ruleset_revision = ruleset_revision
+        self._current_blacklists = current_blacklists
 
     @property
     def ruleset_revision(self) -> Revision | None:
@@ -169,10 +178,15 @@ class AdmissionEvaluator:
             return _attention(AdmissionAttentionReason.CANDIDATE_INVALID)
 
         enabled = tuple(rule for rule in self._rules if rule.enabled)
-        for rule in enabled:
+        for rule in enabled + self._current_blacklists:
             if (
-                rule.normalized.kind is RuleKind.BLACKLIST_SENDER
-                and (now if prospective else candidate.observed_at).value
+                rule.enabled
+                and rule.normalized.kind is RuleKind.BLACKLIST_SENDER
+                and (
+                    now
+                    if prospective or rule in self._current_blacklists
+                    else candidate.observed_at
+                ).value
                 >= rule.effective_at.value
                 and _matches(rule.normalized, candidate.sender)
             ):

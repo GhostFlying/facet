@@ -746,8 +746,54 @@ def _existing_backfill_epoch(owner, projection_id, operation_id):
     return _get(owner, projection_id, "epochs", (("epoch_id", LocalId(rows[0][0])),))
 
 
+def preflight_backfill_start(owner, projection_id, preview_id, accepted_at):
+    """Validate a fresh start before OAuth/profile reads; recheck on acceptance."""
+    from .repositories import epochs
+
+    observed_at = _owner_now()
+    if abs((accepted_at.value - observed_at.value).total_seconds()) > 5:
+        _fail(ErrorCode.PREVIEW_INVALID)
+    projection, binding_revision, _, invalidation_revision = _backfill_guards(
+        owner, projection_id
+    )
+    preview, preview_payload = _find_backfill_by_id(owner, projection_id, preview_id)
+    if (
+        preview is None
+        or preview.command is not LocalCommandKind.BACKFILL_PREVIEW
+        or preview_payload is None
+        or preview.expected_binding_revision != binding_revision
+        or preview.expected_config_revision != projection.config_revision
+        or preview_payload.ruleset_revision != projection.ruleset_revision
+        or preview_payload.invalidating_revision != invalidation_revision
+        or accepted_at.value < preview.accepted_at.value
+        or preview_payload.expires_at.value < observed_at.value
+        or preview_payload.expires_at.value < accepted_at.value
+    ):
+        _fail(ErrorCode.PREVIEW_INVALID)
+    if _owner_fetchall(
+        owner,
+        "SELECT 1 FROM operations WHERE projection_id=? "
+        "AND command='backfill_start' AND expected_preview_id=? LIMIT 1",
+        (projection_id.value, preview_id.value),
+    ):
+        _fail(ErrorCode.REQUEST_CONFLICT)
+    initial_epochs = _owner_fetchall(
+        owner,
+        "SELECT epoch_id FROM epochs WHERE projection_id=? "
+        "AND kind='initial_backfill' LIMIT 2",
+        (projection_id.value,),
+    )
+    if len(initial_epochs) > 1:
+        _fail(ErrorCode.CONSISTENCY_FAILURE)
+    kind = (
+        EpochKind.HISTORICAL_EXPANSION if initial_epochs else EpochKind.INITIAL_BACKFILL
+    )
+    epochs._backfill_checkpoint_guard(owner, projection_id, kind)
+    return projection, binding_revision, preview, preview_payload, kind
+
+
 def start_backfill(owner, projection_id, request):
-    """Atomically accept a start request and publish its initial epoch/H0."""
+    """Atomically accept a start and publish its initial/expansion epoch fence."""
     from .keys import partition_key
     from .models import EpochPartitionRow, EpochRow
     from .repositories import epochs
@@ -778,36 +824,9 @@ def start_backfill(owner, projection_id, request):
         ):
             _fail(ErrorCode.REQUEST_CONFLICT)
         return old_operation, existing_epoch
-    observed_at = _owner_now()
-    if abs((request.accepted_at.value - observed_at.value).total_seconds()) > 5:
-        _fail(ErrorCode.PREVIEW_INVALID)
-    projection, binding_revision, _, invalidation_revision = _backfill_guards(
-        owner, projection_id
+    projection, binding_revision, _, preview_payload, kind = preflight_backfill_start(
+        owner, projection_id, request.preview_operation_id, request.accepted_at
     )
-    preview, preview_payload = _find_backfill_by_id(
-        owner, projection_id, request.preview_operation_id
-    )
-    if (
-        preview is None
-        or preview.command is not LocalCommandKind.BACKFILL_PREVIEW
-        or preview_payload is None
-        or preview.expected_binding_revision != binding_revision
-        or preview.expected_config_revision != projection.config_revision
-        or preview_payload.ruleset_revision != projection.ruleset_revision
-        or preview_payload.invalidating_revision != invalidation_revision
-        or request.accepted_at.value < preview.accepted_at.value
-        or preview_payload.expires_at.value < observed_at.value
-        or preview_payload.expires_at.value < request.accepted_at.value
-    ):
-        _fail(ErrorCode.PREVIEW_INVALID)
-    initial_epochs = _owner_fetchall(
-        owner,
-        "SELECT epoch_id FROM epochs WHERE projection_id=? "
-        "AND kind='initial_backfill' LIMIT 2",
-        (projection_id.value,),
-    )
-    if initial_epochs:
-        _fail(ErrorCode.REQUEST_CONFLICT)
     operation = OperationRow(
         projection_id,
         request.operation_id,
@@ -856,7 +875,7 @@ def start_backfill(owner, projection_id, request):
     epoch = EpochRow(
         projection_id,
         request.epoch_id,
-        EpochKind.INITIAL_BACKFILL,
+        kind,
         EpochState.PREPARED,
         Revision(0),
         request.accepted_at,

@@ -186,8 +186,62 @@ def _decision(uow, projection_id, epoch):
             _conflict()
 
 
+def _backfill_checkpoint_guard(uow, projection_id, kind):
+    checkpoint = _get(uow, projection_id, "history_checkpoints", ())
+    if checkpoint is None or checkpoint.active_poll_id is not None:
+        _conflict()
+    if kind is EpochKind.INITIAL_BACKFILL:
+        if (
+            checkpoint.cursor is not None
+            or checkpoint.reliable_coverage_at is not None
+            or checkpoint.revision.value != 0
+        ):
+            _conflict()
+    elif kind is EpochKind.HISTORICAL_EXPANSION:
+        if (
+            checkpoint.cursor is None
+            or checkpoint.reliable_coverage_at is None
+            or _latest_unresolved_gap(uow, projection_id) is not None
+            or not _query(
+                uow,
+                "SELECT 1 FROM epochs WHERE projection_id=? "
+                "AND kind='initial_backfill' LIMIT 1",
+                (projection_id.value,),
+                maximum=1,
+            )
+        ):
+            _conflict()
+    else:
+        _conflict()
+
+
+def historical_coverage_complete(uow, projection_id, epoch):
+    """A completed shared History poll covers the fence, without ID ordering."""
+    checkpoint = _get(uow, projection_id, "history_checkpoints", ())
+    return bool(
+        checkpoint is not None
+        and checkpoint.cursor is not None
+        and checkpoint.reliable_coverage_at is not None
+        and checkpoint.active_poll_id is None
+        and epoch.fence_recorded_at is not None
+        and checkpoint.reliable_coverage_at.value >= epoch.fence_recorded_at.value
+        and _latest_unresolved_gap(uow, projection_id) is None
+        and _query(
+            uow,
+            "SELECT 1 FROM history_polls WHERE projection_id=? "
+            "AND state='completed' AND final_history_id=? AND started_at=? LIMIT 1",
+            (
+                projection_id.value,
+                checkpoint.cursor.value,
+                timestamp_to_sql(checkpoint.reliable_coverage_at),
+            ),
+            maximum=1,
+        )
+    )
+
+
 def _backfill_decision(uow, projection_id, epoch):
-    """Validate the journal-backed initial backfill fence before writing it."""
+    """Validate the journal-backed backfill fence before writing it."""
     from ..command_records import LocalCommandKind, _valid_backfill_window
     from ..command_store import _backfill_digest, _find_backfill_by_id
 
@@ -211,7 +265,8 @@ def _backfill_decision(uow, projection_id, epoch):
         or payload.preview_operation_id != decision.preview_id
         or payload.purpose.value != "start_backfill"
         or payload.ruleset_revision != decision.ruleset_revision
-        or epoch.kind is not EpochKind.INITIAL_BACKFILL
+        or epoch.kind
+        not in {EpochKind.INITIAL_BACKFILL, EpochKind.HISTORICAL_EXPANSION}
         or epoch.window_start != payload.window_start
         or epoch.window_end != payload.window_end
         or epoch.discovery_cutoff != payload.discovery_cutoff
@@ -268,7 +323,6 @@ def _backfill_decision(uow, projection_id, epoch):
         (projection_id.value,),
         maximum=1,
     )
-    checkpoint = _get(uow, projection_id, "history_checkpoints", ())
     if (
         projection is None
         or snapshot is None
@@ -281,15 +335,11 @@ def _backfill_decision(uow, projection_id, epoch):
         or operation.expected_config_revision != projection.config_revision
         or operation.expected_binding_revision.value != runtime[0][0]
         or payload.invalidating_revision.value != invalidation[0][0]
-        or checkpoint is None
-        or checkpoint.cursor is not None
-        or checkpoint.reliable_coverage_at is not None
-        or checkpoint.active_poll_id is not None
-        or checkpoint.revision.value != 0
         or payload.expires_at.value < epoch.created_at.value
         or epoch.fence_recorded_at.value > payload.expires_at.value
     ):
         _conflict()
+    _backfill_checkpoint_guard(uow, projection_id, epoch.kind)
 
 
 def _partition(uow, projection_id, epoch, row):
@@ -535,6 +585,11 @@ def advance_epoch(
                 ),
                 maximum=1,
             )
+        ):
+            _conflict()
+        if (
+            epoch.kind is EpochKind.HISTORICAL_EXPANSION
+            and not historical_coverage_complete(uow, projection_id, epoch)
         ):
             _conflict()
     revision = next_revision(epoch.revision)

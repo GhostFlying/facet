@@ -3,7 +3,7 @@
 import base64
 import os
 import stat
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -464,6 +464,147 @@ def test_backfill_resumes_same_query_token_after_page_failure(monkeypatch):
             assert resumed.tokens == ["page-2"]
         finally:
             owner.close()
+
+
+def test_resumed_sealed_scan_obeys_current_blacklist_without_widening_allow(
+    monkeypatch,
+):
+    from test_m2_foundation_consumers import lid
+
+    from facet.contracts import ProviderPageToken, Visibility
+    from facet.db.repositories import policy
+    from facet.gmail.source import CandidateResult, DiscoveryItem, DiscoveryPage
+    from facet.projection.admission import DiscoveryCandidate
+    from facet.projection.rules import normalize_sender
+
+    class PagedSource(_SourceDiscovery):
+        def __init__(self, fail):
+            super().__init__()
+            self.fail = fail
+            self.queries = []
+
+        def discover(self, *, window_start, window_end, page_token=None, query=None):
+            self.queries.append(query.clauses)
+            if page_token is None:
+                return DiscoveryPage(
+                    (DiscoveryItem(ProviderId("first"), ProviderId("thread-1")),),
+                    ProviderPageToken("second"),
+                    2,
+                )
+            if self.fail:
+                raise StorageFailure(ErrorCode.NETWORK_UNAVAILABLE)
+            return DiscoveryPage(
+                (
+                    DiscoveryItem(ProviderId("first"), ProviderId("thread-1")),
+                    DiscoveryItem(ProviderId("second"), ProviderId("thread-2")),
+                ),
+                None,
+                2,
+            )
+
+        def candidate(self, item):
+            return CandidateResult(
+                candidate=DiscoveryCandidate(
+                    item.message_id,
+                    item.thread_id,
+                    normalize_sender("synthetic@example.com"),
+                    PrivateAddress("source@example.invalid"),
+                    Visibility.NORMAL,
+                    False,
+                    NOW,
+                )
+            )
+
+    with TemporaryDirectory(
+        prefix="facet-blacklist-scan-", dir=_trusted_parent()
+    ) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=False)
+        projection, config = owner.projection_id, owner.config
+        epoch_id = LocalId(
+            owner._connection.execute("SELECT epoch_id FROM epochs").fetchone()[0]
+        )
+        source = PagedSource(True)
+        try:
+            with pytest.raises(StorageFailure):
+                BackfillProducer(
+                    source,
+                    SourceCandidateAdmission(
+                        source, load_persisted_admission(owner, config, Revision(1))
+                    ),
+                ).discover(owner.session, projection, epoch_id)
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM tracked_threads"
+            ).fetchone() == (1,)
+            blacklist = RuleRow(
+                projection,
+                lid(901),
+                RuleKind.BLACKLIST_SENDER,
+                RuleValue("synthetic@example.com"),
+                Revision(1),
+            )
+            later = RuleRow(
+                projection,
+                lid(902),
+                RuleKind.ALLOW_SENDER,
+                RuleValue("later@example.com"),
+                Revision(1),
+            )
+            # The blacklist is newer than the old candidate observation time.
+            effective = Timestamp(NOW.value + timedelta(days=1))
+            with owner.session.transaction() as uow:
+                policy.publish_rules(
+                    uow,
+                    projection,
+                    (blacklist, later),
+                    tuple(
+                        RuleRevisionRow(
+                            projection,
+                            rule.rule_id,
+                            Revision(1),
+                            True,
+                            effective,
+                            RuleOrigin.CLI,
+                            PolicyVersion("auth-v1"),
+                        )
+                        for rule in (blacklist, later)
+                    ),
+                    RulesetRow(projection, Revision(2), effective, True),
+                    tuple(
+                        RulesetMemberRow(
+                            projection, Revision(2), lid(number), Revision(1)
+                        )
+                        for number in (900, 901, 902)
+                    ),
+                    RevisionGuard(Revision(1)),
+                )
+                policy.stop_thread(
+                    uow,
+                    projection,
+                    ProviderId("thread-1"),
+                    Generation(1),
+                    effective,
+                    ThreadStopReason.BLACKLIST,
+                )
+        finally:
+            owner.close()
+        reopened = StateOwner.open(Path(root) / "state", config)
+        try:
+            source = PagedSource(False)
+            BackfillProducer(
+                source,
+                SourceCandidateAdmission(
+                    source, load_persisted_admission(reopened, config, Revision(1))
+                ),
+            ).discover(reopened.session, projection, epoch_id)
+            assert source.queries == [('from:"synthetic@example.com"',)]
+            assert reopened._connection.execute(
+                "SELECT source_thread_id,active,generation FROM tracked_threads"
+            ).fetchall() == [("thread-1", 0, 2)]
+            assert reopened._connection.execute(
+                "SELECT state FROM epoch_partitions"
+            ).fetchone() == ("complete",)
+        finally:
+            reopened.close()
 
 
 def test_fidelity_ignores_transport_headers_and_keeps_raw_only_in_memory():
