@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Integrated sync path; final-image and scoped live verification next
+### Published sync path; scoped live historical verification next
 
 The production CLI supports setup/role binding, persisted sender rules,
 zero-write preview, explicit historical start and `run --once`. It now includes
@@ -35,17 +35,30 @@ fakes, networking disabled and no application-source or real-state overlay.
 See [integration evidence](reviews/history-gap-recovery.md) and
 [parent/focused review](reviews/sync-single-dispatch-transport.md).
 
-The real sync service remains stopped. Offline status on the integrated image
-reads the retained real state: nine confirmed mappings, one old unknown attempt
-and 58 historic attention jobs. No historical start/run, mailbox mutation,
-unknown retry or attention reopening occurred in this integration.
-The earlier target read-only preflight found two permitted source-From SENT
-items and no other unmanaged content; refresh that evidence before new writes.
+Main dual-Python CI and image publication passed. The public image index is
+`sha256:2f89d96338b7e6cafa421c5f58722a61681bffe8fc80e0285aaae014cfaa2054`;
+anonymous checks verified amd64/arm64 manifests, SBOM and exact-main-SHA SLSA
+provenance. The anonymously imported amd64 runtime's source matches the accepted
+local image and passed the production CLI fake historical/restart case.
 
-Next delivery: publish/pull the exact main-SHA image, preserve private state,
-verify accounts/scopes/target, then use granular preview/start/run/readback and
-fresh-process continuation. The old 4203-message/777-thread search used the
-original six-month window, not a final copy count. A new CLI preview ends later;
+The authorized test-host deployment now references this full main-SHA image,
+with its original persistent volume retained and the container stopped. A
+writer-locked SQLite-API backup includes configuration and credentials; the old
+image remains available for stopped rollback. Fresh production read-only checks
+verified account/scope bindings and classified target as nine mapped copies,
+two permitted source-From SENT items and zero other unmanaged content. The old
+unknown's empty search result is not permission to retry or claim it.
+
+Production CLI preview and stable-key replay passed against retained real state
+with networking disabled: zero target writes, no new insert attempts/epochs and
+unchanged protected business state. Nine mappings, one old unknown and 58 old
+attention jobs remain. No historical start/run, mailbox mutation, unknown retry,
+attention reopening or daemon resume occurred in this integration. Dashboard
+health on a running deployment and live historical/gap acceptance are not claimed.
+
+Next delivery: use granular preview/start/run/readback and fresh-process
+continuation on the qualified published image. The old 4203-message/777-thread
+search used the original six-month window, not a final copy count. A new CLI preview ends later;
 the updated default window needs the requested user confirmation before bulk
 start. No scope expansion is inferred from merge or OAuth approval.
 Live historical/gap acceptance, composed sync, full target audit and remaining

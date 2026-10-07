@@ -85,3 +85,31 @@ integration tree above. Main publication/host checks and the newly requested
 live-window confirmation remain distinct from this acceptance. Offline retained
 state status still shows nine mappings, one old unknown and 58 old attention
 jobs; no new real Gmail write, recovery override or service resume occurred.
+
+### Published-image and stopped-host preparation
+
+Main [full CI](https://github.com/GhostFlying/facet/actions/runs/37663322229)
+and [publication](https://github.com/GhostFlying/facet/actions/runs/37663322235)
+passed. Anonymous registry checks verified the public index digest
+`sha256:2f89d96338b7e6cafa421c5f58722a61681bffe8fc80e0285aaae014cfaa2054`,
+amd64/arm64 manifests, SPDX SBOM and SLSA provenance for the exact main commit.
+The imported amd64 config/image ID is
+`sha256:8f979c5d1aeb64fb306a3de2b38eff26813f24ce2dfb3ca8c22fd3835eb6a841`;
+its complete non-cache application source matches the accepted local image.
+The published image also passed the external-only fake production CLI historical
+copy/restart case. Publication has no OCI revision label; provenance evidence
+comes from the registry attestations, runtime config and source comparison.
+
+The authorized test host retains its original state volume and now has a stopped,
+non-root/read-only container referencing the full main-SHA tag. Before replacement,
+the stopped writer-locked backup used SQLite's backup API for both journals and
+included owner-only configuration/credentials. No daemon or Dashboard startup
+is claimed. Production account/scope checks and read-only target classification
+passed: nine mapped copies, two permitted outbound SENT items, no other unmanaged
+content. An empty old-unknown search result remains inconclusive.
+
+Offline real-state CLI preview/stable-key replay passed with protected business
+state unchanged, zero target writes, no new insert attempts and no new epochs.
+The newer default preview window requires the separately requested user scope
+confirmation before historical start/run. No bulk copying, old unknown retry,
+cleanup, attention reopening, additional scope or live gap acceptance occurred.
