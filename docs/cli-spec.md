@@ -199,7 +199,7 @@ IDs/范围不一致或过期时 guard 拒绝。自动 discovery 的 preview 解�
 
 ```text
 facet recovery preview --job <job-id> --request-id <recovery-preview-key> --json
-facet backfill start --preview <preview-id> --request-id <backfill-key> --yes --json
+facet backfill start --preview-id <preview-id> --request-id <backfill-key> --yes --json
 ```
 
 ## Queue、review、recovery 与 repair

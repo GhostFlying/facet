@@ -8,6 +8,33 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Granular historical backfill repair (qualified local candidate)
+
+Production source candidate `e391e982f9e2065aebc7d2f087d04829c920fe34` fixes
+preview with existing tracked generations and supports a fresh explicitly started
+historical expansion after initial History is established. It reuses sealed rules,
+the shared cursor and normal projection/recovery, without resetting mappings or
+reopening old unknown/attention. New allows cannot widen an existing scope; current
+BlackList and stopped generations still apply. An expansion completes only after
+History covers its fence and linked work is terminal; unknown remains pending.
+
+Independent plan/implementation reviews passed. Full offline checks passed
+(2760 tests, 595.74 seconds), and the exact pinned, non-root local image passed
+four production CLI/SDK cases: historical copying/restart dedup, old unknown
+preservation, failed-page continuation and a new uncertain insert without resend.
+Only external Gmail/OAuth interactions were synthetic. See the
+[repair plan](implementation-plans/granular-historical-backfill.md) and
+[acceptance receipt](reviews/granular-historical-backfill.md).
+
+The same image also ran standalone preview/replay/status against the real
+configuration/state with external networking disabled. Preview now succeeds;
+protected business tables are unchanged, nine mappings remain, and there are
+zero new insert attempts/epochs. No real historical copy, unknown retry, service
+resume or deployment occurred. The real service remains stopped. PR CI/main
+integration, authorized nonempty Gmail historical backfill, the composed `sync`
+entry and final Phase 1 gates remain separate. Earlier receipts below describe
+their original candidates, not the current repaired preview behavior.
+
 ### External-agent outbound contract correction (documentation only)
 
 The 2026-10-07 user decision replaces the sole-mailbox-writer/read-only-agent
