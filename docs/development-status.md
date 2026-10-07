@@ -8,6 +8,26 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Sync transport and source-missing repair (offline candidate)
+
+Candidate `3df74f31bb8a4a7d65ce5eae1d3294e7fb0867b6` replaces normal sync's
+httplib2 networking with access-only Requests: no automatic retries, redirects
+or credential refresh/replay. Actual production CLI subprocesses, normal Google
+SDK and real loopback TCP passed setup/binding, preview/start, new-rule History
+admission, full-thread insert/readback/mapping and restart deduplication. Accepted
+POST response loss, 503 and 307/308 remain durable unknown with no restart resend.
+Metadata 404 now becomes precise durable `source_missing`, not generic attention;
+existing terminal attention/unknown work is not automatically replayed.
+Independent plan and exact-candidate implementation reviews passed. The exact
+non-root local image passed the same five CLI cases with external networking
+disabled and isolated synthetic state; the factory/runtime were not replaced.
+Complete offline checks passed. GitHub CI/integration are tracked separately;
+main merge/publication, real Gmail and live upgrade are not claimed. This focused
+repair depends on the preceding History candidate, not yet on main. Real sync
+stays stopped and its existing unknown attempt remains unchanged. Next: qualified
+integration and container Google connectivity before authorized live validation. See
+[review receipt](reviews/sync-single-dispatch-transport.md).
+
 ### History current-rule admission (offline candidate)
 
 Candidate `a3cd969e6529336fe60676dc8d8887e39a06e553` repairs new untracked
@@ -21,10 +41,9 @@ used. Provider Retry-After scheduling is covered by a regression test.
 Independent plan and exact-candidate implementation reviews passed. The exact
 non-root local image passed the same CLI path with external networking disabled
 and isolated synthetic state. Complete offline checks passed; CI/merge and live
-upgrade are not claimed. Source metadata disappearance still needs its precise
-`source_missing` diagnostic classification; durable attention currently retains
-that work without insert. Real sync remains stopped and the existing unknown
-insert is unchanged. See the
+upgrade are not claimed. Source metadata disappearance is corrected in the
+transport candidate above, without reopening old attention. Real sync remains
+stopped and the existing unknown insert is unchanged. See the
 [bounded review and replay research](reviews/history-incremental-admission.md).
 
 ### Explicit target cleanup (controlled live cleanup complete)
@@ -106,11 +125,11 @@ path, not a generally usable Compose network or public Dashboard deployment.
 Next live gate: the dedicated-target prerequisite was checked after approved
 cleanup; the existing unknown attempt stays in recovery until an authorized,
 evidence-based recovery action is available. Cleanup review additionally reproduced a concrete
-httplib2 automatic wire resend despite Google `num_retries=0`. Cleanup's bounded
-transport correction does not fix the normal sync factory's corresponding
-insert risk: keep new live inserts stopped until it is independently corrected
-and wire-tested. Current-rule incremental admission is now an offline candidate;
-a usable container Google network path is also still needed.
+httplib2 automatic wire resend despite Google `num_retries=0`. Normal sync's
+corresponding transport risk is now corrected and wire-tested in the offline
+candidate above, not yet deployed. Current-rule incremental admission is also
+an offline candidate; a usable container Google network path, qualified
+integration and authorized live/recovery evidence are still needed.
 
 The package ledger below retains historical package evidence; it is not the
 current executable-command checklist. The current live result and next gaps
