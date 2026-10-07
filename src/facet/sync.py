@@ -522,7 +522,16 @@ class ForegroundSync:
                     ErrorCode.NETWORK_UNAVAILABLE,
                     ErrorCode.OWNER_BUSY,
                 }
-                self._defer_event_attention(job, error.code, retryable=retryable)
+                self._defer_event_attention(
+                    job,
+                    error.code,
+                    retryable=retryable,
+                    retry_after_seconds=(
+                        error.retry_after_seconds
+                        if isinstance(error, ProviderFailure)
+                        else None
+                    ),
+                )
                 attention += 1
             else:
                 resolved += 1
@@ -601,6 +610,7 @@ class ForegroundSync:
         error: ErrorCode,
         *,
         retryable: bool = False,
+        retry_after_seconds: int | None = None,
     ) -> None:
         """Persist review or retry state for event work that did not converge."""
         with self._owner.session.transaction() as uow:
@@ -668,7 +678,12 @@ class ForegroundSync:
                 claimed.job_id,
                 "retry_wait" if retryable else "needs_attention",
                 error,
-                Timestamp(now.value + _RETRY_DELAY) if retryable else None,
+                Timestamp(
+                    now.value
+                    + max(_RETRY_DELAY, timedelta(seconds=retry_after_seconds or 0))
+                )
+                if retryable
+                else None,
                 RevisionGuard(claimed.revision),
             )
 

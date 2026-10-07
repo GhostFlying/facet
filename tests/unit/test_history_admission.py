@@ -23,7 +23,13 @@ from facet.contracts import (
     Timestamp,
     Visibility,
 )
-from facet.db.codecs import PrivateAddress, RuleValue, StorageFailure, ThreadStopReason
+from facet.db.codecs import (
+    PrivateAddress,
+    RuleValue,
+    StorageFailure,
+    ThreadStopReason,
+    timestamp_to_sql,
+)
 from facet.db.models import (
     RevisionGuard,
     RuleRevisionRow,
@@ -429,5 +435,39 @@ def test_admission_and_event_fault_roll_back_then_resume(monkeypatch):
             )
             assert _runner(owner, source, target).run_once().projected.verified == 1
             assert target.inserted == 1
+        finally:
+            owner.close()
+
+
+def test_metadata_rate_limit_respects_provider_retry_after(monkeypatch):
+    import facet.sync as sync
+
+    now = Timestamp(datetime.now(UTC))
+    monkeypatch.setattr(sync, "_now", lambda: now)
+    with TemporaryDirectory(prefix="facet-history-", dir=_trusted_parent()) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=False)
+        source = HistorySource(owner)
+        target = _Target(source.raw_bytes)
+
+        def limited():
+            raise ProviderFailure(
+                ErrorCode.SOURCE_RATE_LIMITED,
+                Role.SOURCE,
+                status=429,
+                retry_after_seconds=120,
+            )
+
+        source.on_metadata = limited
+        try:
+            assert _runner(owner, source, target).run_once().attention == 1
+            assert owner._connection.execute(
+                "SELECT state,next_attempt_at FROM sync_jobs WHERE kind='resolve_event'"
+            ).fetchone() == (
+                "retry_wait",
+                timestamp_to_sql(Timestamp(now.value + timedelta(seconds=120))),
+            )
+            _runner(owner, source, target).run_once()
+            assert source.metadata_calls == 1
+            assert target.inserted == 0
         finally:
             owner.close()
