@@ -10,6 +10,13 @@
 
 ## 配置和账号
 
+2026-10-07 用户批准了独立 `target-cleanup` CLI 的显式维护例外。Normal sync 仍
+仅持 target `gmail.insert` + `gmail.readonly`；临时完整 `https://mail.google.com/`
+权限只用于交互清理进程，不能落盘或交给 sync。Preview/execute 持现有 writer lock，
+固定不可变邮件 IDs（含草稿内邮件）及私密 metadata journal；不读邮件内容，不改
+投影 DB 的 jobs/mappings/cursors/unknown inserts，不自动清理。真实删除需单独批准
+实际 preview，详见 [CLI 契约](cli-spec.md) 和 [runbook](target-cleanup.md)。
+
 正式运行环境使用 Python 3.12 及以上、Google API Python 客户端、PSL 库和 SQLite。建议配置以 YAML 保存，初始规则首次导入数据库，之后通过 CLI 或 action 更新；再次启动不覆盖用户已学习或删除的规则。
 
 ```yaml

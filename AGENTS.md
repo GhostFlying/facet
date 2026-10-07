@@ -69,10 +69,11 @@ accidentally behaving differently is not authority to change the contract.
 - Keep the user informed during ongoing work. Report blockers with evidence and
   the precise missing decision or authority; do not repeatedly retry an unsafe
   action. A plan/review/status request alone is not permission to implement.
-- For Phase 1 the root agent only decomposes work, dispatches agents, schedules
-  reviews, evaluates acceptance evidence, and reports progress or blockers.
-  Engineering, tests, documentation, commits, and conflict integration belong
-  to delegated worker/QA/integration agents. The user's latest prospective model
+- The user's later workflow simplification supersedes the original delegation
+  split: root owns plans, engineering, tests, documentation, commits and
+  integration; subagents are used only for independent reviews. Previously
+  pending worker units retain their original ownership until completed.
+  The user's latest prospective model
   policy permits only `gpt-6.1-sol` high/xhigh or `gpt-6-luna` according to task
   complexity. Complex design and high-risk independent review use Sol xhigh;
   simple bounded low-risk work may use Luna. Do not assign new work to or
@@ -143,13 +144,24 @@ accidentally behaving differently is not authority to change the contract.
   scopes, or contact other people without specific authorization. OAuth approval
   does not authorize arbitrary mailbox mutation. If new OAuth is needed, provide
   the supported authorization flow, not a request to paste tokens into chat.
+- Product decision (2026-10-07): explicit `target-cleanup` CLI maintenance is
+  the sole Phase 1 mailbox-deletion exception. Preview/execute require stopped
+  sync and its writer lock; status remains offline/query-only. Preview fixes
+  immutable target message IDs, including draft-contained messages, without
+  reading content. Execute requires preview, stable request key, `--yes`, exact
+  target confirmation and separate ephemeral `https://mail.google.com/` OAuth.
+  Never persist that token or pass it to sync. Actual live deletion still needs
+  separate authorization of its preview; this engineering approval is not it.
+  No source mutation, automatic cleanup, DB reset or insert-recovery bypass.
 
 ## Product boundaries
 
 - Phase 1 is single-user, self-hosted, one projection between DIFFERENT Gmail
   accounts. Source is the sole source of truth; AI products connect only to
-  target. A target may contain unmanaged data; report it, never silently delete
-  or adopt it.
+  target. Per the 2026-10-05 product decision, target must be fresh and dedicated
+  with Facet declared the sole application writer. Unexpected/unmanaged content
+  blocks new projection writes; never silently delete or adopt it. The explicit
+  maintenance exception above does not weaken startup/audit checks.
 - One admitted message authorizes the complete available non-draft source thread,
   including earlier history, attachments, other participants, and own replies.
   Tracked threads retain this authorization for future messages even if sender
@@ -289,8 +301,9 @@ rule and recovery invariants remain.
   lookup. Non-TTY mutations require explicit confirmation/scope where applicable.
   Queue retry cannot bypass unknown-insert recovery or stopped generations.
   Maintenance coordinates DB and credential ownership so auth/refresh cannot
-  race a complete backup/restore. Never add send/delete/purge, cursor-reset,
-  force-bind or empty-DB recovery shortcuts.
+  race a complete backup/restore. Never add send/purge, cursor-reset, force-bind
+  or empty-DB recovery shortcuts. Mailbox deletion is limited to the explicit
+  `target-cleanup` exception above; sync/adapters/audit cannot invoke it.
 - CLI private metadata is a local, explicit opt-in profile, separate from public
   aggregate DTOs. No output mode prints body/raw/credentials/unfiltered provider
   responses. Public mode obeys the Dashboard output boundary, not raw CLI rows.

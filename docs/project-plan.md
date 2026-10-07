@@ -36,7 +36,7 @@ authority 改变重新提交用户 review。
 | target 权限 | `gmail.insert` 和 `gmail.readonly`，用于写入、回读和恢复 |
 | 目标邮箱展示 | 默认只在 All Mail；专用标签和 Inbox 设置为可选项 |
 | BlackList | 阻止该 sender 的新 admission，停止当前 thread 后续同步，保留已投影历史 |
-| 撤回和清理 | 保存 provenance 和映射；purge、retention 和删除权限留到后续 |
+| 撤回和清理 | 保存 provenance 和映射；purge、retention 留到后续；2026-10-07 批准独立显式 target-cleanup 维护例外，非同步删除 |
 | 交付保证 | 持久队列、可恢复、重复抑制；跨 Gmail 和 SQLite 不承诺 exactly once |
 | AI 产品责任 | connector 的授权、索引、附件读取和检索由各 AI 产品负责 |
 | Web Dashboard | 第一期开启只读状态、进度、数量、异常和诊断，不展示邮件细节 |
@@ -227,7 +227,7 @@ Dashboard 至少显示 source/target 角色的授权状态、权限模式、init
 | 阶段 | 目标 | 开始条件 |
 | --- | --- | --- |
 | Phase 1 | Gmail 内容投影和可恢复自托管服务 | 当前计划 |
-| Phase 1 后续 | 显式撤回、purge、retention、目标重复修复 | 先定义删除语义，再单独选择权限 |
+| Phase 1 后续 | 显式撤回、purge、retention、目标重复修复 | 先定义删除语义，再单独选择权限；不包括已单独批准的固定清单 target-cleanup 维护命令 |
 | Phase 2 | 更好的 setup 和规则管理体验；评估日历或文档投影 | Gmail 持续使用反馈证明需要 |
 | 后续独立提案 | Agent 以 primary 身份发送、其他 provider、复杂 topic rules | 单独确认产品和权限契约 |
 

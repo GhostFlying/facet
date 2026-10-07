@@ -8,6 +8,20 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Explicit target cleanup (in implementation/acceptance)
+
+The user approved an independent `target-cleanup` CLI maintenance exception and
+ephemeral full Gmail consent, not automatic sync deletion. The local commands
+now provide fixed-ID preview, offline status and explicitly confirmed execution;
+normal sync credentials/business rows remain separate. Independent plan review
+passed; real CLI subprocesses have passed synthetic init/binding, preview,
+execution, response-loss/restart, wrong-account and writer-exclusion checks.
+Final candidate implementation review/full checks/non-root image acceptance are
+still pending. No actual target deletion, broad persistent credential, DB reset
+or unknown-insert retry has occurred. Real deletion awaits separate approval of
+its actual preview. See [runbook](target-cleanup.md) and
+[review receipt](reviews/target-cleanup-cli.md). The live sync gaps below remain.
+
 ### Current live gate and insert adapter correction
 
 The recent local build/Compose acceptance is not yet a working live projection.
