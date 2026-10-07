@@ -27,7 +27,8 @@ authority 改变重新提交用户 review。
 | 项目 | Phase 1 决定 |
 | --- | --- |
 | 运行方式 | 单用户、自托管、Docker 提供的 image 内单个前台 sync/HTTP 进程、SQLite；容器外运行环境不在 Facet 保证范围 |
-| 数据源和目标 | 一对不同的 Gmail 账号；source 为唯一事实来源 |
+| 数据源和目标 | 一对不同的 Gmail 账号；source 为投影内容的唯一事实来源 |
+| target 外部写入 | 允许另行授权的外部 agent 发信/草稿，From 为绑定的 source，回复直接进入 source；Facet 自身不提供发信功能 |
 | 投影单位 | 一封邮件命中后，整个 source thread 纳入跟踪 |
 | 初始历史 | 最近六个月内命中的 thread，复制其完整历史 |
 | 后续同步 | 第一阶段即包含 History polling、完整分页/cursor、事件持久化去重和用户从 source 发出的回复 |
@@ -55,7 +56,7 @@ Facet 的验收终点是邮件被正确写入 target，并能通过 Gmail API �
 
 Phase 0 验证了数据面的可行性。六个月 backfill、长期运行、History 404、规则执行、可信发件人判断和生产队列仍需要在 Phase 1 验收。原样复制已有 `Fwd:` 邮件不会消除其原始标题；Facet 本身不生成转发邮件。
 
-历史证据（2026-10-02）：用户报告已清理 source action labels 和 target 旧邮件。只读检查确认三种 action labels 已不存在，但当时 target API 仍返回八封普通邮件和一个草稿，且两个已验证的 spike 样本仍为无标签邮件。这不是当前部署许可；2026-10-05 的[产品契约](product-contract.md)要求全新专用 target、操作者 sole-writer 声明，以及 target OAuth 后、首次 insert 前只读核验邮箱为空。Unexpected/unmanaged 内容必须 fail closed，不清理或认领。正式初始化不导入 spike cursor、旧映射或旧 target 邮件。
+历史证据（2026-10-02）：用户报告已清理 source action labels 和 target 旧邮件。只读检查确认三种 action labels 已不存在，但当时 target API 仍返回八封普通邮件和一个草稿，且两个已验证的 spike 样本仍为无标签邮件。这不是当前部署许可。2026-10-07 的[产品契约](product-contract.md)修正了 2026-10-05 的 sole-mailbox-writer 假设：target 仍须新建、专用，但允许 source 身份的外部 agent 已发送邮件/草稿，不能用总邮件数为零作为持续运行门槛；其余意外未管理内容仍阻止新投影，不清理或认领。正式初始化不导入 spike cursor、旧映射或旧 target 邮件。
 
 ## Phase 1 功能范围
 
@@ -75,7 +76,7 @@ foundation 是阶段性基础；G6 要求真实可维护的全套命令及容器
 骨架过关。Status/doctor 与停机 backup/restore/migrate/inspect 可以 offline 运行，
 即使 invalid_grant 或 Gmail 不可用仍能看 pending。维护协调 DB+credential ownership。
 
-第一期不实现 agent 代发、双向同步、source 状态完整复制、多租户、Web 邮件浏览或规则编辑、LLM 自动分类、通用 MCP、其他邮件 provider 或自动删除 target 邮件。Dashboard 仅用于只读运维观察，setup 与服务控制仍使用 CLI。
+第一期不由 Facet 实现 agent 代发/草稿创建、双向同步、source 状态完整复制、多租户、Web 邮件浏览或规则编辑、LLM 自动分类、通用 MCP、其他邮件 provider 或自动删除 target 邮件。允许外部 agent 发信/草稿不等于 Facet 提供发送 API、扩大 scope 或配置 send-as。收件人自动发现规则记录为后续项，不在本期实施或保存每封邮件的 To/Cc；回复进入 source 后仍按现有规则或 tracked thread 授权处理，不因 agent 联系过收件人而自动 admission。Dashboard 仅用于只读运维观察，setup 与服务控制仍使用 CLI。
 
 ## 工程架构
 
@@ -115,7 +116,7 @@ H0 消费和 gap 恢复能力，并受单独 Gmail 操作范围授权。
 
 银行实际域名未经确认不进入默认规则。按照 2026-10-05 用户决定，SMTP 认证与分类交给 Gmail；Facet 不独立验证 sender authentication，不以认证 headers 或 source-path attestation 阻塞规则 admission，也不声明邮件安全。
 
-验收：错误账号、token 对调、source 等于 target、无效配置和第二个写入进程均被拒绝；数据库约束与迁移可以重复执行；规则边界和 metadata-only admission 测试通过，认证 headers 不影响规则决策。OAuth 前操作者声明全新专用 target 且 Facet 为唯一应用写入者；target OAuth 后、首次 projection/insert 前只读核对账号 binding 和普通邮件/草稿/Spam/Trash，发现 unexpected/unmanaged 内容或 mismatch 时 blocked/report-only，不认领、删除或清理。Gmail/OAuth metadata 不证明 sole-writer；此条是验收要求而非新增 runtime 已实现证据。Doctor 提示缺失的 action labels；只读模式缺少 action labels 时，CLI 规则管理仍可使用。
+验收：错误账号、token 对调、source 等于 target、无效配置和第二个写入进程均被拒绝；数据库约束与迁移可以重复执行；规则边界和 metadata-only admission 测试通过，认证 headers 不影响规则决策。操作者声明新建专用 target 及允许的外部 agent 用途；target OAuth 后、首次 projection/insert 前只读核对账号 binding 和普通邮件/SENT/草稿/Spam/Trash。按产品契约分类的 source 身份未管理 SENT/DRAFT 不阻塞、不计投影成功、不自动绑定恢复；其他 unexpected/unmanaged 内容或 mismatch 保持 blocked/report-only，不认领、删除或清理。既有映射及独立证实的本系统 insert 结果优先，标签/From 不证明应用写入者或内容真实性。此条是验收要求而非新增 runtime 已实现证据。Doctor 提示缺失的 action labels；只读模式缺少 action labels 时，CLI 规则管理仍可使用。
 
 ### M2 自动 discovery、backfill、History 增量和投影核心（第一条可用产品能力）
 

@@ -157,11 +157,21 @@ accidentally behaving differently is not authority to change the contract.
 ## Product boundaries
 
 - Phase 1 is single-user, self-hosted, one projection between DIFFERENT Gmail
-  accounts. Source is the sole source of truth; AI products connect only to
-  target. Per the 2026-10-05 product decision, target must be fresh and dedicated
-  with Facet declared the sole application writer. Unexpected/unmanaged content
-  blocks new projection writes; never silently delete or adopt it. The explicit
-  maintenance exception above does not weaken startup/audit checks.
+  accounts. Source is the sole source of truth for projected content; AI products
+  connect only to target. Target remains fresh/dedicated at provisioning, but the
+  2026-10-07 user decision replaces the sole-mailbox-writer/read-only-agent rule:
+  separately authorized external agents may send and create drafts in target,
+  using the bound source identity as From; replies go directly to source.
+  Unmanaged SENT/DRAFT items with an unambiguous normalized From matching source
+  are permitted, not blocking errors. Labels/From are classification inputs, not
+  proof of sender authenticity, writer identity or ownership. Existing mappings
+  and independently proven owned insert outcomes take precedence; a pending
+  intent or matching fingerprint alone is not such proof. Permitted outbound
+  items are not projection successes or recovery auto-claim candidates. Other
+  unexpected/unmanaged content still blocks new projection writes; never silently
+  delete or adopt it. Facet's single DB/process writer, credentials and insert-only
+  sync scope are unchanged. Agent sending credentials, send-as configuration and
+  reply routing belong to the external agent/Gmail integration, not Facet.
 - One admitted message authorizes the complete available non-draft source thread,
   including earlier history, attachments, other participants, and own replies.
   Tracked threads retain this authorization for future messages even if sender
@@ -177,8 +187,13 @@ accidentally behaving differently is not authority to change the contract.
   Target label creation needs separately approved scope; existing-label use and
   Inbox placement are optional. Do not mirror read/star/archive/Sent state.
 - Phase 1 has no purge/retention, automatic target deletion, two-way sync,
-  agent sending, multi-tenancy, other providers, general MCP framework, or LLM
-  classification. Preserve provenance for future explicit withdrawal.
+  Facet-provided agent sending, multi-tenancy, other providers, general MCP
+  framework, or LLM classification. External-agent outbound compatibility above
+  is required, not a Facet send API. Recipient-derived automatic rules are future
+  work only: do not implement them in Phase 1, infer admission from target mail,
+  or add To/Cc persistence. Replies in source use normal admission/History rules;
+  untracked threads are not admitted merely because an agent initiated contact.
+  Preserve provenance for future explicit withdrawal.
 - Facet acceptance ends at correct target Gmail API/UI content, dates, threads,
   and attachments. AI-product connector indexing/search/attachment handling is
   NOT a release gate and not part of Facet's sync latency.

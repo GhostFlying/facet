@@ -3,6 +3,14 @@
 Date: 2026-10-05. Revision: 4. Status: awaiting independent plan review.
 Base: `1398549` (current `origin/main`).
 
+Historical plan: its sole-mailbox-writer/read-only-agent and blanket unmanaged
+blocking assumptions are superseded by the 2026-10-07 user decision in
+[target-agent-outbound](target-agent-outbound.md) and the current
+[product contract](../product-contract.md). Preserve the original review context;
+do not use it to reject permitted source-identity external-agent SENT/DRAFT.
+Dedicated-target, account-binding, privacy and no-auto-adoption requirements
+remain. This notice changes no runtime or live authority.
+
 ## Goal
 
 Make the production deployment precondition explicit: the configured target

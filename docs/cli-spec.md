@@ -217,7 +217,7 @@ SQLite backup API 保存 DB 与配置/binding/credentials；不复制 raw，不�
 主 DB。Destination 必须新建/空的指定备份位置，不覆盖任意已有目录。`backup verify`
 离线检查完整性、schema、成套文件与私密权限，不要求 Gmail 可用。
 
-`setup` 的 target 前置条件是操作者在 OAuth 前声明 target 为全新、专用且 Facet 为唯一应用写入者；target OAuth 后、首次 projection/insert 前的只读检查核对账号 binding 及普通邮件、草稿、Spam、Trash。检查发现 unexpected/unmanaged 内容或账号不匹配时 fail closed，保持 blocked/report-only；Gmail/OAuth metadata 不证明所有第三方 writer。CLI 不提供认领、自动清理或同步删除路径；唯一显式维护删除例外见下节。
+`setup` 的 target 前置条件是操作者声明新建专用 target 及允许的外部 agent 发信/草稿用途；agent 以绑定 source 为 From，回复直接进入 source。Facet 不提供发送/草稿创建、send-as 配置或额外 scope。Target OAuth 后、首次 projection/insert 前只读检查账号 binding 及普通邮件、SENT、草稿、Spam、Trash。按产品契约分类的未管理 source 身份 SENT/DRAFT 不阻塞、不计投影成功、不自动认领 unknown insert；既有映射/独立证实的本系统 insert 结果优先，标签/From 不证明真实性或应用写入者。其他 unexpected/unmanaged 内容或账号不匹配仍 fail closed，保持 blocked/report-only。当前 setup 只核对 profile，内容分类与 recovery 排除仍待运行时验收，不因本轮文档修改宣称完成。CLI 不提供认领、自动清理或同步删除路径；唯一显式维护删除例外见下节。
 
 ### 显式专用 target 清理（2026-10-07 用户授权例外）
 
@@ -233,6 +233,8 @@ Expiry 限制首次 start（30 分钟），已开始任务以原 key/清单恢�
 不提供 source 删除、DB reset、unknown insert retry 或隐式 resume。CLI 输出仅固定
 汇总和本地 preview ID，不支持 `--public` 导出；真实删除需另批准实际 preview。
 完整风险、备份和容器调用见 [target-cleanup runbook](target-cleanup.md)。
+
+清理 preview 的固定清单可能包含合法的外部 agent 已发送邮件/草稿；它们不是必须清除的同步异常。批准清单意味着批准删除其中这些内容，操作者必须单独确认，既有清理授权不覆盖新清单；本轮不新增筛选选项或任何真实删除权限。
 
 `restore plan --backup <path>` 和 `maintenance inspect/check` 默认 offline、metadata
 only；`restore apply` 需明确 destination/backup、停机锁和确认，保留 recoverable 旧

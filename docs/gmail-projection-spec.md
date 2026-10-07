@@ -64,9 +64,9 @@ Target 固定 `gmail.insert` 和 `gmail.readonly`；后者用于搜索、回读�
 
 每次启动先回读两个 profiles，与持久绑定核对，拒绝相同账号、角色互换或未经初始化的身份变化。Own-addresses 使用明确地址列表，不额外申请 settings scope，也不擅自合并所有 plus 或 dot 地址。
 
-正式初始化创建新的 DB 与 source checkpoint，不沿用 `.facet-spike/` 中的 cursor、实验映射或旧 target IDs。生产 target 必须是全新、专用于本 projection 的 Gmail 账号，由操作者在 OAuth 前声明并配置 Facet 为唯一应用写入者；不得配置其他应用、forwarding、legacy projection 或人工导入/发信写入。AI connector 只能读取。Gmail metadata/OAuth scopes 不能证明该声明，也不能识别所有第三方写入者。
+正式初始化创建新的 DB 与 source checkpoint，不沿用 `.facet-spike/` 中的 cursor、实验映射或旧 target IDs。生产 target 是为本 projection 全新建立的专用 Gmail 账号。2026-10-07 用户决定取代唯一邮箱写入者要求：操作者声明专用用途及获准的外部 agent 发信/草稿写入；From 使用已绑定 source 身份，回复进入 source。Agent/Gmail 集成负责发信权限、send-as 和回复路由，Facet 自身仍仅 insert，不提供发送/草稿接口或扩大 scope。其他导入器、forwarding 和 legacy projection 不允许；Gmail metadata/OAuth 不能证明全部 writer 行为。Facet 的单 DB/process writer 不变。
 
-Target OAuth 后、首次 projection/insert 前，部署验收必须通过只读 Gmail 检查核对 target 账号/binding，并覆盖普通邮件、草稿、Spam 和 Trash；收件箱为空不代表 All Mail 或整个 mailbox 为空。发现 unexpected/unmanaged 邮件、旧 forwarding/spike 副本或 binding mismatch 时 fail closed：保持投影写入阻止并报告/进入 attention，不自动认领、删除、移标或清理。OAuth consent 不是 Gmail mailbox write，授权成功本身不完成邮箱前置检查；当前 setup 仅授权和读取 profile，本次文档修改不新增该 runtime 检查。
+Target OAuth 后、首次 projection/insert 前，部署验收只读核对 target 账号/binding 和普通邮件、SENT、草稿、Spam、Trash。先处理已有 managed mapping/独立归属证据；未管理的 `SENT`/`DRAFT` 且唯一有效 From 经既有规范化匹配绑定 source 时，分类为允许的外部 outbound，不阻止投影。仅 From 匹配或仅未映射不能放行；标签/From 不是认证或 writer 身份证明。分类需要的 header 仅内存读取，不保存每封 From/To/Cc 或 raw。其他 unexpected/unmanaged 邮件、旧 forwarding/spike 副本及 binding mismatch 仍 blocked/report-only，不认领、删除、移标或清理。OAuth 不完成邮箱检查；当前 setup 仅授权和读取 profile，本次文档修改不实现 runtime 分类。
 
 既有部署不得自动迁移或清理以满足新约束。在下一次部署验收前保留 mappings/jobs/audit，缺少操作者声明或可观察检查时保持 blocked/report-only；未知旧邮件不能作为新 mappings。Source action labels 不存在时，只读模式继续提供 CLI 管理并说明如何手工创建；便利模式才自动创建。
 
@@ -183,6 +183,12 @@ Date/internalDate 也不是 target 创建时间。M2-04 insert-attribution ADR �
 验证候选排除或 fence 等证据机制，包含竞争、分页/过期和其他写者反例；方案未验证
 或归属未知时保持待处理，不自动认领。
 
+允许的未管理 agent SENT/草稿也不能自动绑定为生产 insert 的恢复结果，即使 RFC ID、
+From 或内容相同。不能以“只有 Facet 写 target”作为归属证明；已有 mapping 或独立
+证据证明的本次 insert 保留归属，不能因标签而重新误判为外部 outbound。相关分类与
+恢复排除必须进入原有 target 检查/recovery 验收，当前只读 recovery check 不代表这项
+分类已实现。
+
 - 唯一内容匹配、未被不兼容 source 映射占用且通过已评审的 insert 归属核验：绑定
   target IDs；候选在 Spam 或 Trash 时额外报告可见性异常，不重复插入或宣称正常可见。
 - 多候选、相同 Message-ID 但内容不匹配、映射冲突：`needs_attention`。
@@ -243,7 +249,11 @@ Blacklist 精确 sender 优先于新 thread allow。当前 thread 变 inactive�
 
 校对保存 epoch 和进度，限流、可恢复。Target 人工删除默认报告，显式 `--repair-missing` 才重新投影；人工放入 Trash 的内容不被自动认领为正常可见。未知旧邮件、此前 forwarding 和 spike 的副本不自动纳入生产映射，也不清理。
 
-全 target audit 发现 unexpected/unmanaged 内容时，专用 target 的部署前置条件不再满足，应停止新的投影写入并报告；不能用 audit/recovery 或内容相同绕过唯一写入者声明和 insert 归属核验。已记录的 mappings、pending intents 和审计证据保留，已有在途 insert 的未知结果仍按恢复协议处理，不宣称能撤销在途请求。
+全 target audit 区分已有 managed/有独立归属证据的 insert、允许的未管理外部 outbound，以及其余 unexpected/unmanaged 内容。允许的 source-From SENT/草稿不阻止写入、不计作投影成功、不自动映射；其余 unexpected 内容或账号错误仍停止新的投影并报告。Audit/recovery 不能仅凭内容相同认领副本，也不能再假设唯一邮箱写入者。保留 mappings、pending intents 和审计证据；在途 insert 结果仍按恢复协议记录，不宣称能撤销。
+
+外部 agent 的收件人发现/自动学习规则留到 Phase 1 之后；本期不从 target outbound
+或草稿学习、不新增 To/Cc 持久化。回复进入 source 后，tracked thread 按原授权继续；
+未跟踪 thread 仍须命中现有 source admission，不因曾给对方发信而自动披露。
 
 ## 运行故障和备份
 

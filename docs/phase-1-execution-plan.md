@@ -30,9 +30,10 @@ target，AI agents 只连接 target。Facet 自身的 source OAuth 仍是邮箱�
   包括较早历史、附件、其他参与者与 own replies；tracked thread 的未来消息继续
   投影，即使 sender 改变。Preview 解释持续授权，不承诺冻结会话。
 - Target 是用户可通过 Gmail API/UI 检查的披露视图，生产必须使用全新专用账号，
-  由操作者声明并配置 Facet 为唯一应用写入者，AI connector 仅只读。Facet 对自己
-  写入内容的范围、保真、日期、thread、附件和映射状态负责；发现 unexpected/
-  unmanaged 内容时阻止新的投影写入并报告，不能自动删除、认领或清理。
+  允许另行授权的外部 agent 以绑定 source 身份发信/创建草稿，回复直接进入 source。
+  Facet 只负责自己投影内容的范围、保真、日期、thread、附件和映射状态，不提供
+  发信/草稿创建或配置 send-as。允许的未管理 SENT/DRAFT 不算同步错误或投影成功；
+  其他 unexpected/unmanaged 内容阻止新投影并报告，不能自动删除、认领或清理。
 - 服务在既有一致性边界内持续运行和恢复：选中工作持久可解释，限流、断网、
   restart 或授权失效不静默丢失 jobs；最终成功、review、取消或明确失败。不承诺
   Gmail 与 SQLite 的 exactly once，也不承诺恢复已无法取得的 source 内容。
@@ -47,12 +48,13 @@ target，AI agents 只连接 target。Facet 自身的 source OAuth 仍是邮箱�
 1. 安装和检查：选择明确镜像版本/digest 与本地持久 volume，准备私密配置；CLI
    validate/init/doctor 检查本地 schema、文件权限及待核验 binding，不声称已检查
    live profiles/target 内容。初始化不复制邮件、不导入 spike 状态；Web 默认无公网暴露。
-2. 授权与绑定：OAuth 前由操作者声明 target 为全新专用账号且 Facet 为唯一应用
-   写入者；经 CLI Desktop loopback/SSH OAuth 分别绑定不同 source/target，核对
+2. 授权与绑定：OAuth 前由操作者声明 target 为新建专用账号及允许的外部 agent
+   用途；经 CLI Desktop loopback/SSH OAuth 分别绑定不同 source/target，核对
    live profiles/实际 scope。Target OAuth 后、首次 projection/insert 前只读检查
-   普通邮件、草稿、Spam、Trash 和 account binding；unexpected/unmanaged 内容或
-   mismatch 时 blocked/report-only，不删除、认领或清理。Gmail/OAuth 无法证明
-   唯一写入者，声明和可观察检查是独立证据。OAuth 是一次
+   普通邮件、SENT、草稿、Spam、Trash 和 account binding；按产品契约分类的
+   source 身份未管理 SENT/DRAFT 允许存在，其他 unexpected/unmanaged 内容或
+   mismatch 时 blocked/report-only，不删除、认领或清理。标签/From 和 Gmail/OAuth
+   不证明应用写入者或内容真实性，声明和可观察检查是独立证据。OAuth 是一次
    安装准备，不由 Compose up 替代，也不自动授权
    任意 backfill、额外 scope 或未选择账号。
 3. 预览和明确开始：配置规则，preview 解释固定六个月 discovery、thread 全历史与
@@ -82,7 +84,7 @@ target，AI agents 只连接 target。Facet 自身的 source OAuth 仍是邮箱�
 
 | 类别 | 必须达到的结果 | 必需证明证据 | 已有 gate / CLI / 工作包 |
 | --- | --- | --- | --- |
-| A1 披露与授权 | 完整 thread 持续授权、固定六个月 discovery、未来规则/显式历史扩展、metadata/rule admission、stop/BlackList 正确；全新专用 target、操作者 sole-writer 声明，unexpected/unmanaged target fail closed | 域名/effective_at/legacy/stop 反例；认证 header 不改变匹配 candidate；OAuth 后只读 target 检查、首次 insert 前阻止 unexpected 内容；preview→start 与零隐式 insert；获准范围的真实 admission/action 结果 | G1/G2/G4；CLI-01/03/05；M1-06、M2、M4 |
+| A1 披露与授权 | 完整 thread 持续授权、固定六个月 discovery、未来规则/显式历史扩展、metadata/rule admission、stop/BlackList 正确；新建专用 target 允许 source 身份的外部 agent SENT/DRAFT，其他意外未管理内容 fail closed | 域名/effective_at/legacy/stop 反例；认证 header 不改变匹配 candidate；OAuth 后只读 target 分类：允许 outbound 不阻塞、不计成功、不自动认领恢复；其余 unexpected 内容及账号 mismatch 阻止新 insert；preview→start 与零隐式 insert；获准范围的真实 admission/action 结果 | G1/G2/G4；CLI-01/03/05；M1-06、M2、M4 |
 | A2 Gmail 保真和可见性 | 原 raw 不重序列化；内容/MIME/附件、有效 Date/可解释降级、实际 target thread 集合正确；默认 All Mail，不镜像读/星/Inbox/Sent 状态 | 版本化 semantic/MIME/附件 digest 与 Date/thread 合成测试；限定 live Gmail API 回读和 UI 检查；fallback 只处理确认 threading 错误 | G2/G6；CLI-02；M2-02/05、M6-08 |
 | A3 连续同步与恢复 | H0/discovery/History 全分页接续，gap/reconcile 不扩大授权；intent/unknown、restart、取消/故障可恢复或明确 attention，选中工作不静默消失 | Cursor/intent/insert/map/stop/restart/disk 故障注入；初始化交错、History expiry 与归属反例；范围内 live 恢复、未知 gap 显式 range 决定 | G2/G3/G4；CLI-02/03/04；M2、M3、M4 |
 | A4 隐私和输出边界 | DB 仅必要 metadata，raw 仅内存、不落文件；logs/CI/images 无邮件内容或凭据，许可的私密 state/backup owner-only；HTTP/DOM/frontend/URL/export 无邮件与内部私密字段 | DB/journal/log/files 和 CLI private/public 分层 sentinels；Web network/DOM/浏览器检查；image/context/layers/artifacts 扫描与 owner-only 文件检查 | G1/G4/G6；CLI-08；P1-02、M1-05、M4-04/05、M6-03 至 M6-06 |
@@ -107,17 +109,27 @@ Actions 的 public `ghcr.io/ghostflying/facet` 双架构镜像、双语运维文
 Source 默认 `gmail.readonly`，第一阶段观察用户手工 action labels 并处理规则；便利 `gmail.modify`、
 target label 创建和可选 Inbox 按额外 scope/选择启用，不自动扩大权限。Target 默认
 `gmail.insert` + `gmail.readonly`、All Mail 可见，仅 insert 不 send/forward。
-Target 必须全新且专用，操作者声明并配置 Facet 为唯一应用写入者；AI connector
-只读。Target OAuth 后的只读检查覆盖普通邮件、草稿、Spam、Trash 与账号 binding；
-首次 projection/insert 前 unexpected/unmanaged 内容或 mismatch 必须 fail closed。
-既有部署缺声明/检查时 blocked/report-only，保留 mappings/jobs/audit，不自动清理
-或迁移。Gmail API 无法证明唯一写入者；当前文档不声称新增 runtime enforcement。
+Target 必须新建且专用；2026-10-07 用户决定替换 sole-mailbox-writer/agent 只读
+假设，允许另行授权的外部 agent 发信/草稿，From 为绑定 source、回复直接进入 source。
+发送凭据、send-as 与回复路由由外部 agent/Gmail 集成负责，Facet 默认 scopes 不变。
+只读检查覆盖普通邮件、SENT、草稿、Spam、Trash 与 binding；既有 mappings 和独立
+证实的本系统 insert 结果优先。未管理 SENT/DRAFT 且唯一有效 From 规范化后等于
+绑定 source 时允许存在，但不计投影成功、不自动绑定 unknown insert；From 单独匹配
+或没有 mapping 不足以例外，标签/From 不证明真实性或 writer 身份。其他 unexpected/
+unmanaged 内容及 mismatch 仍 blocked/report-only，保留 mappings/jobs/audit，不清理
+或迁移。当前 setup 只核验 profiles；分类、audit 和 recovery 排除仍为原 gate 的开放
+实现/验收项，本轮文档修正不声称新增 runtime enforcement。
 
-Phase 1 不做 send、purge/retention/target 自动删除、双向同步、全量状态镜像、
+Phase 1 不由 Facet 提供 send/草稿创建、purge/retention/target 自动删除、双向同步、全量状态镜像、
 多租户、其他 provider、LLM 分类、通用 MCP、Web OAuth/邮件浏览/规则编辑或应用
 自建 HTTPS/login。未来撤回也不保证清除第三方索引/缓存。AI connector 的授权、
 索引、搜索、附件读取与回答准确性由各 AI 产品负责，不是 Facet 发布 gate 或同步
 产品没有同步延迟承诺；这些外部 connector 行为不属于 Facet 的验收范围。
+
+外部 agent 发信收件人自动成为规则候选记录为后续项，不在本期扫描 target outbound
+来学习规则或保存每封邮件的 To/Cc。回复在 source 出现后仍按现有规则/tracked thread
+处理；agent 联系过收件人不自动 admission 未跟踪 thread。此决定不改变 M1-M6 顺序、
+隐私/一致性验收、真实外部操作授权或 CLI 单 writer。
 
 G0 是开发阶段对具体总计划版本的批准，不是安装后的 CLI runtime flag。D1 工程
 自主 merge 与 D2 GHCR/main full-SHA scope 已授权，只在 G0/phase 开始后生效；
@@ -282,10 +294,11 @@ DEBUG 同样受限；DB audit 不成为自由文本内容仓库。此时可测�
 
 交付：sender/domain 规范化、点边界、公共后缀拒绝、PSL/IDNA 版本，以及 Gmail
 负责 SMTP 认证/分类、Facet 不独立声明 sender authenticity 的边界。Doctor/init 检查
-profile、scope、权限、schema、target 普通邮件/草稿/Spam/Trash 和 missing action
-labels；target OAuth 后、首次 insert 前发现 unexpected/unmanaged 内容或 binding
-mismatch 时阻止部署/投影并报告，不自动认领、删除或清理；OAuth 前另有操作者的
-全新专用 target/唯一应用写入者声明。不复制邮件。
+profile、scope、权限、schema、target 普通邮件/SENT/草稿/Spam/Trash 和 missing action
+labels；按产品契约允许的 source 身份未管理 SENT/DRAFT 不阻塞，其他 unexpected/
+unmanaged 内容或 binding mismatch 阻止部署/投影并报告，不自动认领、删除或清理。
+OAuth 前另有操作者的新建专用 target/外部 agent 用途声明。不复制邮件；当前 setup
+未实现该内容分类，不因文档更新关闭 gate。
 
 验收：认证 headers、DKIM/SPF/DMARC 文本和其缺失都不改变匹配 metadata candidate 的
 规则决策；格式歧义、账号/权限不匹配和 provider 故障仍进入 attention。G1 关闭基础与
@@ -334,7 +347,8 @@ typed 确定失败/未知结果。验收：无 send/forward/delete 方法；inse
 归属证据，例如 target History fence 或 intent 前候选排除的适用性；方案未验证前不能
 因为唯一 fingerprint 匹配就绑定。历史 Date/internalDate 不是 target 创建时间。
 
-验收：预存在的 unmanaged/spike 内容与 source 完全相同且为唯一候选时不误认；本次
+验收：预存在的 unmanaged/spike 或允许的外部 agent SENT/DRAFT 与 source 完全相同且
+为唯一候选时不误认；既有映射/独立证实的本系统 insert 结果不因标签被误分类。本次
 可归因 insert 能恢复；相同/缺失 RFC ID、索引延迟、多候选、映射冲突、其他写者、fence
 分页/过期和 preflight 竞争均有反例。候选在 Spam/Trash 报可见性异常。零搜索结果不证明
 没有插入；默认保 attention，任何受限重试必须有 ADR 规定的预算和明确风险。30s/2m/5m
@@ -432,7 +446,9 @@ effective_at 与 stopped generation 生效；label add 后 remove 已过期无�
 
 交付：每日 source ID 集合比较、每周映射 target 存在性检查、按需全 target audit，
 durable epoch/进度与实时优先。验收：source 漏项安全补齐；target 缺失/Trash/重复和
-未映射内容被分类；不自动 reinsert/delete/adopt；repair 必须明确范围授权；reconcile
+未映射内容被分类，允许的外部 agent SENT/DRAFT 不作为异常、成功映射或自动 recovery
+候选；其他 unexpected 内容阻止新写入并报告，不依赖 sole-mailbox-writer 推断归属。
+既有映射/独立证实的 insert 结果优先。不自动 reinsert/delete/adopt；repair 必须明确范围授权；reconcile
 不扩大动态规则历史范围。未知结果和重复 RFC ID 不能仅靠 IDs 声称内容等值。
 
 **M4-04 Aggregate snapshots 与只读 HTTP**
