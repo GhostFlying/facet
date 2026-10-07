@@ -82,6 +82,15 @@ connectivity only, not account binding, token refresh or live mail projection.
 Neither proxy values nor provider response bodies were logged in this receipt.
 No proxy configuration was persisted or added to Compose, and no real credential
 or state volume was mounted. The live sync container remains stopped; the old
-unknown insert was not retried. Deployment-network configuration and controlled
-live verification remain open. No full suite/image rebuild was repeated because
+unknown insert was not retried. Controlled live verification remains open.
+No full suite/image rebuild was repeated because
 source, dependencies and image did not change.
+
+The subsequent user correction classifies proxy wiring as local deployment
+configuration, not project scope or a release gate. A private, owner-only override
+outside Git now passes existing host proxy variables to sync/setup without storing
+their values. Compose resolution passed for both services; another isolated
+no-credential probe using that resolved environment reached all three public HTTPS
+roots in 0.43–0.65 seconds. The repository Compose/Dockerfile/image and stopped live
+container were not changed. Subsequent authorized local operations must include
+this override; no project proxy implementation is pending.

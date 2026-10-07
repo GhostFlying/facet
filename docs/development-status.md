@@ -48,7 +48,7 @@ Complete offline checks passed. GitHub CI/integration are tracked separately;
 main merge/publication, real Gmail and live upgrade are not claimed. This focused
 repair depends on the preceding History candidate, not yet on main. Real sync
 stays stopped and its existing unknown attempt remains unchanged. Next: qualified
-integration and deployment-network configuration before authorized live validation. See
+integration and controlled live validation using this host's local network configuration. See
 [review receipt](reviews/sync-single-dispatch-transport.md).
 
 User-requested local revalidation on 2026-10-07 passed all five real CLI/SDK/TCP
@@ -63,11 +63,16 @@ Unauthenticated HTTPS probes from an isolated one-off container on the existing
 Compose bridge failed on direct Google connections. Passing the host's existing
 proxy environment made Gmail/OAuth/Accounts HTTPS endpoints reachable in
 0.44–0.63 seconds (404/404/302 at public roots; connectivity, not API authorization).
-The current Compose recipe does not pass proxy variables; no recipe, live container
-or host networking was changed. Real sync stays stopped; no mailbox credential,
-real state, OAuth exchange, recovery retry or Gmail write was used. This narrows
-the local connectivity blocker to direct egress versus the tested proxy path;
-production proxy/network configuration and controlled live validation remain open.
+The user clarified that proxy wiring is deployment-environment configuration, not
+a Facet feature or project acceptance gate. A private override outside the
+repository now passes existing host proxy variables to sync/setup; resolved Compose
+configuration and no-credential HTTPS probes passed (0.43–0.65 seconds). No proxy
+values were saved in the override or public evidence. Repository Compose,
+Dockerfile and image remain unchanged; this local override must be included in
+subsequent authorized operations. Real sync stays stopped; no mailbox credential,
+real state, OAuth exchange, recovery retry or Gmail write was used. The local
+connectivity configuration is ready; qualified integration and controlled live
+validation remain open, not blocked on a project proxy implementation.
 
 ### History current-rule admission (offline candidate)
 
