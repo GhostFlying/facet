@@ -200,7 +200,14 @@ From 或内容相同。不能以“只有 Facet 写 target”作为归属证明�
 
 ## 初始化和 backfill
 
-首次启动可授权和 preview，不自动复制历史；显式 `backfill start` 创建初始化 epoch。
+2026-10-07 用户决定：产品完整 CLI 同步入口自动编排细分命令的同一业务操作，
+不要求用户手动先 preview 再 start。一次有意完整同步调用选择当前 enabled allow
+rules 和默认固定六个月窗口，内部准备 scoped preview、持久化 H0/epoch 后启动
+discovery/backfill 与 History；现有工作续跑，新历史范围用独立扩张 epoch。它不
+改变现有 `effective_at`，也不清空 DB/cursor 或重试 unknown。该入口尚待实现。
+细分 `backfill preview/start/status/pause/resume` 保留用于维护和当前验证；独立
+preview、init/setup、普通 run/容器重启不自动扩大历史，preview 零 target 写入。
+稳定请求键、范围/账号/权限/停止 generation 检查与真实操作独立授权不变。
 
 1. 在任何 discovery 前获取并持久保存 H0 和固定时间 cutoff。
 2. Discovery 只从 sealed ruleset 的 enabled allow sender/domain 生成有界 Gmail
@@ -212,7 +219,9 @@ From 或内容相同。不能以“只有 Facet 写 target”作为归属证明�
 
 Page token 仅为短期扫描提示；过期或进程重启后可重新扫描同一个固定时间窗口，依赖唯一键去重。`backfill stop` 暂停领取历史 jobs，不取消实时跟踪；resume 延续原 epoch，不重算不断移动的六个月 cutoff。
 
-新增规则只处理当前明确选择的 thread 和未来事件。历史扩张通过新的显式 backfill epoch，并记录规则与窗口；每天校对不隐式变成全历史 admission。
+新增规则只处理当前明确选择的 thread 和未来事件。历史扩张通过新有意完整同步
+调用内部启动的 epoch，或细分 backfill 的显式 start，并记录规则与固定窗口。
+连续运行中的规则/标签更新、普通重启和每天校对不隐式变成全历史 admission。
 
 ## History 和过期恢复
 
@@ -281,7 +290,9 @@ Compose 将本地数据目录挂载到 `/data`，计划布局如下；初始化�
 
 Phase 1 要求首次私密配置/OAuth 完成后 `docker compose up -d` 一命令启动，容器
 重建无需重新交互授权且保留 binding/schema/checkpoint/jobs。Startup 不自动开始
-初始 backfill；由 CLI 明确 `backfill start` 作为一次披露确认。镜像由 Actions 构建/发布；PR 不 push，发布使用 approved registry/
+初始 backfill；有意完整同步入口可在一次范围确认后自动准备/start，独立
+`backfill start` 仍可用于细分维护。当前 Compose 默认保持 `run`，不因文档决定
+改变为新的完整入口。镜像由 Actions 构建/发布；PR 不 push，发布使用 approved registry/
 trigger、full source SHA/digest、amd64/arm64、SBOM/provenance 和匿名拉取验收，
 具体权限及工作包见 [执行计划](phase-1-execution-plan.md)。
 

@@ -24,7 +24,9 @@ OAuth 前由操作者声明 target 的专用用途及获准的 agent 发信/草�
 
 这是一项 thread 范围的持续披露授权。Facet 不独立验证发件人真实性，也不声明正文、附件或后续参与者可信。邮件中的指令仍是外部数据，AI 产品需要自行处理其内容风险。
 
-首次 backfill 和手动 admission 提供范围预览。预览说明完整 thread 的披露语义；邮件仍可能在预览后新增，因此它不承诺冻结未来会话。
+首次 backfill 和手动 admission 提供范围快照，说明完整 thread 的披露语义；邮件仍可能在快照后新增，因此它不承诺冻结未来会话。按 2026-10-07 用户决定，完整 CLI 同步入口自动完成范围准备、backfill 启动和增量运行，不要求用户先执行 preview 再执行 start。它完全复用细分命令的业务操作和检查，不是第二套同步实现；独立 preview 仍不写 target，细分命令保留用于维护和当前分步验证。
+
+用户有意调用完整同步入口，表示按当前 enabled allow rules 和默认固定六个月 discovery 窗口同步授权线程；内部持久化该规则/窗口范围、请求键、H0 和执行状态。缺少账号绑定或 OAuth 时通过既有流程完成必要交互，不默选账号或扩大 scopes。已有工作续跑，已确认映射去重；新的历史范围使用独立 epoch，不重置 DB/cursor，也不复活 stopped thread 或盲重试 unknown insert。单独 setup、普通 run/容器重启和 preview 不构成新的历史扩张授权。该入口尚待实现，产品决定不等于 agent 已获新真实邮箱测试范围。
 
 ## 规则和学习
 
@@ -32,7 +34,7 @@ OAuth 前由操作者声明 target 的专用用途及获准的 agent 发信/草�
 
 自动 admission 基于 Gmail source mailbox metadata 和配置的精确 sender/domain 规则。Gmail 负责 SMTP 认证与邮件分类，Facet 不重新验证 DKIM/SPF/DMARC，也不把认证 headers 作为 admission gate。Gmail 接收邮件不等于发件人真实或内容安全；规则匹配的正常非草稿邮件可以触发 thread 披露。格式歧义、账号不匹配和 provider 故障仍不放行。此边界由用户于 2026-10-05 明确确认，取代此前 source-path attestation 要求。
 
-新增 sender 或 domain rule 默认只对未来事件生效。通过 action label 学习时，当前 thread 立即纳入；不会自动回扫相同域名的所有旧 thread。历史范围扩展必须显式启动 backfill。
+新增 sender 或 domain rule 默认只对未来事件生效。通过 action label 学习时，当前 thread 立即纳入；不会自动回扫相同域名的所有旧 thread。历史范围扩展由新的有意完整同步调用自动准备/启动，或由细分 backfill 命令显式启动；普通运行、标签学习和 reconcile 不隐式扩大范围。显式历史范围可覆盖规则生效前的窗口，不回写或倒置该规则的 `effective_at`。
 
 Agent 发信后的回复进入 source，由既有规则、tracked-thread 授权和 History 正常处理；未跟踪 thread 不因为是 agent 发信的回复就自动纳入。未来可考虑从 agent 发信的收件人发现候选规则，但 Phase 1 不实现，不从 target 的 SENT/草稿生成规则或授权，不新增 per-message To/Cc 存储。未来 sender/domain 选择、自动生效及历史范围需另行确定。
 

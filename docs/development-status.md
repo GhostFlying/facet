@@ -31,6 +31,42 @@ Independent plan and exact-candidate documentation reviews passed; see the
 [review receipt](reviews/target-agent-outbound.md). Main integration and CI are
 separate gates, not implied by this documentation approval.
 
+### Complete sync entry decision and granular test
+
+On 2026-10-07 the user requested a complete CLI sync entry implemented entirely
+through the granular commands' shared operations, with no mandatory manual
+preview/start sequence. The proposed spelling `facet sync [--once]` is planned,
+not implemented. An intentional sync selects current enabled rules/default fixed
+six-month window; internal scoped preview/start and stable operation keys retain
+all account, scope, H0/gap, stopped-generation and unknown-insert guards. Ordinary
+setup/preview/run/restart and prospective rule/action learning do not expand
+history. The current image/Compose entrypoint is unchanged; current testing uses
+granular commands. See [bounded documentation plan](implementation-plans/sync-command-composition.md)
+and the D10 decision in the execution plan.
+
+Read-only diagnosis explains the nine live copies below: all nine mappings came
+from three `future_rule` threads. The existing initial epoch was created before
+the sender rule and sealed **zero rules**; its completed discovery does not cover
+that later sender's old threads. Thus incremental projection is Gmail-verified,
+but nonempty sender-history backfill is **not** verified or complete.
+
+Granular checks used the unchanged non-root image and real configuration/state
+with external networking disabled. `backfill preview` returned `preview_invalid`:
+the CLI hardcodes invalidation revision zero, whereas the store checks current
+tracked-thread generations. No preview success/replay is claimed. `backfill status`
+succeeded offline, showing nine confirmed mappings, 58 attention jobs, one
+blocked projection job and one queued recovery job, with the old epoch draining.
+Bindings/rules/epochs/partitions/threads/events/cursor/jobs/attempts/mappings were
+identical before/after; no new insert or epoch, source mutation or service resume.
+
+Next product gap: correct granular preview's current-state guard and connect
+explicit historical-expansion preview/start/runtime using a new epoch. Current
+start rejects a second initial epoch. Reuse the existing rule-query, H0/History,
+worker and mapping paths; do not clear discovery/DB/cursor or reopen old unknown
+and attention. Complete-entry orchestration uses that same path afterward.
+Engineering needs bounded plan/independent review and local-image evidence;
+real historical copying still requires concrete rule/window authorization.
+
 ### Bounded live Gmail projection trial
 
 On 2026-10-07 the user explicitly authorized one production `run --once` and
@@ -54,6 +90,8 @@ visibility without Inbox/Spam/Trash/draft labels. Target metadata now classifies
 nine mapped copies, the original two permitted source-From SENT items, zero
 drafts and zero other unmanaged items. This local inspection does not implement
 the still-open production outbound classifier/audit/recovery exclusion gate.
+The user subsequently inspected the copies and reported no apparent issue; this
+is bounded visual confirmation, not exhaustive attachment/UI or Phase 1 acceptance.
 
 The old unknown insert and all 58 historic attention jobs are unchanged. Its
 read-only RFC-ID search still found zero candidates, which is not proof of no
@@ -70,8 +108,9 @@ one of three configured labels was present), production outbound classification,
 authorized old-unknown recovery, Gmail UI checks, broader failure/backup/restore
 and deployment acceptance, and 72-hour dogfood. The service remains stopped.
 This proves bounded real projection and restart deduplication, not whole Phase 1
-acceptance or an all-healthy historic queue. Next: integrate the qualified
-engineering stack; any continuous live run or recovery action needs its own
+acceptance or an all-healthy historic queue. Next: resolve the granular historical
+backfill gaps above and integrate the qualified engineering stack; any new bulk
+copying, continuous live run or recovery action needs its own
 scope/authorization. See [trial evidence](reviews/sync-single-dispatch-transport.md#bounded-authorized-live-gmail-trial-2026-10-07).
 
 ### Sync transport and source-missing repair (offline candidate)

@@ -178,7 +178,17 @@ accidentally behaving differently is not authority to change the contract.
   changes. Preview must explain this ongoing thread-wide disclosure.
 - Initial discovery is a fixed last-six-calendar-month window; an admitted
   thread's full history can be older. Initial setup/preview MUST NOT start bulk
-  copying. Backfill and retrospective rule expansion require an explicit start.
+  copying. Product decision (2026-10-07): provide a complete CLI sync entry
+  composed entirely from the same operations as the granular commands. An
+  intentional complete sync invocation selects current enabled rules and the
+  default fixed six-month window, then automatically prepares/starts the guarded
+  backfill and runs History/projection; no separate manual preview/start is
+  required. Standalone preview stays zero-write; setup and ordinary run/restart
+  do not expand history. Rule/action learning remains prospective until a new
+  intentional sync scope or granular backfill start authorizes history. Preserve
+  stable operation keys, confirmation/account/scope guards, H0/gap ordering,
+  stopped generations and unknown-insert recovery. Current testing uses granular
+  commands; this product decision is not authorization of new live bulk copying.
 - Source defaults to `gmail.readonly`. Observe manually created action labels
   without source mutation. Optional convenience mode requires explicit
   `gmail.modify`; visible status labels are disabled by default.
@@ -346,7 +356,10 @@ rule and recovery invariants remain.
   health/provenance verification, and rollback instructions.
 - Phase 1 must provide a documented one-command Compose startup after the
   one-time private configuration and Gmail OAuth setup. Startup/preview do not
-  implicitly start backfill. GitHub Actions must build and publish the approved
+  implicitly start backfill; the intentional complete-sync entry above can
+  automatically prepare/start it within its selected scope. This does not change
+  the existing image/Compose default until implemented and accepted.
+  GitHub Actions must build and publish the approved
   image with full-commit provenance and digest; PR builds do not publish. Include
   amd64/arm64 verification, SBOM/provenance, anonymous public-image pull checks,
   and credential-free CI. Implementation plans verify current upstream actions

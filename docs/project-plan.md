@@ -63,7 +63,7 @@ Phase 0 验证了数据面的可行性。六个月 backfill、长期运行、His
 第一期包含以下完整使用路径：
 
 1. 初始化本地配置和数据库，通过 Desktop OAuth 分别授权 source 和 target。
-2. 预览初始规则命中的范围和完整 thread 披露语义，用户明确启动 backfill；不要求逐个选择 thread。
+2. 通过完整同步命令按当前规则和默认固定六个月范围自动准备/start backfill；内部说明完整 thread 披露语义，不要求用户串 preview/start 或逐个选择 thread。细分命令保留用于维护和当前验证。
 3. 从最近六个月的命中邮件自动 discovery，复制每个纳入 thread 的全部可用消息。
 4. 第一阶段持续消费 History：分页、cursor、事件持久化/去重，处理 `messagesAdded` 和 action-label 事件，自动创建规则或 projection jobs。
 5. 用 CLI 或只读观察 `AI/AddSender`、`AI/AddDomain`、`AI/BlackList` 调整规则；便利 label 清理后移。
@@ -128,7 +128,7 @@ Preview/start 的范围校验、稳定 request key、epoch/H0 写入和 command 
 
 验收：普通邮件、HTML、内嵌图片、附件和非 ASCII 头部保真；正常恢复不产生重复；insert 后崩溃能恢复唯一候选；多个或不匹配候选进入待处理状态；真实回复和 sender 变化的会话保留内容。Thread fallback 只对已确认的 threading 错误执行，并保存实际 target thread 集合。DB、journal、日志和运行文件不保存完整邮件、正文或附件；source 删除后的恢复限制有明确状态。
 
-此阶段直接提供自动 discovery/backfill 和持续增量投影；不以手动选定 thread 或 one-shot 复制作为交付路径。用户通过 preview/start 一次性确认披露范围，之后由规则和 History 自动处理。
+此阶段直接提供自动 discovery/backfill 和持续增量投影；不以手动选定 thread 或 one-shot 复制作为交付路径。按 2026-10-07 用户决定，完整 CLI 同步入口按当前规则和固定六个月窗口自动完成内部范围快照/start、历史补齐与增量运行，不要求用户手动串 preview/start；完整入口完全复用细分命令的业务操作。细分命令保留，用于维护和当前测试。独立 preview/setup 零 insert、H0/gap、映射去重、unknown 和停止 generation 等门槛不变。
 
 ### M3 History gap、校对、Dashboard 和长期运行增强
 
@@ -173,7 +173,7 @@ healthcheck、backup 和 restore CLI、中英文使用文档、离线 CI、显�
 Gmail 集成测试、发布检查表，以及通过 GitHub Actions 构建/发布的 amd64/arm64
 镜像。应用不内置 HTTPS 和 Web 用户认证。
 
-首次完成私密配置、Desktop loopback OAuth 和范围 preview 后，使用明确版本/digest
+首次完成私密配置、Desktop loopback OAuth 和范围选择（完整入口内部准备或细分 preview）后，使用明确版本/digest
 执行 `docker compose up -d` 一命令启动；初次启动不隐式启动 bulk backfill。PR 只
 build/test，不 push image；获授权的发布流程使用 full commit SHA/digest、SBOM 和
 provenance，验收匿名拉取与各架构运行。用户已授权 public

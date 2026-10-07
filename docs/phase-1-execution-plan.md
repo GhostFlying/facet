@@ -57,9 +57,10 @@ target，AI agents 只连接 target。Facet 自身的 source OAuth 仍是邮箱�
    不证明应用写入者或内容真实性，声明和可观察检查是独立证据。OAuth 是一次
    安装准备，不由 Compose up 替代，也不自动授权
    任意 backfill、额外 scope 或未选择账号。
-3. 预览和明确开始：配置规则，preview 解释固定六个月 discovery、thread 全历史与
-   持续披露；setup/preview 零 insert。用户显式 start 后自动 backfill，不要求逐个
-   选择 thread；真实范围仍需具体 live 许可。
+3. 完整同步和细分维护：配置规则后，有意完整 CLI 同步调用按当前规则/固定六个月
+   窗口自动准备范围快照和 start，执行 backfill/History；完全复用细分命令，不要求
+   用户串 preview/start。独立 setup/preview 零 insert，细分命令用于维护和当前测试；
+   thread 全历史/持续披露、H0/gap 及具体 live 许可保持不变。
 4. 增量使用：单个 Docker 前台进程消费 History，投影 tracked thread 的新消息与 own replies；
    Dashboard 看汇总进度、队列、异常和 snapshot freshness，CLI 查本地状态；
    target Gmail API/UI 是内容验收入口。
@@ -401,7 +402,8 @@ jobs、去重与可重扫。验收：三个月内命中且首封九个月前复�
 依赖：M3-01、M3-02、M1-03。Owner：CLI agent，S；review：A。
 文件：`cli/rules.py`、`backfill.py`、`review.py`、CLI tests。
 
-交付：preview/start/pause/resume、规则变更和显式历史扩展 epoch。验收：init/preview
+交付：完整同步入口复用 preview/start/run 操作，及可独立使用的细分命令、规则变更
+和历史扩展 epoch。验收：完整入口自动完成非空历史补齐/增量/重启去重；init/preview
 零 insert；preview 解释 thread 持续授权、旧历史及可能 Spam/Trash；暂停只影响历史 jobs，
 实时 tracking 继续；resume 沿用固定 epoch/cutoff；CLI 不绕过 writer 协议或 queue；新
 domain 规则和 reconcile 不构成隐式历史 backfill。当前目标既有内容必须提示。
@@ -554,7 +556,8 @@ Owner：交付 agent，S；review：A。
 `deploy/nginx/`、container smoke tests。
 
 交付：单进程非 root 镜像、打包静态资源、本地 state volume、healthcheck、loopback
-发布和 Nginx shared-network 配置两种受控入口。首次配置、Desktop OAuth 和 preview
+发布和 Nginx shared-network 配置两种受控入口。首次配置、Desktop OAuth 和范围选择
+（完整同步入口内部准备或细分 preview）
 完成后，以明确 `FACET_IMAGE` 版本/digest 运行 `docker compose up -d` 一命令启动。
 首次授权是必要交互，startup 不隐式开始 backfill；不要求每次 build、装依赖或手工迁移。
 
@@ -746,13 +749,14 @@ M3 gap/reconcile/Dashboard→M4 maintenance→真实部署/dogfood。只有 M6-0
 | D0 整体计划批准/启动 | 2026-10-02 用户已明确批准精确 `caba7c7`，PR #2 已 merged | Phase 执行已开始，依赖与各包 review/gates 保留 | 完整批准 SHA/CI/当前派工见进度台账；技术 review/CI 没有替代用户批准 |
 | D1 Phase 内自主合并 | 2026-10-02 用户已授权；G0 通过后生效 | Phase 内工程/工作包计划 PR，经独立 plan/implementation review + CI | 协调 agent 核证并调度集成 agent 自主合并；总计划 PR 排除，GitHub required approval 仍须满足，不包含 live/deploy/release |
 | D2 镜像位置/触发 | 2026-10-02 scope 已授权；G0/phase 启动后实施 | M6-04 publish、M6-05 拉取 | 仅 public `ghcr.io/ghostflying/facet`；main 合并后 full-SHA 自动发布；PR 不 publish；正式版本 tag/GitHub Release 另确认 |
-| D3 Live Gmail/规则范围 | 生产 live 未授权，spike 授权不沿用 | G2/G3/G4/G5 live、bulk、M6 dogfood | 私下配置 source/target、限定 thread/rules/test scope、允许操作、OAuth mode 与退出策略；不把账号放 GitHub |
+| D3 Live Gmail/规则范围 | 已有分次限定范围授权/实测，见当前开发状态；spike 授权不沿用，新增 bulk/持续运行/修复仍另批 | G2/G3/G4/G5 live、bulk、M6 dogfood | 私下绑定 source/target、限定 rules/window/test scope、允许操作和退出策略；本次九封增量成功不授权 sender 的整批历史、旧 unknown retry 或 daemon；不把账号放 GitHub |
 | D4 Dogfood host/volume/Nginx | 待用户选定 | M6-07/08 | 推荐部署形态、确切 host 与 local FS 检查、backup/digest/rollback；部署前呈现可 review 的交付物 |
 | D5 License/版本 release | 待用户决定 | 首次 v0.1 release；不阻塞普通实现 | 给具体 license 选项和 version/artifact 清单；不凭公开仓库推断许可 |
 | D6 银行 allow domains | 未确认；不是默认 allowlist | 对应 domain 自动 admission | 根据获授权私密实样提出精确 domains 和认证覆盖；未确认关闭/review，其他功能继续 |
 | D7 不可归因 insert/未知 gap | 按真实运行触发；用户负责披露/重复风险决定 | 对应 work 恢复 | 只呈现受限 CLI 内的候选/范围/风险，推荐保 attention；不盲 retry/全历史披露/删除重复 |
 | D8 长期唤醒/monitor | 本轮未授权 automation 或新 chat | 跨 turn 72h 观察 | 在部署方案具体后提交观察频率/通知条件/终止条件；等待不等于已有自动调度 |
 | D9 显式 target-cleanup | 2026-10-07 用户批准 CLI 维护删除例外和独立临时完整 Gmail OAuth；随后单独批准实际固定 preview 并完成授权 | 停机、锁、固定 target message IDs preview/确认/逐项 receipt；常驻 sync scopes 不变 | 本次固定 134 封真实删除完成并只读确认 target 为空；后续清单仍需单独批准。不重置映射/unknown insert、不自动清理、不调整 M1-M6 gates |
+| D10 完整同步入口与细分命令 | 2026-10-07 用户决定并要求记录；拟 `facet sync [--once]`，尚未实现 | 一次有意同步调用按当前规则/默认固定六个月窗口自动准备/start 并运行，完全复用细分操作；细分命令继续用于当前测试 | 不要求用户手动 preview/start；setup/独立 preview 零 insert，普通 run/restart/标签学习仍不扩历史；M1-M6、H0/gap/unknown/generation 和 D3 live 范围不变 |
 
 | 工程风险 | 先行门槛/检测 | 安全失败状态 |
 | --- | --- | --- |
