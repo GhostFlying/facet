@@ -8,6 +8,25 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### History current-rule admission (offline candidate)
+
+Candidate `a3cd969e6529336fe60676dc8d8887e39a06e553` repairs new untracked
+message admission through current sender/domain rules, full-thread expansion,
+ordinary no-match consumption and durable retry. Stopped threads stay stopped;
+active threads retain authorization while drafts are excluded. The production
+CLI subprocess path passed empty preview/start, a later CLI rule addition,
+History admission, two-message insert/readback/mapping and restart without
+another metadata read or insert. No DB readiness/binding/rule/epoch bypass was
+used. Provider Retry-After scheduling is covered by a regression test.
+Independent plan and exact-candidate implementation reviews passed. The exact
+non-root local image passed the same CLI path with external networking disabled
+and isolated synthetic state. Complete offline checks passed; CI/merge and live
+upgrade are not claimed. Source metadata disappearance still needs its precise
+`source_missing` diagnostic classification; durable attention currently retains
+that work without insert. Real sync remains stopped and the existing unknown
+insert is unchanged. See the
+[bounded review and replay research](reviews/history-incremental-admission.md).
+
 ### Explicit target cleanup (controlled live cleanup complete)
 
 The user approved an independent `target-cleanup` CLI maintenance exception and
@@ -54,8 +73,9 @@ authorized explicit cleanup above resolved that observed target prerequisite;
 the follow-up check found an empty mailbox. This is a point-in-time observation,
 not permission to delete future arrivals or waive subsequent startup checks.
 Normal sync remains stopped for the insert/recovery and admission gaps below.
-New message events on untracked threads also remain attention: incremental
-admission needs a further product-path correction, not an all-success claim.
+Existing attention events have not been automatically replayed. New untracked
+message admission is repaired in the offline candidate above; that is not yet a
+live-service or all-success claim.
 
 The concrete insert blocker was reproduced offline with the locked real Google
 client: `neverMarkSpam` is not supported by `messages.insert`, so request
@@ -89,8 +109,8 @@ evidence-based recovery action is available. Cleanup review additionally reprodu
 httplib2 automatic wire resend despite Google `num_retries=0`. Cleanup's bounded
 transport correction does not fix the normal sync factory's corresponding
 insert risk: keep new live inserts stopped until it is independently corrected
-and wire-tested. Other engineering gaps are incremental admission for new
-untracked message events and a usable container Google network path.
+and wire-tested. Current-rule incremental admission is now an offline candidate;
+a usable container Google network path is also still needed.
 
 The package ledger below retains historical package evidence; it is not the
 current executable-command checklist. The current live result and next gaps
