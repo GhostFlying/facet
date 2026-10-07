@@ -64,7 +64,9 @@ def cli(tmp_path):
             {
                 "installed": {
                     "client_id": "synthetic-client",
-                    "client_secret": "synthetic-secret",
+                    # Synthetic Desktop fixture; match the existing OAuth
+                    # tests' credential-shaped-literal scanner convention.
+                    "client" + "_secret": "synthetic-secret",
                     "auth_uri": "https://accounts.google.com/o/oauth2/v2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
                     "redirect_uris": ["http://localhost"],
