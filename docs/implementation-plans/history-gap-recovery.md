@@ -116,3 +116,22 @@ unit. After offline/container acceptance, resume separately authorized live test
 only within their concrete account/rule/window scope and current target checks.
 Stop for a real contract conflict, absent coverage/range authorization, privacy
 failure or a proposed state reset/retry; do not expand hardening or waive gates.
+
+## CI execution budget and ordered integration (2026-10-08)
+
+The reviewed runtime remains unchanged. PR #96's Python 3.13 full checks passed;
+Python 3.12 was cancelled by the configured ten-minute job limit, with GitHub's
+explicit maximum-execution-time annotation, not an assertion failure. Increase
+only `.github/workflows/ci.yml`'s checks job budget to twenty minutes. Keep both
+Python versions and every safety, locked dependency, lint, formatting, full-test
+and CLI smoke step. Verify the workflow-only diff, repository safety and a
+focused independent review; final candidate CI must complete before merge.
+Existing runtime/image reviews remain valid for unchanged inputs.
+
+Then integrate the reviewed parent dependencies and PRs #93–#96 into main in
+dependency order, checking actual base ancestry and CI rather than merging into
+an unpublished temporary branch. Use the final main-SHA image for the user's
+approved current-host granular historical test after preserving private state
+and checking the existing accounts, scopes, target and original window. No new
+rule/window scope, old unknown retry, cleanup, source mutation, continuous daemon
+resume or Release is authorized by this budget correction or integration.
