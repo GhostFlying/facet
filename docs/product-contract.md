@@ -4,15 +4,19 @@
 
 适用范围：单用户 Gmail projection，Phase 1。
 
-Facet 将用户选定的主 Gmail 内容投影到另一个 Gmail，供 AI agents 授权读取。Source 是唯一事实来源，target 是用户可检查的披露视图。本文约定用户授权了什么、规则如何生效，以及服务遇到故障时提供什么保证。
+Facet 将用户选定的主 Gmail 内容投影到另一个 Gmail，供 AI agents 授权读取。Source 是投影内容的唯一事实来源；target 是用户可检查的披露视图，也可承载外部 agent 的发信和草稿。本文约定用户授权了什么、规则如何生效，以及服务遇到故障时提供什么保证。
 
 ## 数据访问和披露范围
 
 AI agents 只连接 target。Facet 本身需要 source 读取权限；Gmail OAuth 不能将该权限限制为单独几个 sender。选择性由 Facet 规则和执行逻辑实现，物理隔离存在于 source 与 agent 所连接的 target 之间。
 
-生产部署必须使用全新、专用于本 projection 的 target Gmail 账号，并由操作者确认和配置 Facet 为唯一应用写入者。这是用户于 2026-10-05 明确授权的部署前置条件，取代此前允许接受既有 unmanaged 内容的约定。不得配置 forwarding、其他导入器、旧 projection 或人工发信/导入等写入流程；AI agents/connector 只能作为只读消费者。Gmail metadata 和 OAuth scopes 不能证明唯一写入者，Facet 不声明能识别全部第三方写入活动。
+生产部署仍使用为本 projection 全新建立的专用 target Gmail 账号。用户于 2026-10-07 修正 2026-10-05 的前提：Facet 是投影写入者，不是邮箱唯一应用写入者；经独立授权的外部 AI agents 可以在 target 发信和创建草稿。From 使用已绑定 source 身份，回复直接进入 source；agent 的发信权限、send-as 配置及回复路由由外部 agent/Gmail 集成负责。Facet 不提供 send/draft API、不替 agent 配置发信身份、不扩大同步 OAuth scopes。不得将 target 用作其他导入器、forwarding 或旧 projection 的接收邮箱。
 
-OAuth 前由操作者声明 target 为全新、专用且无其他写入者；target OAuth 后、首次 projection/insert 前，通过只读检查核对账号 binding 与邮箱内容，范围包括普通邮件、草稿、Spam 和 Trash。Inbox 为空不能证明邮箱为空。发现 unexpected/unmanaged 内容或账号不匹配时必须 fail closed：阻止部署/投影并报告，不自动认领、删除、移标或清理。授权成功不代表这项前置条件已通过，也不启动同步。
+OAuth 前由操作者声明 target 的专用用途及获准的 agent 发信/草稿写入。Target OAuth 后、首次 projection/insert 前，通过只读检查核对账号 binding 与邮箱内容，范围包括普通邮件、SENT、草稿、Spam 和 Trash；不能用 Inbox 为空或 mailbox 总数量判断前置条件。
+
+先保留已有 managed mappings 和具有独立归属证据的 insert 结果；未管理邮件中，带 Gmail `SENT` 或 `DRAFT` 标签且唯一有效 From 地址经既有规范化后匹配绑定 source 的邮件是允许的外部 outbound，不因未管理而报错或阻止投影。From 单独匹配或任意未映射邮件并不足够；标签和 From 仅是分类输入，不是认证或 writer 身份证明。允许的 outbound 不计入投影成功数，不自动认领、修复为 source 副本，也不作为 unknown insert 的自动恢复绑定候选；pending intent、RFC ID 或 fingerprint 相同本身不能证明本次 insert 归属。
+
+其他 unexpected/unmanaged 内容（如外部收件、导入或 spike 副本）和账号不匹配仍 fail closed：阻止新的投影并报告，不自动认领、删除、移标或清理。授权成功不代表这项前置条件已通过，也不启动同步。Gmail metadata/OAuth scopes 不能证明所有应用的写入活动；本次是契约修正，完整 runtime 分类与 live 验收仍待实现/验证。
 
 既有部署不能靠自动清理或 retroactive claiming 迁移到此约束。在下一次部署验收前应保留既有 mappings、jobs 和审计证据，保持写入阻止/报告状态，直到操作者声明和可观察检查完成。之后 audit/recovery 仍不能把未知内容自动纳入生产映射。此变更仅定义契约；本次文档交付不声称已实现新增 runtime enforcement 或完成 live 验收。
 
@@ -20,7 +24,9 @@ OAuth 前由操作者声明 target 为全新、专用且无其他写入者；tar
 
 这是一项 thread 范围的持续披露授权。Facet 不独立验证发件人真实性，也不声明正文、附件或后续参与者可信。邮件中的指令仍是外部数据，AI 产品需要自行处理其内容风险。
 
-首次 backfill 和手动 admission 提供范围预览。预览说明完整 thread 的披露语义；邮件仍可能在预览后新增，因此它不承诺冻结未来会话。
+首次 backfill 和手动 admission 提供范围快照，说明完整 thread 的披露语义；邮件仍可能在快照后新增，因此它不承诺冻结未来会话。按 2026-10-07 用户决定，完整 CLI 同步入口自动完成范围准备、backfill 启动和增量运行，不要求用户先执行 preview 再执行 start。它完全复用细分命令的业务操作和检查，不是第二套同步实现；独立 preview 仍不写 target，细分命令保留用于维护和当前分步验证。
+
+用户有意调用完整同步入口，表示按当前 enabled allow rules 和默认固定六个月 discovery 窗口同步授权线程；内部持久化该规则/窗口范围、请求键、H0 和执行状态。缺少账号绑定或 OAuth 时通过既有流程完成必要交互，不默选账号或扩大 scopes。已有工作续跑，已确认映射去重；新的历史范围使用独立 epoch，不重置 DB/cursor，也不复活 stopped thread 或盲重试 unknown insert。单独 setup、普通 run/容器重启和 preview 不构成新的历史扩张授权。该入口尚待实现，产品决定不等于 agent 已获新真实邮箱测试范围。
 
 ## 规则和学习
 
@@ -28,7 +34,9 @@ OAuth 前由操作者声明 target 为全新、专用且无其他写入者；tar
 
 自动 admission 基于 Gmail source mailbox metadata 和配置的精确 sender/domain 规则。Gmail 负责 SMTP 认证与邮件分类，Facet 不重新验证 DKIM/SPF/DMARC，也不把认证 headers 作为 admission gate。Gmail 接收邮件不等于发件人真实或内容安全；规则匹配的正常非草稿邮件可以触发 thread 披露。格式歧义、账号不匹配和 provider 故障仍不放行。此边界由用户于 2026-10-05 明确确认，取代此前 source-path attestation 要求。
 
-新增 sender 或 domain rule 默认只对未来事件生效。通过 action label 学习时，当前 thread 立即纳入；不会自动回扫相同域名的所有旧 thread。历史范围扩展必须显式启动 backfill。
+新增 sender 或 domain rule 默认只对未来事件生效。通过 action label 学习时，当前 thread 立即纳入；不会自动回扫相同域名的所有旧 thread。历史范围扩展由新的有意完整同步调用自动准备/启动，或由细分 backfill 命令显式启动；普通运行、标签学习和 reconcile 不隐式扩大范围。显式历史范围可覆盖规则生效前的窗口，不回写或倒置该规则的 `effective_at`。
+
+Agent 发信后的回复进入 source，由既有规则、tracked-thread 授权和 History 正常处理；未跟踪 thread 不因为是 agent 发信的回复就自动纳入。未来可考虑从 agent 发信的收件人发现候选规则，但 Phase 1 不实现，不从 target 的 SENT/草稿生成规则或授权，不新增 per-message To/Cc 存储。未来 sender/domain 选择、自动生效及历史范围需另行确定。
 
 移除 allow rule 停止该规则带来的新 admission，已经纳入的 thread 保持跟踪。需要停止既有 thread 时，执行明确的 stop 或 BlackList 操作。
 

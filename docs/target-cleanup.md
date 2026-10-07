@@ -6,6 +6,14 @@ approved preview, including Spam, Trash and the preview's draft-contained
 messages. It does not send mail or touch source Gmail. Edited/sent draft
 replacement messages and new arrivals are not included.
 
+The dedicated target may legitimately contain authorized external-agent sent
+mail/drafts using the source identity (2026-10-07 product decision). These are
+not sync errors or content that must be cleared before syncing, but the current
+fixed-ID cleanup preview can include them. Review and separately authorize their
+deletion as part of the actual preview; previous cleanup consent is not authority
+for a new manifest. This contract correction adds no cleanup filter or live
+deletion permission.
+
 ## Before starting
 
 Stop the sync container and retain an owner-only SQLite backup (SQLite backup

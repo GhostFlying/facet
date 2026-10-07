@@ -27,7 +27,8 @@ authority 改变重新提交用户 review。
 | 项目 | Phase 1 决定 |
 | --- | --- |
 | 运行方式 | 单用户、自托管、Docker 提供的 image 内单个前台 sync/HTTP 进程、SQLite；容器外运行环境不在 Facet 保证范围 |
-| 数据源和目标 | 一对不同的 Gmail 账号；source 为唯一事实来源 |
+| 数据源和目标 | 一对不同的 Gmail 账号；source 为投影内容的唯一事实来源 |
+| target 外部写入 | 允许另行授权的外部 agent 发信/草稿，From 为绑定的 source，回复直接进入 source；Facet 自身不提供发信功能 |
 | 投影单位 | 一封邮件命中后，整个 source thread 纳入跟踪 |
 | 初始历史 | 最近六个月内命中的 thread，复制其完整历史 |
 | 后续同步 | 第一阶段即包含 History polling、完整分页/cursor、事件持久化去重和用户从 source 发出的回复 |
@@ -55,14 +56,14 @@ Facet 的验收终点是邮件被正确写入 target，并能通过 Gmail API �
 
 Phase 0 验证了数据面的可行性。六个月 backfill、长期运行、History 404、规则执行、可信发件人判断和生产队列仍需要在 Phase 1 验收。原样复制已有 `Fwd:` 邮件不会消除其原始标题；Facet 本身不生成转发邮件。
 
-历史证据（2026-10-02）：用户报告已清理 source action labels 和 target 旧邮件。只读检查确认三种 action labels 已不存在，但当时 target API 仍返回八封普通邮件和一个草稿，且两个已验证的 spike 样本仍为无标签邮件。这不是当前部署许可；2026-10-05 的[产品契约](product-contract.md)要求全新专用 target、操作者 sole-writer 声明，以及 target OAuth 后、首次 insert 前只读核验邮箱为空。Unexpected/unmanaged 内容必须 fail closed，不清理或认领。正式初始化不导入 spike cursor、旧映射或旧 target 邮件。
+历史证据（2026-10-02）：用户报告已清理 source action labels 和 target 旧邮件。只读检查确认三种 action labels 已不存在，但当时 target API 仍返回八封普通邮件和一个草稿，且两个已验证的 spike 样本仍为无标签邮件。这不是当前部署许可。2026-10-07 的[产品契约](product-contract.md)修正了 2026-10-05 的 sole-mailbox-writer 假设：target 仍须新建、专用，但允许 source 身份的外部 agent 已发送邮件/草稿，不能用总邮件数为零作为持续运行门槛；其余意外未管理内容仍阻止新投影，不清理或认领。正式初始化不导入 spike cursor、旧映射或旧 target 邮件。
 
 ## Phase 1 功能范围
 
 第一期包含以下完整使用路径：
 
 1. 初始化本地配置和数据库，通过 Desktop OAuth 分别授权 source 和 target。
-2. 预览初始规则命中的范围和完整 thread 披露语义，用户明确启动 backfill；不要求逐个选择 thread。
+2. 通过完整同步命令按当前规则和默认固定六个月范围自动准备/start backfill；内部说明完整 thread 披露语义，不要求用户串 preview/start 或逐个选择 thread。细分命令保留用于维护和当前验证。
 3. 从最近六个月的命中邮件自动 discovery，复制每个纳入 thread 的全部可用消息。
 4. 第一阶段持续消费 History：分页、cursor、事件持久化/去重，处理 `messagesAdded` 和 action-label 事件，自动创建规则或 projection jobs。
 5. 用 CLI 或只读观察 `AI/AddSender`、`AI/AddDomain`、`AI/BlackList` 调整规则；便利 label 清理后移。
@@ -75,7 +76,7 @@ foundation 是阶段性基础；G6 要求真实可维护的全套命令及容器
 骨架过关。Status/doctor 与停机 backup/restore/migrate/inspect 可以 offline 运行，
 即使 invalid_grant 或 Gmail 不可用仍能看 pending。维护协调 DB+credential ownership。
 
-第一期不实现 agent 代发、双向同步、source 状态完整复制、多租户、Web 邮件浏览或规则编辑、LLM 自动分类、通用 MCP、其他邮件 provider 或自动删除 target 邮件。Dashboard 仅用于只读运维观察，setup 与服务控制仍使用 CLI。
+第一期不由 Facet 实现 agent 代发/草稿创建、双向同步、source 状态完整复制、多租户、Web 邮件浏览或规则编辑、LLM 自动分类、通用 MCP、其他邮件 provider 或自动删除 target 邮件。允许外部 agent 发信/草稿不等于 Facet 提供发送 API、扩大 scope 或配置 send-as。收件人自动发现规则记录为后续项，不在本期实施或保存每封邮件的 To/Cc；回复进入 source 后仍按现有规则或 tracked thread 授权处理，不因 agent 联系过收件人而自动 admission。Dashboard 仅用于只读运维观察，setup 与服务控制仍使用 CLI。
 
 ## 工程架构
 
@@ -115,7 +116,7 @@ H0 消费和 gap 恢复能力，并受单独 Gmail 操作范围授权。
 
 银行实际域名未经确认不进入默认规则。按照 2026-10-05 用户决定，SMTP 认证与分类交给 Gmail；Facet 不独立验证 sender authentication，不以认证 headers 或 source-path attestation 阻塞规则 admission，也不声明邮件安全。
 
-验收：错误账号、token 对调、source 等于 target、无效配置和第二个写入进程均被拒绝；数据库约束与迁移可以重复执行；规则边界和 metadata-only admission 测试通过，认证 headers 不影响规则决策。OAuth 前操作者声明全新专用 target 且 Facet 为唯一应用写入者；target OAuth 后、首次 projection/insert 前只读核对账号 binding 和普通邮件/草稿/Spam/Trash，发现 unexpected/unmanaged 内容或 mismatch 时 blocked/report-only，不认领、删除或清理。Gmail/OAuth metadata 不证明 sole-writer；此条是验收要求而非新增 runtime 已实现证据。Doctor 提示缺失的 action labels；只读模式缺少 action labels 时，CLI 规则管理仍可使用。
+验收：错误账号、token 对调、source 等于 target、无效配置和第二个写入进程均被拒绝；数据库约束与迁移可以重复执行；规则边界和 metadata-only admission 测试通过，认证 headers 不影响规则决策。操作者声明新建专用 target 及允许的外部 agent 用途；target OAuth 后、首次 projection/insert 前只读核对账号 binding 和普通邮件/SENT/草稿/Spam/Trash。按产品契约分类的 source 身份未管理 SENT/DRAFT 不阻塞、不计投影成功、不自动绑定恢复；其他 unexpected/unmanaged 内容或 mismatch 保持 blocked/report-only，不认领、删除或清理。既有映射及独立证实的本系统 insert 结果优先，标签/From 不证明应用写入者或内容真实性。此条是验收要求而非新增 runtime 已实现证据。Doctor 提示缺失的 action labels；只读模式缺少 action labels 时，CLI 规则管理仍可使用。
 
 ### M2 自动 discovery、backfill、History 增量和投影核心（第一条可用产品能力）
 
@@ -127,7 +128,7 @@ Preview/start 的范围校验、稳定 request key、epoch/H0 写入和 command 
 
 验收：普通邮件、HTML、内嵌图片、附件和非 ASCII 头部保真；正常恢复不产生重复；insert 后崩溃能恢复唯一候选；多个或不匹配候选进入待处理状态；真实回复和 sender 变化的会话保留内容。Thread fallback 只对已确认的 threading 错误执行，并保存实际 target thread 集合。DB、journal、日志和运行文件不保存完整邮件、正文或附件；source 删除后的恢复限制有明确状态。
 
-此阶段直接提供自动 discovery/backfill 和持续增量投影；不以手动选定 thread 或 one-shot 复制作为交付路径。用户通过 preview/start 一次性确认披露范围，之后由规则和 History 自动处理。
+此阶段直接提供自动 discovery/backfill 和持续增量投影；不以手动选定 thread 或 one-shot 复制作为交付路径。按 2026-10-07 用户决定，完整 CLI 同步入口按当前规则和固定六个月窗口自动完成内部范围快照/start、历史补齐与增量运行，不要求用户手动串 preview/start；完整入口完全复用细分命令的业务操作。细分命令保留，用于维护和当前测试。独立 preview/setup 零 insert、H0/gap、映射去重、unknown 和停止 generation 等门槛不变。
 
 ### M3 History gap、校对、Dashboard 和长期运行增强
 
@@ -172,7 +173,7 @@ healthcheck、backup 和 restore CLI、中英文使用文档、离线 CI、显�
 Gmail 集成测试、发布检查表，以及通过 GitHub Actions 构建/发布的 amd64/arm64
 镜像。应用不内置 HTTPS 和 Web 用户认证。
 
-首次完成私密配置、Desktop loopback OAuth 和范围 preview 后，使用明确版本/digest
+首次完成私密配置、Desktop loopback OAuth 和范围选择（完整入口内部准备或细分 preview）后，使用明确版本/digest
 执行 `docker compose up -d` 一命令启动；初次启动不隐式启动 bulk backfill。PR 只
 build/test，不 push image；获授权的发布流程使用 full commit SHA/digest、SBOM 和
 provenance，验收匿名拉取与各架构运行。用户已授权 public

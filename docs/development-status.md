@@ -8,6 +8,112 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### External-agent outbound contract correction (documentation only)
+
+The 2026-10-07 user decision replaces the sole-mailbox-writer/read-only-agent
+assumption. The dedicated target may contain authorized external-agent sent
+mail/drafts using the bound source as From; replies go directly to source.
+These are not sync errors, projection successes or automatically claimable
+unknown-insert copies. Facet remains insert-only; DB/process single-writer,
+credential ownership and normal scopes are unchanged. Sending credentials,
+send-as and reply routing belong to the external agent/Gmail integration.
+Recipient-derived rule discovery is deferred beyond Phase 1; source replies
+still require normal rules or existing tracked-thread authorization.
+
+Canonical contracts and acceptance requirements now reflect this boundary.
+Current setup remains profile-only: target content classification, its full
+audit integration and recovery exclusion are still open runtime/acceptance
+requirements, not implemented or Gmail-verified by this docs-only change.
+No Gmail operation, state migration, deployment or service resume occurred;
+the transport candidate and its existing offline evidence remain unchanged.
+Independent plan and exact-candidate documentation reviews passed; see the
+[bounded plan](implementation-plans/target-agent-outbound.md) and
+[review receipt](reviews/target-agent-outbound.md). Main integration and CI are
+separate gates, not implied by this documentation approval.
+
+### Complete sync entry decision and granular test
+
+On 2026-10-07 the user requested a complete CLI sync entry implemented entirely
+through the granular commands' shared operations, with no mandatory manual
+preview/start sequence. The proposed spelling `facet sync [--once]` is planned,
+not implemented. An intentional sync selects current enabled rules/default fixed
+six-month window; internal scoped preview/start and stable operation keys retain
+all account, scope, H0/gap, stopped-generation and unknown-insert guards. Ordinary
+setup/preview/run/restart and prospective rule/action learning do not expand
+history. The current image/Compose entrypoint is unchanged; current testing uses
+granular commands. See [bounded documentation plan](implementation-plans/sync-command-composition.md)
+and [independent acceptance](reviews/sync-command-composition.md), plus the D10
+decision in the execution plan. Documentation approval is not implementation.
+
+Read-only diagnosis explains the nine live copies below: all nine mappings came
+from three `future_rule` threads. The existing initial epoch was created before
+the sender rule and sealed **zero rules**; its completed discovery does not cover
+that later sender's old threads. Thus incremental projection is Gmail-verified,
+but nonempty sender-history backfill is **not** verified or complete.
+
+Granular checks used the unchanged non-root image and real configuration/state
+with external networking disabled. `backfill preview` returned `preview_invalid`:
+the CLI hardcodes invalidation revision zero, whereas the store checks current
+tracked-thread generations. No preview success/replay is claimed. `backfill status`
+succeeded offline, showing nine confirmed mappings, 58 attention jobs, one
+blocked projection job and one queued recovery job, with the old epoch draining.
+Bindings/rules/epochs/partitions/threads/events/cursor/jobs/attempts/mappings were
+identical before/after; no new insert or epoch, source mutation or service resume.
+
+Next product gap: correct granular preview's current-state guard and connect
+explicit historical-expansion preview/start/runtime using a new epoch. Current
+start rejects a second initial epoch. Reuse the existing rule-query, H0/History,
+worker and mapping paths; do not clear discovery/DB/cursor or reopen old unknown
+and attention. Complete-entry orchestration uses that same path afterward.
+Engineering needs bounded plan/independent review and local-image evidence;
+real historical copying still requires concrete rule/window authorization.
+
+### Bounded live Gmail projection trial
+
+On 2026-10-07 the user explicitly authorized one production `run --once` and
+a fresh-process continuation check for the existing bindings and one enabled
+sender rule. The unchanged reviewed candidate `3df74f3` ran in its exact
+non-root local image, with normal production Google SDK/runtime, real state
+and this host's private proxy override; no fake or application overlay was used.
+A stopped, writer-locked private backup used SQLite's backup API for both state
+journals and included config/credentials before either CLI process started.
+Existing role credentials had been refreshed normally; profiles matched bindings
+and account/scope/rule/epoch configuration remained unchanged throughout.
+
+The first process finished in 30.33 seconds: two History pages, 22 resolved
+events, **nine confirmed inserts and nine durable mappings**, zero new attention.
+The fresh process finished in 4.62 seconds: one History page, zero resolved
+events and **zero new insert attempts or mappings**. Read-only verification
+compared all nine source/target MIME digests and mapped IDs/thread assignments;
+three source threads map to three target threads. All nine valid Date headers
+match target internal dates, with zero fallbacks; copies have normal All Mail
+visibility without Inbox/Spam/Trash/draft labels. Target metadata now classifies
+nine mapped copies, the original two permitted source-From SENT items, zero
+drafts and zero other unmanaged items. This local inspection does not implement
+the still-open production outbound classifier/audit/recovery exclusion gate.
+The user subsequently inspected the copies and reported no apparent issue; this
+is bounded visual confirmation, not exhaustive attachment/UI or Phase 1 acceptance.
+
+The old unknown insert and all 58 historic attention jobs are unchanged. Its
+read-only RFC-ID search still found zero candidates, which is not proof of no
+historic insert or permission to resend. No old recovery retry, source mutation,
+cleanup, rule/scope expansion, epoch restart or long-running service resume
+occurred. The CLI receipt's `discovered: 4700` is the completed partition's
+historical observed-item count, **not 4,700 newly scanned or selected messages**;
+comparison with the backup confirms zero new initial-discovery items. The
+receipt's cumulative/delta naming remains an observability limitation.
+
+Remaining gates: qualified main integration/publication, full maintenance CLI
+(including missing `auth status` dispatch), action-label live acceptance (only
+one of three configured labels was present), production outbound classification,
+authorized old-unknown recovery, Gmail UI checks, broader failure/backup/restore
+and deployment acceptance, and 72-hour dogfood. The service remains stopped.
+This proves bounded real projection and restart deduplication, not whole Phase 1
+acceptance or an all-healthy historic queue. Next: resolve the granular historical
+backfill gaps above and integrate the qualified engineering stack; any new bulk
+copying, continuous live run or recovery action needs its own
+scope/authorization. See [trial evidence](reviews/sync-single-dispatch-transport.md#bounded-authorized-live-gmail-trial-2026-10-07).
+
 ### Sync transport and source-missing repair (offline candidate)
 
 Candidate `3df74f31bb8a4a7d65ce5eae1d3294e7fb0867b6` replaces normal sync's
@@ -25,8 +131,31 @@ Complete offline checks passed. GitHub CI/integration are tracked separately;
 main merge/publication, real Gmail and live upgrade are not claimed. This focused
 repair depends on the preceding History candidate, not yet on main. Real sync
 stays stopped and its existing unknown attempt remains unchanged. Next: qualified
-integration and container Google connectivity before authorized live validation. See
+integration and controlled live validation using this host's local network configuration. See
 [review receipt](reviews/sync-single-dispatch-transport.md).
+
+User-requested local revalidation on 2026-10-07 passed all five real CLI/SDK/TCP
+cases again in the exact non-root image (66.93 seconds), with no external network
+or real-state mount. Normal History admission projected two non-draft messages,
+read them back and durably mapped them; a new process inserted no duplicates.
+Response loss, 503, 307 and 308 retained unknown recovery with no restart resend.
+Initial preview/start was empty in this fixture; this is not evidence of nonempty
+six-month backfill or live Gmail/API/UI acceptance.
+
+Unauthenticated HTTPS probes from an isolated one-off container on the existing
+Compose bridge failed on direct Google connections. Passing the host's existing
+proxy environment made Gmail/OAuth/Accounts HTTPS endpoints reachable in
+0.44–0.63 seconds (404/404/302 at public roots; connectivity, not API authorization).
+The user clarified that proxy wiring is deployment-environment configuration, not
+a Facet feature or project acceptance gate. A private override outside the
+repository now passes existing host proxy variables to sync/setup; resolved Compose
+configuration and no-credential HTTPS probes passed (0.43–0.65 seconds). No proxy
+values were saved in the override or public evidence. Repository Compose,
+Dockerfile and image remain unchanged; this local override must be included in
+subsequent authorized operations. Real sync stays stopped; no mailbox credential,
+real state, OAuth exchange, recovery retry or Gmail write was used. The local
+connectivity configuration is ready; qualified integration and controlled live
+validation remain open, not blocked on a project proxy implementation.
 
 ### History current-rule admission (offline candidate)
 
@@ -76,7 +205,10 @@ reset, insert retry or sync restart occurred. CI/merge/publication and a
 live-service upgrade are not claimed. See [runbook](target-cleanup.md) and
 [review receipt](reviews/target-cleanup-cli.md). The live sync gaps below remain.
 
-### Current live gate and insert adapter correction
+### Historical pre-trial live gate and insert adapter correction
+
+The following records the earlier blockers; the bounded live trial above is
+the current projection result and supersedes its zero-mapping/live-gap status.
 
 The recent local build/Compose acceptance is not yet a working live projection.
 The real state was backed up with SQLite's backup API plus private config and
@@ -949,16 +1081,17 @@ actual verification scope instead of marking a partial gate complete.
   crash/recovery and ambiguous-ID tests remain necessary.
 - Default raw processing is memory-only with no disk spool; source loss may
   prevent recovery. DB contains only necessary metadata and state.
-- Production target must be newly created and dedicated, with operator
-  attestation/configuration that Facet is the only application writer before
-  OAuth. After target OAuth, read-only account/content checks must cover normal
-  mail, drafts, Spam, and Trash before the first projection/insert. Unexpected
-  or unmanaged content/account mismatch blocks deployment and new projection
-  writes; report-only, no delete, claim, cleanup, or automatic migration. Gmail
-  metadata/OAuth cannot prove sole-writer status. Existing deployments retain
-  mappings/jobs/audit and remain blocked until the prerequisite is checked;
-  this docs-only change does not implement runtime enforcement or prove live
-  acceptance. See [product contract](product-contract.md).
+- Production target must be newly created and dedicated to the projection and
+  authorized external agents. Source-identity unmanaged SENT/DRAFT is permitted
+  under the product-contract classification, not a projection success or an
+  automatically claimable recovery copy. Account/content checks cover normal
+  mail, SENT, drafts, Spam and Trash; other unexpected/unmanaged content or
+  account mismatch blocks new projection writes, report-only with no automatic
+  delete, claim or migration. Existing mappings/independently proven insert
+  ownership take precedence. Labels/From/metadata do not prove application
+  writer identity; DB/process single-writer remains required. Runtime target
+  classification/audit/recovery integration and live acceptance remain open.
+  See [product contract](product-contract.md).
 - AI connector retrieval is an AI-product responsibility, not a Facet gate.
 - Real bank domains, live account/test scope,
   dogfood host/local volume/Nginx entry, license and formal version release remain

@@ -28,7 +28,7 @@ Dashboard 展示同步是否正常、历史复制进度、成功数量、异常�
 
 ## 数量和进度定义
 
-成功消息数来自本 projection 已持久确认的唯一 source message 映射，正常重放、重试或重复的 History 事件不重复计数。总成功数不等同于 target 邮箱当前的全部消息数量，未映射的既有邮件不算成功投影。
+成功消息数来自本 projection 已持久确认的唯一 source message 映射，正常重放、重试或重复的 History 事件不重复计数。总成功数不等同于 target 邮箱当前的全部消息数量，未映射的既有邮件不算成功投影。按产品契约允许的外部 agent source 身份 SENT/DRAFT 也不计投影成功，不能仅因未映射而显示为异常；分类信息只允许必要聚合，不暴露 From、To/Cc 或其他邮件细节。本条不新增 Dashboard 字段或声称运行时分类已实现。
 
 历史进度以当前 backfill epoch 为范围。Discovery 未结束时总量未知，只显示已扫描、已发现和已完成的数量，不能从 Gmail `resultSizeEstimate` 生成确定的百分比或剩余时间。
 

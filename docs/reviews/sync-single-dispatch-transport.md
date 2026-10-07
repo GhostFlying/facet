@@ -63,3 +63,83 @@ events, credentials and scope are unchanged. No Gmail call, mailbox deletion,
 service resume, scope expansion or old-insert retry occurred. Container Gmail
 connectivity, qualified integration, and separately authorized live/recovery
 validation remain explicit next gates.
+
+## User-requested local revalidation, 2026-10-07
+
+The same immutable image ID/revision passed all five existing production CLI wire
+cases again in 66.93 seconds, non-root/read-only with external networking disabled
+and synthetic state on tmpfs. App source and real state were not mounted; only the
+read-only existing test driver/fake was mounted. No implementation or test fixture
+changed, so the existing exact-source independent review remains applicable.
+Preview/start in this fixture is empty; full-thread copying is triggered by the
+subsequent prospective History arrival, not a nonempty initial discovery scan.
+
+Separate no-credential HTTPS probes on the actual Compose bridge reproduced direct
+Google connection timeouts. Explicitly passing the existing host proxy environment
+to that isolated one-off container reached Gmail/OAuth/Accounts public HTTPS roots
+in 0.63/0.44/0.46 seconds (404/404/302). Those responses demonstrate TLS/HTTP
+connectivity only, not account binding, token refresh or live mail projection.
+Neither proxy values nor provider response bodies were logged in this receipt.
+No proxy configuration was persisted or added to Compose, and no real credential
+or state volume was mounted. The live sync container remains stopped; the old
+unknown insert was not retried. Controlled live verification remains open.
+No full suite/image rebuild was repeated because
+source, dependencies and image did not change.
+
+The subsequent user correction classifies proxy wiring as local deployment
+configuration, not project scope or a release gate. A private, owner-only override
+outside Git now passes existing host proxy variables to sync/setup without storing
+their values. Compose resolution passed for both services; another isolated
+no-credential probe using that resolved environment reached all three public HTTPS
+roots in 0.43–0.65 seconds. The repository Compose/Dockerfile/image and stopped live
+container were not changed. Subsequent authorized local operations must include
+this override; no project proxy implementation is pending.
+
+## Bounded authorized live Gmail trial, 2026-10-07
+
+The user explicitly authorized one normal production `facet run --once` and
+a fresh-process continuation check on the existing bound accounts and one
+enabled sender rule. Both used the unchanged exact image/candidate above,
+UID `10001:10001`, read-only root filesystem, existing Compose network/state
+volume and private deployment proxy environment. No fake transport, app-source
+overlay, DB readiness seeding or scope/rule/epoch change was used. Before execution,
+normal StateOwner ownership protected a private SQLite-backup-API bundle of both
+state journals plus config and credentials; ownership was released before the
+actual CLI subprocesses. Backup integrity and owner-only permissions passed.
+
+| Actual production process | Elapsed | History pages | Resolved events | New insert attempts | New confirmed mappings | New attention |
+| --- | --- | --- | --- | --- | --- | --- |
+| First `run --once` | 30.33 s | 2 | 22 | 9 | 9 | 0 |
+| Fresh-process `run --once` | 4.62 s | 1 | 0 | 0 | 0 | 0 |
+
+After each process, private comparisons confirmed unchanged bindings/config/rules,
+the existing unknown attempt, and all 58 historic attention jobs. The unknown
+count remains one, not a new trial failure; it was not selected for recovery or
+resent. Subsequent read-only target inspection found nine mapped copies and the
+original two permitted source-From SENT items, no drafts and no other unmanaged
+content. Those outbound items were neither cleaned nor claimed as mappings.
+A read-only search found zero candidates for the old unknown; absence does not
+authorize another insert or establish its historic outcome.
+
+Read-only source raw/target readback verified all nine stored mappings, persisted
+digest/version consistency and equal semantic/MIME digests. Three source threads
+map to three target threads. All nine valid Date headers match target internal
+dates; there were no Date fallbacks. None of the copies has Inbox, Spam, Trash or
+draft labels. Raw bytes stayed in memory; only aggregate counts/typed outcomes
+were emitted and no content or private IDs were saved in this receipt. Verification
+performed zero target writes and no business-state mutation.
+
+Both CLI receipts report `discovered: 4700`. The completed partition returns its
+historical observed-item total, not a cycle delta. Comparing its count, completed
+pages and state with the stopped backup confirms the partition is unchanged and
+zero new initial-discovery items. This is an output naming/cumulative-statistic
+limitation, not evidence of a new whole-mailbox scan or 4,700 projected messages.
+
+This extends the source candidate's existing independent/offline acceptance with
+bounded real Gmail API projection and restart evidence; it is not another review
+approval. Source/tests/dependencies/image were unchanged, so no redundant full
+suite or build was run. No source mutation, deletion, old-insert retry, historic
+attention reopening, new OAuth scope or long-running service restart occurred.
+Main integration/publication, production outbound classifier/audit integration,
+full CLI/action-label acceptance, Gmail UI checks, live fault/recovery and complete
+backup/restore/deployment/72-hour gates remain open. The sync service is stopped.

@@ -157,18 +157,38 @@ accidentally behaving differently is not authority to change the contract.
 ## Product boundaries
 
 - Phase 1 is single-user, self-hosted, one projection between DIFFERENT Gmail
-  accounts. Source is the sole source of truth; AI products connect only to
-  target. Per the 2026-10-05 product decision, target must be fresh and dedicated
-  with Facet declared the sole application writer. Unexpected/unmanaged content
-  blocks new projection writes; never silently delete or adopt it. The explicit
-  maintenance exception above does not weaken startup/audit checks.
+  accounts. Source is the sole source of truth for projected content; AI products
+  connect only to target. Target remains fresh/dedicated at provisioning, but the
+  2026-10-07 user decision replaces the sole-mailbox-writer/read-only-agent rule:
+  separately authorized external agents may send and create drafts in target,
+  using the bound source identity as From; replies go directly to source.
+  Unmanaged SENT/DRAFT items with an unambiguous normalized From matching source
+  are permitted, not blocking errors. Labels/From are classification inputs, not
+  proof of sender authenticity, writer identity or ownership. Existing mappings
+  and independently proven owned insert outcomes take precedence; a pending
+  intent or matching fingerprint alone is not such proof. Permitted outbound
+  items are not projection successes or recovery auto-claim candidates. Other
+  unexpected/unmanaged content still blocks new projection writes; never silently
+  delete or adopt it. Facet's single DB/process writer, credentials and insert-only
+  sync scope are unchanged. Agent sending credentials, send-as configuration and
+  reply routing belong to the external agent/Gmail integration, not Facet.
 - One admitted message authorizes the complete available non-draft source thread,
   including earlier history, attachments, other participants, and own replies.
   Tracked threads retain this authorization for future messages even if sender
   changes. Preview must explain this ongoing thread-wide disclosure.
 - Initial discovery is a fixed last-six-calendar-month window; an admitted
   thread's full history can be older. Initial setup/preview MUST NOT start bulk
-  copying. Backfill and retrospective rule expansion require an explicit start.
+  copying. Product decision (2026-10-07): provide a complete CLI sync entry
+  composed entirely from the same operations as the granular commands. An
+  intentional complete sync invocation selects current enabled rules and the
+  default fixed six-month window, then automatically prepares/starts the guarded
+  backfill and runs History/projection; no separate manual preview/start is
+  required. Standalone preview stays zero-write; setup and ordinary run/restart
+  do not expand history. Rule/action learning remains prospective until a new
+  intentional sync scope or granular backfill start authorizes history. Preserve
+  stable operation keys, confirmation/account/scope guards, H0/gap ordering,
+  stopped generations and unknown-insert recovery. Current testing uses granular
+  commands; this product decision is not authorization of new live bulk copying.
 - Source defaults to `gmail.readonly`. Observe manually created action labels
   without source mutation. Optional convenience mode requires explicit
   `gmail.modify`; visible status labels are disabled by default.
@@ -177,8 +197,13 @@ accidentally behaving differently is not authority to change the contract.
   Target label creation needs separately approved scope; existing-label use and
   Inbox placement are optional. Do not mirror read/star/archive/Sent state.
 - Phase 1 has no purge/retention, automatic target deletion, two-way sync,
-  agent sending, multi-tenancy, other providers, general MCP framework, or LLM
-  classification. Preserve provenance for future explicit withdrawal.
+  Facet-provided agent sending, multi-tenancy, other providers, general MCP
+  framework, or LLM classification. External-agent outbound compatibility above
+  is required, not a Facet send API. Recipient-derived automatic rules are future
+  work only: do not implement them in Phase 1, infer admission from target mail,
+  or add To/Cc persistence. Replies in source use normal admission/History rules;
+  untracked threads are not admitted merely because an agent initiated contact.
+  Preserve provenance for future explicit withdrawal.
 - Facet acceptance ends at correct target Gmail API/UI content, dates, threads,
   and attachments. AI-product connector indexing/search/attachment handling is
   NOT a release gate and not part of Facet's sync latency.
@@ -331,7 +356,10 @@ rule and recovery invariants remain.
   health/provenance verification, and rollback instructions.
 - Phase 1 must provide a documented one-command Compose startup after the
   one-time private configuration and Gmail OAuth setup. Startup/preview do not
-  implicitly start backfill. GitHub Actions must build and publish the approved
+  implicitly start backfill; the intentional complete-sync entry above can
+  automatically prepare/start it within its selected scope. This does not change
+  the existing image/Compose default until implemented and accepted.
+  GitHub Actions must build and publish the approved
   image with full-commit provenance and digest; PR builds do not publish. Include
   amd64/arm64 verification, SBOM/provenance, anonymous public-image pull checks,
   and credential-free CI. Implementation plans verify current upstream actions

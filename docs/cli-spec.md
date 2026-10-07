@@ -37,7 +37,9 @@ request key 查询本地状态，不能盲目创建第二个业务效果。
 
 扩大披露、重新插入、恢复 tracking、改变权限 mode、停止/恢复或替换维护状态的
 命令需显示具体 binding/范围、操作影响与 preview。TTY 可交互确认；非 TTY 不提示、
-不默认同意，必须显式 `--yes` 和必要 scope/preview selector。`--yes` 不绕过
+不默认同意，必须显式 `--yes` 和必要 scope/preview selector。完整同步入口在一次
+选定范围/确认后自动生成并引用内部 preview，不要求用户另交 preview ID 或逐步骤
+确认；独立维修/recovery/cleanup 的确认方式不变。`--yes` 不绕过
 绑定、scope、generation、归属、preview freshness 或产品权限检查。
 
 初始 backfill 固定六个月；历史扩张用单独明确的 epoch。省略 scope 时不推断为
@@ -85,6 +87,7 @@ bounded pagination 和受控失败；涉及对象的 `list/show` 只显示持久
 | `facet gmail auth/reauth <source|target> --port <port>`；`facet gmail auth-status` | 独立 Desktop flow、固定角色/scope、原子替换；reauth 保 binding/jobs，auth-status 默认离线；A/O | M1-04、M1-06；G1，真实 re-auth G6 |
 | `facet status`；`facet doctor [--live]` | 本地汇总和诊断；默认 offline；O/R | M1-03/05/06、M3/M4；G1/G4 |
 | `facet run` | Docker image 内前台唯一 sync/HTTP owner；由 Docker/Compose 负责生命周期；O/C | M1-03、M3；G1/G4 |
+| 完整同步入口（拟 `facet sync [--once]`，未实现） | 自动检查配置/绑定/授权，按当前规则和固定六个月范围准备/启动或续跑 backfill，执行 History/投影；完全复用细分操作；C/R/W | M2/M3；CLI-02/03，最终 G6 |
 | `facet rules list/show/add-sender/add-domain/remove`；`facet rules action-label set/remove/list --kind ...`；`facet rules blacklist --sender <address> --thread <id>` | exact 规则、future effective_at；blacklist + 所选 thread stop，typed audit；action-label mapping is private, single-writer, exact-name, and source-readonly；O/C | M1-02/06、M3-01/03、M5-03；G3/G5 |
 | `facet backfill preview/start/status/pause/resume` | 固定 cutoff/H0/epoch、明确 start、自动 discovery/backfill、暂停/恢复与进度；R/C→W/O | M2、M3；G2/G3 |
 | `facet queue list/show`；`facet queue retry --job <id>` | 看互斥 job 状态、next attempt/error code；仅安全可重试 job 重新调度；O/C | M2-03/04/05、M4-06；G2/G4 |
@@ -149,6 +152,29 @@ expiry/unknown、mode 和 role，不把 token 文件存在当作 live OAuth 健�
 
 ## 服务、规则、thread 和 backfill
 
+### 完整入口和细分命令（2026-10-07 用户决定）
+
+最终产品提供完整同步入口与细分维护命令。完整入口的拟定拼写为 `facet sync`：
+不带 `--once` 持续运行，带 `--once` 执行一轮后退出，不承诺一轮耗尽全部任务。
+该命令尚未实现，也不改变当前 Docker/Compose 默认 `run`。它检查现有配置、账号
+binding 和 scopes，缺授权时引导既有 OAuth 交互，不默选账号、覆盖状态或扩权。
+
+一次有意调用选择当前 enabled allow rules 与默认固定六个月窗口，自动完成范围
+快照和 guarded start，然后执行 discovery/backfill、History、insert/readback/map。
+不要求用户分别 preview/start、传 preview ID 或管理各子操作的请求键；内部稳定键
+和操作进度必须先持久化，以便中断/首应答丢失后续跑。TTY 在入口确认选定范围，
+非 TTY 显式 `--yes` 接受已说明的默认/选定范围，不增加逐步骤确认。Scope 过期或
+规则/stop generation 改变仍重新检查，不能借自动编排绕过已有 guards。
+
+完整入口调用细分命令背后的同一业务操作，不另造同步引擎、shell 子命令链或 IPC。
+已有规则/窗口工作继续、mapping 去重；新增历史范围创建独立 epoch，不清空旧
+discovery/cursor/intents。容器重启/普通 run 续跑已有范围；连续运行中的新规则和
+action 学习仍 prospective，不把重启、每日 reconcile 当作新的历史披露意图。
+单独 init/setup/preview/status 保持原有无复制行为，维修/恢复许可不随 sync 扩张。
+
+当前真实验证继续用细分命令，按具体已批准范围执行。产品入口可自动编排不代表
+agent 可以在当前测试中自动开始新历史补齐、retry unknown 或启动长期服务。
+
 `facet run` 前台运行，Compose/Docker 负责进程启动和 restart；CLI 不安装 systemd、
 修改宿主网络或拉取/替换容器。停止容器等效安全 SIGTERM：停领取、提交已知结果、
 unknown insert 留 recovery。`backfill pause` 只暂停历史 jobs，History ingestion 仍
@@ -168,7 +194,8 @@ message/thread 已知计数、旧历史/附件/参与者/own replies/Spam/Trash 
 `backfill preview`、`repair preview --audit` 和 `recovery preview --job` 都是明确的
 producer；输出本地 scoped preview ID 和固定用途。一个用途的 ID 不能用于另一命令，
 IDs/范围不一致或过期时 guard 拒绝。自动 discovery 的 preview 解释规则、六个月窗口、
-完整 thread 持续披露与 backfill start 的确认，不暴露邮件细节。
+完整 thread 持续披露与 start 范围，不暴露邮件细节。完整同步入口内部生成并引用
+这一快照；下面的独立命令仍适用于维护和分步测试。
 
 ```text
 facet recovery preview --job <job-id> --request-id <recovery-preview-key> --json
@@ -217,7 +244,7 @@ SQLite backup API 保存 DB 与配置/binding/credentials；不复制 raw，不�
 主 DB。Destination 必须新建/空的指定备份位置，不覆盖任意已有目录。`backup verify`
 离线检查完整性、schema、成套文件与私密权限，不要求 Gmail 可用。
 
-`setup` 的 target 前置条件是操作者在 OAuth 前声明 target 为全新、专用且 Facet 为唯一应用写入者；target OAuth 后、首次 projection/insert 前的只读检查核对账号 binding 及普通邮件、草稿、Spam、Trash。检查发现 unexpected/unmanaged 内容或账号不匹配时 fail closed，保持 blocked/report-only；Gmail/OAuth metadata 不证明所有第三方 writer。CLI 不提供认领、自动清理或同步删除路径；唯一显式维护删除例外见下节。
+`setup` 的 target 前置条件是操作者声明新建专用 target 及允许的外部 agent 发信/草稿用途；agent 以绑定 source 为 From，回复直接进入 source。Facet 不提供发送/草稿创建、send-as 配置或额外 scope。Target OAuth 后、首次 projection/insert 前只读检查账号 binding 及普通邮件、SENT、草稿、Spam、Trash。按产品契约分类的未管理 source 身份 SENT/DRAFT 不阻塞、不计投影成功、不自动认领 unknown insert；既有映射/独立证实的本系统 insert 结果优先，标签/From 不证明真实性或应用写入者。其他 unexpected/unmanaged 内容或账号不匹配仍 fail closed，保持 blocked/report-only。当前 setup 只核对 profile，内容分类与 recovery 排除仍待运行时验收，不因本轮文档修改宣称完成。CLI 不提供认领、自动清理或同步删除路径；唯一显式维护删除例外见下节。
 
 ### 显式专用 target 清理（2026-10-07 用户授权例外）
 
@@ -233,6 +260,8 @@ Expiry 限制首次 start（30 分钟），已开始任务以原 key/清单恢�
 不提供 source 删除、DB reset、unknown insert retry 或隐式 resume。CLI 输出仅固定
 汇总和本地 preview ID，不支持 `--public` 导出；真实删除需另批准实际 preview。
 完整风险、备份和容器调用见 [target-cleanup runbook](target-cleanup.md)。
+
+清理 preview 的固定清单可能包含合法的外部 agent 已发送邮件/草稿；它们不是必须清除的同步异常。批准清单意味着批准删除其中这些内容，操作者必须单独确认，既有清理授权不覆盖新清单；本轮不新增筛选选项或任何真实删除权限。
 
 `restore plan --backup <path>` 和 `maintenance inspect/check` 默认 offline、metadata
 only；`restore apply` 需明确 destination/backup、停机锁和确认，保留 recoverable 旧
@@ -314,8 +343,8 @@ spool 或内容缓存。Backup 私密 credential 文件是成套备份的一部�
 | ID / gate | 实际端到端验收 | Owner |
 | --- | --- | --- |
 | CLI-01 / G1 | 新环境 init/config validate、绑定拒绝、auth-status/offline doctor、schema inspect；已有状态不覆盖，JSON/退出码与非 TTY guards 可测；spike 独立 | M1-01/03/04/05/06 |
-| CLI-02 / G2 | 自动 discovery/backfill preview 能生成并引用规则/窗口；backfill start、History/action ingestion、unknown recovery/restart continuation；source_missing 可解释 | M2 |
-| CLI-03 / G3 | Rules effective_at、preview→明确 backfill start、pause/resume、History gap range guards；无 scope/过期 preview 不披露，初始化与 preview 零 insert | M3 |
+| CLI-02 / G2 | 完整同步入口复用细分操作自动完成当前规则的非空历史 discovery/backfill 和 History/action ingestion；细分 preview/start 也可独立完成；真实 CLI subprocess、insert/readback/映射、unknown recovery 和重启去重，不直接填 DB 绕命令；source_missing 可解释 | M2 |
+| CLI-03 / G3 | Rules effective_at；规则新增后新的有意 sync/细分 start 可通过新 epoch 补齐指定历史而不改 effective_at；普通 run/restart/action/reconcile 不隐式回扫；pause/resume/History gap range guards、无 scope/过期 preview 拒绝、init/setup/独立 preview 零 insert | M3 |
 | CLI-04 / G4 | 前台 sync/one-off 命令共享唯一 writer lock，status offline/Gmail down；reconcile/audit 可续、bounded repair；pause ingestion 和 mutation 边界正确 | M1-03、M3/M4 |
 | CLI-05 / G5 | mode/实际 scope 检查、legacy report、readonly 零 source mutation、blacklist/stop generation、cleanup 重放；resume 不复活 stopped | M4 |
 | CLI-06 / G6 | 全套 CLI 可从 Compose image 执行；stop/one-off DB+credential 协调锁；backup/restore 与 auth/refresh 并发不跨版本；verify/migrate/check offline，invalid_grant 时仍能看 pending；无 host Python | M6-01/02/03/06 |

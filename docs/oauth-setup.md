@@ -8,12 +8,16 @@ message content, inserts messages, writes labels, starts sync, or starts a
 backfill. Source uses `gmail.readonly`; target uses `gmail.insert` and
 `gmail.readonly`.
 
-Deployment prerequisite: the target must be a newly created, dedicated Gmail
-account for this projection. Before OAuth, the operator must explicitly attest
-that Facet is the only application/service that will write to it; AI
-agents/connectors are read-only consumers. Gmail metadata and OAuth scopes do
-not prove that attestation or reveal every third-party writer. OAuth consent
-itself is not a Gmail mailbox write.
+Deployment prerequisite: the target must be newly created and dedicated to this
+projection and its explicitly authorized external agents. The 2026-10-07 product
+decision replaces the sole-mailbox-writer/read-only-agent assumption: external
+agents may send and create drafts with the bound source as From, with replies
+going directly to source. The agent/Gmail integration owns separate sending
+credentials, send-as configuration and reply routing; Facet does not send,
+create drafts, configure those settings or broaden its normal scopes. Other
+imports, forwarding and unrelated mailbox uses remain outside this boundary.
+The operator declares this usage before OAuth; metadata/scopes do not establish
+every application writer. OAuth consent itself is not a Gmail mailbox write.
 
 The command is interactive only and requires a controlling TTY. It rejects JSON,
 public/private metadata output modes, and non-TTY invocation. Use an explicit
@@ -40,11 +44,16 @@ not add a Dashboard OAuth route. Keep the command's request key private.
 
 After target OAuth and before the first projection/insert, deployment acceptance
 must use read-only target checks for account binding and mailbox content across
-normal mail, drafts, Spam, and Trash. An unexpected/unmanaged item, old
-forwarding or spike copy, or account mismatch is a stop gate: remain blocked
-and report the conflict. Setup has no delete, claim, relabel, or cleanup path;
-it must not make an existing mailbox appear empty. A successful OAuth grant
-does not by itself pass this target-account gate.
+normal mail, SENT, drafts, Spam, and Trash. Established mappings and independently
+proven owned insert outcomes take precedence. Unmanaged SENT/DRAFT with a single
+valid From address normalized to the bound source is permitted, not a projection
+success or an automatically claimable recovery copy. Labels/From classify the
+exception, not authenticity or writer provenance; From alone or absence of a
+mapping is insufficient. Other unexpected/unmanaged items, old forwarding or
+spike copies, or account mismatch remain stop gates: blocked/report-only, never
+delete, claim or relabel. A nonempty total alone is not an error. Setup currently
+probes profiles only; this documentation does not implement the classifier or
+claim live acceptance. OAuth alone does not pass the target-account gate.
 
 The supported container recipe uses an immutable image and a setup-only
 loopback mapping. Set `FACET_IMAGE` to a full-commit tag or digest and provide

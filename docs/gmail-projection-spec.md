@@ -64,9 +64,9 @@ Target 固定 `gmail.insert` 和 `gmail.readonly`；后者用于搜索、回读�
 
 每次启动先回读两个 profiles，与持久绑定核对，拒绝相同账号、角色互换或未经初始化的身份变化。Own-addresses 使用明确地址列表，不额外申请 settings scope，也不擅自合并所有 plus 或 dot 地址。
 
-正式初始化创建新的 DB 与 source checkpoint，不沿用 `.facet-spike/` 中的 cursor、实验映射或旧 target IDs。生产 target 必须是全新、专用于本 projection 的 Gmail 账号，由操作者在 OAuth 前声明并配置 Facet 为唯一应用写入者；不得配置其他应用、forwarding、legacy projection 或人工导入/发信写入。AI connector 只能读取。Gmail metadata/OAuth scopes 不能证明该声明，也不能识别所有第三方写入者。
+正式初始化创建新的 DB 与 source checkpoint，不沿用 `.facet-spike/` 中的 cursor、实验映射或旧 target IDs。生产 target 是为本 projection 全新建立的专用 Gmail 账号。2026-10-07 用户决定取代唯一邮箱写入者要求：操作者声明专用用途及获准的外部 agent 发信/草稿写入；From 使用已绑定 source 身份，回复进入 source。Agent/Gmail 集成负责发信权限、send-as 和回复路由，Facet 自身仍仅 insert，不提供发送/草稿接口或扩大 scope。其他导入器、forwarding 和 legacy projection 不允许；Gmail metadata/OAuth 不能证明全部 writer 行为。Facet 的单 DB/process writer 不变。
 
-Target OAuth 后、首次 projection/insert 前，部署验收必须通过只读 Gmail 检查核对 target 账号/binding，并覆盖普通邮件、草稿、Spam 和 Trash；收件箱为空不代表 All Mail 或整个 mailbox 为空。发现 unexpected/unmanaged 邮件、旧 forwarding/spike 副本或 binding mismatch 时 fail closed：保持投影写入阻止并报告/进入 attention，不自动认领、删除、移标或清理。OAuth consent 不是 Gmail mailbox write，授权成功本身不完成邮箱前置检查；当前 setup 仅授权和读取 profile，本次文档修改不新增该 runtime 检查。
+Target OAuth 后、首次 projection/insert 前，部署验收只读核对 target 账号/binding 和普通邮件、SENT、草稿、Spam、Trash。先处理已有 managed mapping/独立归属证据；未管理的 `SENT`/`DRAFT` 且唯一有效 From 经既有规范化匹配绑定 source 时，分类为允许的外部 outbound，不阻止投影。仅 From 匹配或仅未映射不能放行；标签/From 不是认证或 writer 身份证明。分类需要的 header 仅内存读取，不保存每封 From/To/Cc 或 raw。其他 unexpected/unmanaged 邮件、旧 forwarding/spike 副本及 binding mismatch 仍 blocked/report-only，不认领、删除、移标或清理。OAuth 不完成邮箱检查；当前 setup 仅授权和读取 profile，本次文档修改不实现 runtime 分类。
 
 既有部署不得自动迁移或清理以满足新约束。在下一次部署验收前保留 mappings/jobs/audit，缺少操作者声明或可观察检查时保持 blocked/report-only；未知旧邮件不能作为新 mappings。Source action labels 不存在时，只读模式继续提供 CLI 管理并说明如何手工创建；便利模式才自动创建。
 
@@ -183,6 +183,12 @@ Date/internalDate 也不是 target 创建时间。M2-04 insert-attribution ADR �
 验证候选排除或 fence 等证据机制，包含竞争、分页/过期和其他写者反例；方案未验证
 或归属未知时保持待处理，不自动认领。
 
+允许的未管理 agent SENT/草稿也不能自动绑定为生产 insert 的恢复结果，即使 RFC ID、
+From 或内容相同。不能以“只有 Facet 写 target”作为归属证明；已有 mapping 或独立
+证据证明的本次 insert 保留归属，不能因标签而重新误判为外部 outbound。相关分类与
+恢复排除必须进入原有 target 检查/recovery 验收，当前只读 recovery check 不代表这项
+分类已实现。
+
 - 唯一内容匹配、未被不兼容 source 映射占用且通过已评审的 insert 归属核验：绑定
   target IDs；候选在 Spam 或 Trash 时额外报告可见性异常，不重复插入或宣称正常可见。
 - 多候选、相同 Message-ID 但内容不匹配、映射冲突：`needs_attention`。
@@ -194,7 +200,14 @@ Date/internalDate 也不是 target 创建时间。M2-04 insert-attribution ADR �
 
 ## 初始化和 backfill
 
-首次启动可授权和 preview，不自动复制历史；显式 `backfill start` 创建初始化 epoch。
+2026-10-07 用户决定：产品完整 CLI 同步入口自动编排细分命令的同一业务操作，
+不要求用户手动先 preview 再 start。一次有意完整同步调用选择当前 enabled allow
+rules 和默认固定六个月窗口，内部准备 scoped preview、持久化 H0/epoch 后启动
+discovery/backfill 与 History；现有工作续跑，新历史范围用独立扩张 epoch。它不
+改变现有 `effective_at`，也不清空 DB/cursor 或重试 unknown。该入口尚待实现。
+细分 `backfill preview/start/status/pause/resume` 保留用于维护和当前验证；独立
+preview、init/setup、普通 run/容器重启不自动扩大历史，preview 零 target 写入。
+稳定请求键、范围/账号/权限/停止 generation 检查与真实操作独立授权不变。
 
 1. 在任何 discovery 前获取并持久保存 H0 和固定时间 cutoff。
 2. Discovery 只从 sealed ruleset 的 enabled allow sender/domain 生成有界 Gmail
@@ -206,7 +219,9 @@ Date/internalDate 也不是 target 创建时间。M2-04 insert-attribution ADR �
 
 Page token 仅为短期扫描提示；过期或进程重启后可重新扫描同一个固定时间窗口，依赖唯一键去重。`backfill stop` 暂停领取历史 jobs，不取消实时跟踪；resume 延续原 epoch，不重算不断移动的六个月 cutoff。
 
-新增规则只处理当前明确选择的 thread 和未来事件。历史扩张通过新的显式 backfill epoch，并记录规则与窗口；每天校对不隐式变成全历史 admission。
+新增规则只处理当前明确选择的 thread 和未来事件。历史扩张通过新有意完整同步
+调用内部启动的 epoch，或细分 backfill 的显式 start，并记录规则与固定窗口。
+连续运行中的规则/标签更新、普通重启和每天校对不隐式变成全历史 admission。
 
 ## History 和过期恢复
 
@@ -243,7 +258,11 @@ Blacklist 精确 sender 优先于新 thread allow。当前 thread 变 inactive�
 
 校对保存 epoch 和进度，限流、可恢复。Target 人工删除默认报告，显式 `--repair-missing` 才重新投影；人工放入 Trash 的内容不被自动认领为正常可见。未知旧邮件、此前 forwarding 和 spike 的副本不自动纳入生产映射，也不清理。
 
-全 target audit 发现 unexpected/unmanaged 内容时，专用 target 的部署前置条件不再满足，应停止新的投影写入并报告；不能用 audit/recovery 或内容相同绕过唯一写入者声明和 insert 归属核验。已记录的 mappings、pending intents 和审计证据保留，已有在途 insert 的未知结果仍按恢复协议处理，不宣称能撤销在途请求。
+全 target audit 区分已有 managed/有独立归属证据的 insert、允许的未管理外部 outbound，以及其余 unexpected/unmanaged 内容。允许的 source-From SENT/草稿不阻止写入、不计作投影成功、不自动映射；其余 unexpected 内容或账号错误仍停止新的投影并报告。Audit/recovery 不能仅凭内容相同认领副本，也不能再假设唯一邮箱写入者。保留 mappings、pending intents 和审计证据；在途 insert 结果仍按恢复协议记录，不宣称能撤销。
+
+外部 agent 的收件人发现/自动学习规则留到 Phase 1 之后；本期不从 target outbound
+或草稿学习、不新增 To/Cc 持久化。回复进入 source 后，tracked thread 按原授权继续；
+未跟踪 thread 仍须命中现有 source admission，不因曾给对方发信而自动披露。
 
 ## 运行故障和备份
 
@@ -271,7 +290,9 @@ Compose 将本地数据目录挂载到 `/data`，计划布局如下；初始化�
 
 Phase 1 要求首次私密配置/OAuth 完成后 `docker compose up -d` 一命令启动，容器
 重建无需重新交互授权且保留 binding/schema/checkpoint/jobs。Startup 不自动开始
-初始 backfill；由 CLI 明确 `backfill start` 作为一次披露确认。镜像由 Actions 构建/发布；PR 不 push，发布使用 approved registry/
+初始 backfill；有意完整同步入口可在一次范围确认后自动准备/start，独立
+`backfill start` 仍可用于细分维护。当前 Compose 默认保持 `run`，不因文档决定
+改变为新的完整入口。镜像由 Actions 构建/发布；PR 不 push，发布使用 approved registry/
 trigger、full source SHA/digest、amd64/arm64、SBOM/provenance 和匿名拉取验收，
 具体权限及工作包见 [执行计划](phase-1-execution-plan.md)。
 

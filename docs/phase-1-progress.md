@@ -30,8 +30,10 @@ Gmail/Compose/Dashboard 和完整维护 CLI 均未完成。
 本次进度台账按 2026-10-03 用户纠偏更新：第一条可用产品能力直接包含自动
 discovery、固定六个月 backfill、History 全分页/cursor/事件持久化去重、
 `messagesAdded` 与 readonly `AI/AddSender`/`AI/AddDomain`/`AI/BlackList` 规则更新、
-投影 mapping、unknown recovery 和 restart continuation。初始化仍需 `backfill start`
-作为一次披露确认，但不要求逐个选择 thread。产品没有同步延迟承诺；Docker image 内
+投影 mapping、unknown recovery 和 restart continuation。2026-10-07 用户更新入口：
+完整同步命令自动复用细分 preview/start/run 操作，不要求用户手动串步骤；当前测试
+仍用细分命令，入口及后续历史扩张尚待实现。独立 setup/preview 零 insert，普通
+run/restart/规则学习不扩历史，具体 live 范围仍另授权。产品没有同步延迟承诺；Docker image 内
 一个前台 sync/writer 进程是支持模型。runtime/native/read-bootstrap、独立 daemon/IPC/
 request-receipt、并发四路/实时优先/公平调度/复杂 raw budget 均不再阻塞第一交付。
 
