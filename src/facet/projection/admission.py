@@ -147,9 +147,17 @@ class AdmissionEvaluator:
         )
 
     def evaluate(
-        self, candidate: DiscoveryCandidate, now: Timestamp
+        self,
+        candidate: DiscoveryCandidate,
+        now: Timestamp,
+        *,
+        prospective: bool = False,
     ) -> AdmissionResult:
-        if type(candidate) is not DiscoveryCandidate or type(now) is not Timestamp:
+        if (
+            type(candidate) is not DiscoveryCandidate
+            or type(now) is not Timestamp
+            or type(prospective) is not bool
+        ):
             raise ValueError("invalid_input")
         if candidate.visibility is not Visibility.NORMAL:
             return _attention(AdmissionAttentionReason.SOURCE_STATE_INELIGIBLE)
@@ -164,7 +172,8 @@ class AdmissionEvaluator:
         for rule in enabled:
             if (
                 rule.normalized.kind is RuleKind.BLACKLIST_SENDER
-                and candidate.observed_at.value >= rule.effective_at.value
+                and (now if prospective else candidate.observed_at).value
+                >= rule.effective_at.value
                 and _matches(rule.normalized, candidate.sender)
             ):
                 return _attention(AdmissionAttentionReason.BLACKLISTED)

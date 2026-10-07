@@ -143,6 +143,41 @@ def test_malformed_timestamp_is_attention_not_now_fallback(gmail_controller):
     assert page.items[0].attention.reason is CandidateAttentionReason.INVALID_METADATA
 
 
+def test_history_candidate_retains_received_date_and_metadata_only(gmail_controller):
+    from facet.contracts import ProviderId, Timestamp
+    from facet.gmail.source import DiscoveryItem
+
+    gmail_controller.script(
+        "source",
+        "messages.get",
+        {"userId": "me", "id": "m-1", "format": "metadata"},
+        _metadata(headers=({"name": "From", "value": "sender@example.com"},)),
+    )
+    result = _adapter(gmail_controller).history_candidate(
+        DiscoveryItem(ProviderId("m-1"), ProviderId("t-1"))
+    )
+    assert result.candidate.observed_at == Timestamp(datetime(2026, 1, 1, tzinfo=UTC))
+
+
+def test_history_candidate_propagates_typed_network_failure(gmail_controller):
+    from fakes.gmail import HttpFailure
+
+    from facet.contracts import ProviderId
+    from facet.gmail.source import DiscoveryItem
+
+    gmail_controller.script(
+        "source",
+        "messages.get",
+        {"userId": "me", "id": "m-1", "format": "metadata"},
+        HttpFailure(503),
+    )
+    with pytest.raises(ProviderFailure) as error:
+        _adapter(gmail_controller).history_candidate(
+            DiscoveryItem(ProviderId("m-1"), ProviderId("t-1"))
+        )
+    assert error.value.code is ErrorCode.NETWORK_UNAVAILABLE
+
+
 def test_page_enumeration_failure_is_not_partial(gmail_controller):
     from fakes.gmail import HttpFailure
 

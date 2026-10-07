@@ -3,6 +3,7 @@
 from facet.contracts import ErrorCode, JobKind, JobState, ProviderId
 from facet.contracts.records import (
     SourceEventKeyLabelChanged,
+    SourceEventKeyMessageAdded,
     SourceEventKeyMessageDeleted,
 )
 
@@ -173,6 +174,28 @@ def _effect_matches(event, job):
     if job.kind is JobKind.EXPAND_THREAD:
         return subject.source_thread_id == thread
     return False
+
+
+@_mutating
+def consume_message_added_no_effect(uow, projection_id, event_id, guard):
+    """Finish a resolver's ordinary no-op, without reopening terminal work."""
+    row = _event(uow, projection_id, event_id, guard)
+    if (
+        type(row.event.key) is not SourceEventKeyMessageAdded
+        or row.event.source_thread_id is None
+        or row.error_code is not None
+        or row.processing not in {EventProcessing.PENDING, EventProcessing.CONSUMED}
+    ):
+        _conflict()
+    if row.processing is EventProcessing.CONSUMED:
+        return WriteReceipt("replayed", event_id, row.revision)
+    revision = next_revision(row.revision)
+    uow._execute(
+        "UPDATE source_events SET processing='consumed',revision=? "
+        "WHERE projection_id=? AND event_id=? AND revision=?",
+        (revision.value, projection_id.value, event_id.value, row.revision.value),
+    )
+    return WriteReceipt("updated", event_id, revision)
 
 
 @_mutating

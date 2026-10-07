@@ -370,7 +370,7 @@ class SourceAdapter:
         return CandidatePage(tuple(results), listed.next_page_token)
 
     def candidate(self, item: DiscoveryItem) -> CandidateResult:
-        """Fetch and authenticate one already-enumerated discovery item.
+        """Fetch one already-enumerated discovery item for rule admission.
 
         Enumeration and candidate metadata are deliberately separate calls so
         the foreground producer can perform provider work outside its SQLite
@@ -385,10 +385,20 @@ class SourceAdapter:
             self._source_account,
         )
 
+    def history_candidate(self, item: DiscoveryItem) -> CandidateResult:
+        """Read a prospective candidate, retaining provider failures and date."""
+        if type(item) is not DiscoveryItem:
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+        if type(self._source_account) is not PrivateAddress:
+            raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
+        return self._candidate_result(item, self._source_account, history=True)
+
     def _candidate_result(
         self,
         item: DiscoveryItem,
         account: PrivateAddress,
+        *,
+        history: bool = False,
     ) -> CandidateResult:
         try:
             value = execute(
@@ -399,6 +409,8 @@ class SourceAdapter:
                 provider_stage=ProviderStage.MESSAGE_GET,
             )
         except ProviderFailure:
+            if history:
+                raise
             return CandidateResult(
                 attention=CandidateAttention(
                     CandidateAttentionReason.PROVIDER_FAILURE,
@@ -440,7 +452,9 @@ class SourceAdapter:
                 attention=CandidateAttention(state, item.message_id, item.thread_id)
             )
         sender, visibility, is_draft = state
-        observed_at = Timestamp(datetime.now(UTC))
+        observed_at = Timestamp(
+            metadata.internal_date if history else datetime.now(UTC)
+        )
         return CandidateResult(
             candidate=DiscoveryCandidate(
                 source_message_id=item.message_id,
@@ -489,7 +503,10 @@ class SourceAdapter:
             self.role,
             provider_stage=ProviderStage.MESSAGE_GET,
         )
-        return _message(value)
+        try:
+            return _strict_message(value)
+        except (KeyError, TypeError, ValueError, OverflowError, OSError):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
 
     def thread_metadata(self, thread_id: ProviderId) -> ThreadMetadata:
         value = execute(

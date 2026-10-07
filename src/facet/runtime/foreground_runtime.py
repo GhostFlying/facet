@@ -187,6 +187,11 @@ class ForegroundRuntime:
                 else _action_consumer(source, self.config, self.owner)
             ),
             admission_for_epoch=epoch_loader,
+            admission_for_history=(
+                (lambda: load_persisted_admission(self.owner, self.config))
+                if admission is None
+                else None
+            ),
         ).run_once(max_jobs=max_jobs, max_events=max_events)
 
 
