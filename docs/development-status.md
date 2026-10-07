@@ -31,6 +31,29 @@ Independent plan and exact-candidate documentation reviews passed; see the
 [review receipt](reviews/target-agent-outbound.md). Main integration and CI are
 separate gates, not implied by this documentation approval.
 
+### Controlled local Gmail preflight (no projection writes)
+
+On 2026-10-07 the exact local transport candidate, using this host's private
+proxy override, refreshed both expired existing role credentials through the
+normal StateOwner/CredentialManager journal and unchanged scope policies.
+Google profiles matched the existing role bindings. Read-only target metadata
+showed two unmapped SENT messages with unambiguous normalized source From,
+zero drafts and zero other unexpected items. They are permitted outbound,
+not projection mappings or content to clean. This was local operator inspection,
+not implementation of the missing production classifier/audit gate.
+
+Production mappings remain zero; the one old unknown insert remains pending
+recovery. A fresh read-only RFC-ID search returned zero candidates; that is not
+proof of no historic insert or permission to resend. No projection/recovery
+execution, Gmail write, source mutation or service resume occurred. Normal
+credential/profile metadata was updated; no account, scope, rule or epoch changed.
+One enabled sender rule exists; only one of three configured action labels was
+present. Missing labels do not invalidate CLI-managed rules. The current image
+does not dispatch `auth status` (returns `invalid_input`); its existing offline
+status reader was used locally without claiming that CLI gate complete.
+Next: verify the concrete live test scope before a bounded production cycle;
+do not reopen historic attention work or retry the old unknown automatically.
+
 ### Sync transport and source-missing repair (offline candidate)
 
 Candidate `3df74f31bb8a4a7d65ce5eae1d3294e7fb0867b6` replaces normal sync's
