@@ -43,8 +43,9 @@ Only the read-only test driver/external fake was mounted; application source,
 real state and real credentials were not overlaid. Synthetic content/error
 sentinels are checked against persisted files and command output.
 
-The local full-suite run is in progress; its legacy CLI dispatch fixture omitted
-the new warnings field. Test-only candidate
+The local full-suite run completed with 2771 passing cases and one failing legacy
+CLI dispatch fixture (620.73 seconds); that fake omitted the new warnings field.
+This is not an all-green full-suite result. Test-only candidate
 `a02236d7179b987382fa9230cbe96c6692c6c5bd` replaces that fake result with the actual
 typed receipt and verifies no-warning/fixed-warning output. Its independent
 focused review passed; seven affected cases passed. Runtime/image inputs are
