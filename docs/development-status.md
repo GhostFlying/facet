@@ -42,7 +42,8 @@ all account, scope, H0/gap, stopped-generation and unknown-insert guards. Ordina
 setup/preview/run/restart and prospective rule/action learning do not expand
 history. The current image/Compose entrypoint is unchanged; current testing uses
 granular commands. See [bounded documentation plan](implementation-plans/sync-command-composition.md)
-and the D10 decision in the execution plan.
+and [independent acceptance](reviews/sync-command-composition.md), plus the D10
+decision in the execution plan. Documentation approval is not implementation.
 
 Read-only diagnosis explains the nine live copies below: all nine mappings came
 from three `future_rule` threads. The existing initial epoch was created before
