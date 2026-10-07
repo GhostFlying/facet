@@ -61,9 +61,31 @@ under the existing binding/normal target scopes; its account and fixed IDs stay
 private. Offline status read the same manifest with networking disabled. No
 source request, real mailbox mutation or full-scope OAuth was performed.
 
-CI, main integration, publication, real cleanup OAuth/delete and live-service
-upgrade are not claimed. The normal insert transport remains a known separate
-blocker. Real deletion awaits the user's separate actual-preview decision.
+CI, main integration, publication and live-service upgrade are not claimed.
+The normal insert transport remains a known separate blocker. The subsequent
+live authorization and evidence are recorded below, separately from engineering
+acceptance.
 
 No real deletion, expanded persistent credential, source mutation, normal-state
 reset or unknown insert retry is authorized by this engineering receipt.
+
+## Separately authorized controlled live cleanup
+
+On 2026-10-07 the user approved the actual 134-message fixed preview and
+completed separate ephemeral target full-mail OAuth. The first consent wait
+expired without destructive dispatch; the same execution key and manifest were
+resumed with fresh consent, not a new preview or expanded scope. The qualified
+local image exited successfully. Offline receipt: completed, 134 confirmed
+absent, zero remaining and zero unknown deletions. A subsequent normal-scope
+read-only target profile/list check verified the bound account, zero messages
+including Spam/Trash, zero drafts and no next pages.
+
+Before execution a fresh private SQLite API backup included the main DB,
+maintenance journal, config and normal credentials; both database integrity
+checks passed. Read-only comparison afterwards found all main business rows
+unchanged except writer-owner lineage, plus unchanged config and normal
+credential files. Existing unknown inserts remain one and mappings remain zero.
+No source request, send, new-arrival deletion, persistent full-scope credential,
+DB reset, unknown-insert retry or daemon restart occurred. Real account/manifest
+identifiers and OAuth materials remain outside this public receipt. Deleted
+Gmail content cannot be recovered from the metadata backup.

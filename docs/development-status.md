@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Explicit target cleanup (local offline/image acceptance complete)
+### Explicit target cleanup (controlled live cleanup complete)
 
 The user approved an independent `target-cleanup` CLI maintenance exception and
 ephemeral full Gmail consent, not automatic sync deletion. The local commands
@@ -23,14 +23,20 @@ preview, explicit deletion with injected response loss, restarted recovery and
 completed replay with no new HTTP calls. Fixed IDs only were removed; later
 arrivals survived and normal credentials/business state remained unchanged.
 Real requests/urllib3 wire tests separately prove one destructive dispatch on
-response loss and same-ID GET on recovery. No actual target deletion, broad
-persistent credential, DB reset or unknown-insert retry has occurred. Real
-deletion awaits separate approval of its actual preview; CI/merge/publication
-and real-service upgrade are not claimed. See [runbook](target-cleanup.md) and
-[review receipt](reviews/target-cleanup-cli.md). A production read-only cleanup
-preview has now completed and its fixed manifest is stored privately; the user
-has not yet approved real deletion. No source API or mailbox mutation was used
-for that preview. The live sync gaps below remain.
+response loss and same-ID GET on recovery. On 2026-10-07 the user separately
+approved the actual fixed preview, then completed ephemeral target-only full
+Gmail consent. The qualified local image permanently removed all 134 approved
+messages: the durable receipt is completed, remaining and unknown deletions are
+zero. A subsequent read-only account-verified check found zero messages
+(including Spam/Trash), zero drafts and no remaining list pages. No new arrivals
+were added to the manifest. A fresh private metadata/credentials/journal backup
+passed SQLite integrity checks before execution; it cannot restore deleted mail.
+Comparison against that backup confirmed unchanged normal credentials, config
+and business rows except writer-owner lineage. Zero mappings and the existing
+one unknown insert remain; no source mutation, persistent full-scope token, DB
+reset, insert retry or sync restart occurred. CI/merge/publication and a
+live-service upgrade are not claimed. See [runbook](target-cleanup.md) and
+[review receipt](reviews/target-cleanup-cli.md). The live sync gaps below remain.
 
 ### Current live gate and insert adapter correction
 
@@ -43,10 +49,11 @@ remains in recovery and was not retried. Read-only recovery search found no
 candidate, which is not proof authorizing another insert.
 
 Earlier read-only target inspection found unexpected/unmanaged content,
-including a draft at that time, while the DB had no mappings. No further target
-writes or long-running
-service startup are permitted until the operator resolves that target
-prerequisite. No mailbox cleanup, claiming, scope expansion or DB reset occurred.
+including a draft at that time, while the DB had no mappings. The separately
+authorized explicit cleanup above resolved that observed target prerequisite;
+the follow-up check found an empty mailbox. This is a point-in-time observation,
+not permission to delete future arrivals or waive subsequent startup checks.
+Normal sync remains stopped for the insert/recovery and admission gaps below.
 New message events on untracked threads also remain attention: incremental
 admission needs a further product-path correction, not an all-success claim.
 
@@ -76,9 +83,9 @@ Container Google connectivity also needs an environment-specific solution;
 temporary host-network/IPv6 resolution overrides proved the bounded live CLI
 path, not a generally usable Compose network or public Dashboard deployment.
 
-Next live gate: the operator resolves the dedicated-target prerequisite; the
-existing unknown attempt stays in recovery until an authorized, evidence-based
-recovery action is available. Cleanup review additionally reproduced a concrete
+Next live gate: the dedicated-target prerequisite was checked after approved
+cleanup; the existing unknown attempt stays in recovery until an authorized,
+evidence-based recovery action is available. Cleanup review additionally reproduced a concrete
 httplib2 automatic wire resend despite Google `num_retries=0`. Cleanup's bounded
 transport correction does not fix the normal sync factory's corresponding
 insert risk: keep new live inserts stopped until it is independently corrected
