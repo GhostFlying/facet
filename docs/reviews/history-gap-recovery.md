@@ -56,3 +56,32 @@ and deployment remain separate gates. Complete `sync`, unknown-range approval
 CLI, daily reconcile, target audit and other Phase 1 maintenance/acceptance are
 not claimed here. No real mailbox operation, scope expansion, old unknown retry,
 state reset, service resume, deployment or Release occurred.
+
+## Qualified main integration, 2026-10-08
+
+Independent bounded review approved `2a8ff44d0e7c4b94a0da066c34df5c8575716723`'s
+ten-to-twenty-minute job budget; its complete dual-Python CI succeeded. The
+subsequent independently accepted parent action-retry fix was carried without
+conflict into integration candidate
+`b634d94c100b4de064cf35782923f753d0470ed8`; all other runtime conclusions remain.
+Final candidate [full CI](https://github.com/GhostFlying/facet/actions/runs/37661831018)
+and [PR image build](https://github.com/GhostFlying/facet/actions/runs/37661831081)
+passed. Older same-head cancelled runs are superseded concurrency runs, not
+assertion failures or skipped final checks.
+
+The pinned local image `facet:b634d94`, ID
+`sha256:6dfc0316680ce54c936c6deb58c9e980b9a12061ad05abc909edb1692b0cbce3`,
+has that full OCI revision and UID `10001:10001`. Eight supported production CLI
+cases passed: historical copying, preserved old unknown, interrupted historical
+pagination, new unknown no-resend, normal gap/restart, interrupted gap source
+page, interrupted H1 page and gap with old unknown. Tests ran with networking
+disabled, read-only rootfs and external-only fakes. The first ad-hoc driver used
+unsupported fault names and aborted; correcting the driver to the fixture's
+`discovery`/`catchup` inputs passed the affected cases without any runtime change.
+
+PRs #93–#96 merged in order; every main tree matched its accepted head. Final
+runtime main commit `392fe31969d96c5be4e46dff0bce3fdb249c8fd3` has the exact
+integration tree above. Main publication/host checks and the newly requested
+live-window confirmation remain distinct from this acceptance. Offline retained
+state status still shows nine mappings, one old unknown and 58 old attention
+jobs; no new real Gmail write, recovery override or service resume occurred.
