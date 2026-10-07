@@ -144,8 +144,10 @@ _RETRYABLE_SOURCE_ERRORS = {
 _RETRY_DELAY = timedelta(seconds=1)
 
 
-def _retry_at(now: Timestamp) -> Timestamp:
-    return Timestamp(now.value + _RETRY_DELAY)
+def _retry_at(now: Timestamp, retry_after_seconds: int | None = None) -> Timestamp:
+    return Timestamp(
+        now.value + max(_RETRY_DELAY, timedelta(seconds=retry_after_seconds or 0))
+    )
 
 
 def _rule_kind(kind: ActionKind) -> RuleKind:
@@ -295,6 +297,7 @@ class ActionEffectConsumer:
                     projection_id,
                     prepared,
                     error.code,
+                    retry_after_seconds=error.retry_after_seconds,
                 )
             if isinstance(decision, ActionAttention):
                 return self._attention(
@@ -396,7 +399,9 @@ class ActionEffectConsumer:
                 raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
             return _Prepared(event_id, job.job_id, event, job, action)
 
-    def _attention(self, owner, projection_id, prepared, reason) -> ActionEffectResult:
+    def _attention(
+        self, owner, projection_id, prepared, reason, *, retry_after_seconds=None
+    ) -> ActionEffectResult:
         code = reason if type(reason) is ErrorCode else _attention_code(reason)
         retryable = code in _RETRYABLE_SOURCE_ERRORS
         with owner.transaction() as uow:
@@ -424,7 +429,7 @@ class ActionEffectConsumer:
                     prepared.job_id,
                     "retry_wait" if retryable else "needs_attention",
                     code,
-                    _retry_at(_now()) if retryable else None,
+                    _retry_at(_now(), retry_after_seconds) if retryable else None,
                     RevisionGuard(job.revision),
                 )
         return ActionEffectResult(attention=reason)
