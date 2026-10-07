@@ -26,7 +26,10 @@ audit integration and recovery exclusion are still open runtime/acceptance
 requirements, not implemented or Gmail-verified by this docs-only change.
 No Gmail operation, state migration, deployment or service resume occurred;
 the transport candidate and its existing offline evidence remain unchanged.
-See [bounded plan](implementation-plans/target-agent-outbound.md).
+Independent plan and exact-candidate documentation reviews passed; see the
+[bounded plan](implementation-plans/target-agent-outbound.md) and
+[review receipt](reviews/target-agent-outbound.md). Main integration and CI are
+separate gates, not implied by this documentation approval.
 
 ### Sync transport and source-missing repair (offline candidate)
 
