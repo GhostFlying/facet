@@ -177,6 +177,24 @@ def build_parser() -> _Parser:
     run.add_argument("--host", default="127.0.0.1")
     run.add_argument("--port", type=int, default=8080)
     run.add_argument("--interval", type=float, default=5.0)
+    sync = commands.add_parser(
+        "sync",
+        add_help=False,
+        allow_abbrev=False,
+        help="prepare or resume the six-month scope and synchronize",
+        description=(
+            "Intentionally selects current rules and the default six-month window. "
+            "One admitted message discloses its complete available non-draft "
+            "thread, attachments, participants, replies and future messages. "
+            "Use run for ordinary restart without selecting historical scope."
+        ),
+    )
+    _common(sync)
+    _mutations(sync)
+    sync.add_argument("--once", action="store_true")
+    sync.add_argument("--host", default="127.0.0.1")
+    sync.add_argument("--port", type=int, default=8080)
+    sync.add_argument("--interval", type=float, default=5.0)
     status = commands.add_parser(
         "status",
         add_help=False,
@@ -662,7 +680,9 @@ def _foreground_gate(owner) -> tuple[bool, ErrorCode | None]:
     return True, None
 
 
-def _run_foreground_service(options: object) -> tuple[dict, tuple[str, ...]]:
+def _run_foreground_service(
+    options: object, *, owner=None, config=None
+) -> tuple[dict, tuple[str, ...]]:
     """Own one sync loop and one read-only Dashboard in the current process."""
 
     from facet.gmail.service_factory import GoogleGmailServiceFactory
@@ -687,8 +707,10 @@ def _run_foreground_service(options: object) -> tuple[dict, tuple[str, ...]]:
     if getattr(options, "config_path", None) is not None:
         raise ConfigError(ErrorCode.INVALID_INPUT)
     raw = read_managed_config(paths)
-    config = load_config(raw)
-    owner = StateOwner.open(paths.root, config)
+    close_owner = owner is None
+    if close_owner:
+        config = load_config(raw)
+        owner = StateOwner.open(paths.root, config)
     provider = LiveSnapshotProvider()
     stop = Event()
     server = None
@@ -755,7 +777,8 @@ def _run_foreground_service(options: object) -> tuple[dict, tuple[str, ...]]:
             server_thread.join(timeout=2)
         if server is not None:
             server.server_close()
-        owner.close()
+        if close_owner:
+            owner.close()
     return {"stopped": True}, ()
 
 
@@ -1635,7 +1658,9 @@ def _preview_summary(operation, payload) -> dict:
     }
 
 
-def _backfill_preview(options: object) -> tuple[dict, tuple[str, ...]]:
+def _backfill_preview(
+    options: object, *, owner=None, config=None
+) -> tuple[dict, tuple[str, ...]]:
     from facet.contracts import Sha256Hex
     from facet.db.command_records import BackfillPreviewRequest
     from facet.db.command_store import (
@@ -1650,10 +1675,12 @@ def _backfill_preview(options: object) -> tuple[dict, tuple[str, ...]]:
         request_nonce = LocalId(options.request_id)
     except (TypeError, ValueError):
         raise ConfigError(ErrorCode.INVALID_INPUT) from None
-    paths = select_paths(getattr(options, "state_dir", None), None)
-    raw = read_managed_config(paths)
-    config = load_config(raw)
-    owner = StateOwner.open(paths.root, config)
+    close_owner = owner is None
+    if close_owner:
+        paths = select_paths(getattr(options, "state_dir", None), None)
+        raw = read_managed_config(paths)
+        config = load_config(raw)
+        owner = StateOwner.open(paths.root, config)
     try:
         auth_nonces = tuple(
             _auth_role_nonce(request_nonce, role).value for role in Role
@@ -1733,10 +1760,13 @@ def _backfill_preview(options: object) -> tuple[dict, tuple[str, ...]]:
             raise ConfigError(ErrorCode.CONSISTENCY_FAILURE)
         return _preview_summary(saved_operation, payload), ()
     finally:
-        owner.close()
+        if close_owner:
+            owner.close()
 
 
-def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
+def _backfill_start(
+    options: object, *, owner=None, config=None
+) -> tuple[dict, tuple[str, ...]]:
     from facet.contracts import ProviderId
     from facet.db.codecs import PrivateAddress
     from facet.db.command_records import BackfillStartRequest
@@ -1754,16 +1784,20 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
     from facet.runtime.foreground_runtime import _policy
     from facet.runtime.state_owner import StateOwner
 
+    if not getattr(options, "yes", False):
+        raise ConfigError(ErrorCode.CONFIRMATION_REQUIRED)
     fake = getattr(options, "fake", False)
     try:
         preview_id = LocalId(options.preview_id)
         request_nonce = LocalId(options.request_id)
     except (TypeError, ValueError):
         raise ConfigError(ErrorCode.INVALID_INPUT) from None
-    paths = select_paths(getattr(options, "state_dir", None), None)
-    raw = read_managed_config(paths)
-    config = load_config(raw)
-    owner = StateOwner.open(paths.root, config)
+    close_owner = owner is None
+    if close_owner:
+        paths = select_paths(getattr(options, "state_dir", None), None)
+        raw = read_managed_config(paths)
+        config = load_config(raw)
+        owner = StateOwner.open(paths.root, config)
     try:
         auth_nonces = tuple(
             _auth_role_nonce(request_nonce, role).value for role in Role
@@ -1858,7 +1892,8 @@ def _backfill_start(options: object) -> tuple[dict, tuple[str, ...]]:
         )
         return {"epoch_id": epoch.epoch_id.value}, ()
     finally:
-        owner.close()
+        if close_owner:
+            owner.close()
 
 
 def _recovery_check(options: object) -> tuple[dict, tuple[str, ...]]:
@@ -2117,6 +2152,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
             else:
                 data, warnings = _run_foreground_service(options)
+            return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
+        if options.family == "sync":
+            command = "sync"
+            from facet.cli.sync_entry import synchronize
+
+            data, warnings = synchronize(options)
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
         if options.family in {"status", "doctor"}:
             command = options.family
