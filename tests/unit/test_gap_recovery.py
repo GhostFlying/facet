@@ -46,7 +46,7 @@ from facet.projection.admission import (
 )
 from facet.projection.backfill import BackfillProducer
 from facet.projection.gap_recovery import GapRecovery
-from facet.projection.rules import normalize_rule, normalize_sender
+from facet.projection.rules import load_rule_policy, normalize_rule, normalize_sender
 from facet.sync import SourceCandidateAdmission
 
 
@@ -117,7 +117,7 @@ def test_integer_end_provider_superset_and_exact_local_membership(
     assert result.admit is (offset_ms == 0)
 
 
-def recovery(state, *, known=True):
+def recovery(state, *, known=True, rule_policy=None):
     _, _, session, _ = state
     row = RuleRow(
         P,
@@ -139,7 +139,7 @@ def recovery(state, *, known=True):
                     True,
                     NOW,
                     RuleOrigin.CLI,
-                    PolicyVersion("auth-v1"),
+                    rule_policy or PolicyVersion("auth-v1"),
                 ),
             ),
             RulesetRow(P, Revision(1), NOW, True),
@@ -188,9 +188,13 @@ def test_prepare_preserves_downtime_longer_than_six_months(state):
     )
 
 
-def test_gap_rule_removal_between_failed_pages_prevents_new_admission(state):
+@pytest.mark.parametrize("learned_policy", [False, True])
+def test_gap_rule_removal_between_failed_pages_prevents_new_admission(
+    state, learned_policy
+):
     _, connection, session, _ = state
-    coordinator, row = recovery(state)
+    version = load_rule_policy().version if learned_policy else PolicyVersion("auth-v1")
+    coordinator, row = recovery(state, rule_policy=version)
     selected = coordinator.prepare()
     evaluator = AdmissionEvaluator(
         (

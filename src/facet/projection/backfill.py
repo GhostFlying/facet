@@ -19,7 +19,6 @@ from facet.contracts import (
     LocalId,
     PartitionProgress,
     PartitionState,
-    PolicyVersion,
     Priority,
     ProviderPageToken,
     Revision,
@@ -327,6 +326,17 @@ class BackfillProducer:
                             else existing.admission_revision.value + 1
                         ),
                     )
+                    rule_revision = _get(
+                        uow,
+                        projection_id,
+                        "rule_revisions",
+                        (
+                            ("rule_id", decision.rule.rule_id),
+                            ("revision", decision.rule.revision),
+                        ),
+                    )
+                    if rule_revision is None:
+                        raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
                     admission = ThreadAdmissionRow(
                         projection_id,
                         item.thread_id,
@@ -334,14 +344,14 @@ class BackfillProducer:
                         generation,
                         now,
                         AdmissionRefFutureRule(
-                            "future_rule", decision.rule, PolicyVersion("auth-v1")
+                            "future_rule", decision.rule, rule_revision.policy_version
                         )
                         if epoch.kind is EpochKind.HISTORY_GAP
                         else AdmissionRefInitialBackfill(
                             "initial_backfill",
                             epoch_id,
                             decision.rule,
-                            PolicyVersion("auth-v1"),
+                            rule_revision.policy_version,
                         ),
                     )
                     subject = JobSubjectExpandThread(

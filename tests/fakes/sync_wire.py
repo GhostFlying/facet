@@ -48,6 +48,7 @@ class Mailbox:
         self.gap_page_failure = False
         self.catchup_page_failure = False
         self.gap_arrived_at = 0
+        self.learn_sender = False
 
     def arrive(self):
         self.revision += 1
@@ -132,7 +133,15 @@ class Mailbox:
                         }
                     )
                 elif path.endswith("/labels"):
-                    self.reply({"labels": []})
+                    self.reply(
+                        {
+                            "labels": [
+                                {"id": "label-add-sender", "name": "Facet/AddSender"}
+                            ]
+                            if mailbox.learn_sender
+                            else []
+                        }
+                    )
                 elif path.endswith("/messages"):
                     if source:
                         mailbox.discovery_queries.append(query)
@@ -259,6 +268,16 @@ class Mailbox:
                                 ],
                             }
                         ]
+                        if mailbox.learn_sender:
+                            rows[0]["labelsAdded"] = [
+                                {
+                                    "message": {
+                                        "id": "future-new",
+                                        "threadId": "future-thread",
+                                    },
+                                    "labelIds": ["label-add-sender"],
+                                }
+                            ]
                     self.reply(
                         {"historyId": f"history-{mailbox.revision}", "history": rows}
                     )

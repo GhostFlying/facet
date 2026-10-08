@@ -26,6 +26,7 @@ def run_cli_wire(
     partial_discovery=False,
     gap=False,
     gap_fault=None,
+    learned_rule=False,
 ):
     if lost_response:
         fault = "lost_response"
@@ -105,18 +106,42 @@ def run_cli_wire(
             uuid4().hex,
         )
         assert invoke("run", "--once")["projected"] == 0
-        invoke(
-            "rules",
-            "add-sender",
-            "--sender",
-            "sender@example.com",
-            "--yes",
-            "--request-id",
-            uuid4().hex,
-        )
+        if learned_rule:
+            invoke(
+                "rules",
+                "action-label",
+                "set",
+                "--kind",
+                "add_sender",
+                "--name",
+                "Facet/AddSender",
+                "--yes",
+                "--request-id",
+                uuid4().hex,
+            )
+            mailbox.learn_sender = True
+        else:
+            invoke(
+                "rules",
+                "add-sender",
+                "--sender",
+                "sender@example.com",
+                "--yes",
+                "--request-id",
+                uuid4().hex,
+            )
         mailbox.arrive()
         mailbox.fault = fault
         first = invoke("run", "--once")
+        if learned_rule:
+            from facet.projection.rules import load_rule_policy
+
+            with sqlite3.connect(state / "facet.db") as db:
+                assert db.execute(
+                    "SELECT policy_version FROM rule_revisions WHERE enabled=1"
+                ).fetchall() == [
+                    (load_rule_policy().version.value,),
+                ]
         assert first["projected"] == (0 if fault else 2)
         assert len(mailbox.inserted_raw) == (1 if fault else 2)
         # Confirm SDK payload preserves the exact external raw bytes.
@@ -349,6 +374,14 @@ def run_cli_wire(
 
 def test_cli_production_wire_projects_and_restarts(tmp_path):
     run_cli_wire(tmp_path)
+
+
+def test_cli_action_learned_rule_backfills_history_and_restarts(tmp_path):
+    run_cli_wire(tmp_path, learned_rule=True, historical=True)
+
+
+def test_cli_action_learned_rule_recovers_gap_and_restarts(tmp_path):
+    run_cli_wire(tmp_path, learned_rule=True, gap=True)
 
 
 def test_cli_gap_scans_catches_up_maps_and_restarts(tmp_path):

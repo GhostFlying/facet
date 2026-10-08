@@ -68,3 +68,41 @@ deploy or Release. Local real-state standalone preview/status may be checked
 offline; actual historical copying needs concrete rule/window authorization.
 Stop for a contract conflict, unknown gap, or a need to reset state/retry unknown;
 never bypass those guards or change prospective rule/action semantics.
+
+## Authorized published-image trial, 2026-10-08
+
+The user approved the updated default six-month preview window for the existing
+bindings and sole enabled sender rule. Use qualified published runtime
+`392fe31969d96c5be4e46dff0bce3fdb249c8fd3` on the already authorized test host,
+not an application overlay or DB seed. The known-window gap prerequisite is
+offline-qualified, not live gap acceptance. Keep the installed daemon stopped.
+
+An owner-only operator helper in the private deployment directory persists
+preview/start request keys before submission and uses actual production CLI
+preview/replay, start/replay and one foreground cycle. If clean, run one further
+cycle in a new process. Existing mappings, unknown attempts, historic attention,
+rules/bindings and stopped generations must remain intact. New provider deferral,
+attention, unknown or a guard failure stops continuation, even if the CLI envelope
+says completed. No total subprocess timeout that kills an in-flight insert.
+Read aggregate progress query-only; readback compares new mappings' MIME/date/
+thread/visibility in bounded memory. Adapt the existing verifier's obsolete
+zero-mapping/unchanged-discovery assumptions, not its production fidelity logic.
+No automatic retries after operator-response loss, new rules/scopes, raw files,
+mailbox cleanup, continuous service, Release or phase-completion claim.
+
+## Live-found rule-version correction
+
+The accepted published runtime's first historical cycle was blocked before any
+insert or mapping: backfill hardcodes `auth-v1` in admission provenance while
+action-learned rules carry their persisted PSL/IDNA policy version. Repository
+validation correctly refuses the mismatch; no guard, database row or unknown
+state should be weakened or rewritten. Read the selected `rule_revisions` row
+inside the existing admission transaction and use its actual `policy_version`
+for both historical and known-gap admission refs. Missing revisions fail closed.
+Scope: `src/facet/projection/backfill.py`, focused backfill/gap regressions and
+CLI external-fake historical/action-learning coverage where practical. Assert
+durable admission provenance matches a non-default learned rule and preserve
+sealed rule/stop/unknown/cursor guards. Run affected checks, independent focused
+acceptance and a locally built non-root image before any new PR. Continue the
+same authorized epoch only after confirming the failed cycle produced no new
+attempts/mappings and a fresh preflight; never replay an uncertain insert.
