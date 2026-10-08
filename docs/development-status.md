@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Granular real historical projection works; backfill still queued
+### Complete CLI sync qualified offline; real historical projection continuing
 
 The production CLI supports setup/role binding, persisted sender rules,
 zero-write preview, explicit historical start and `run --once`. It now includes
@@ -16,13 +16,17 @@ full-thread projection, durable readback/mapping, restart deduplication and
 resumable known-window History-gap recovery through the same production runtime.
 Rule eligibility uses processing/scan time; H1 catchup, stable query scope,
 current allow removal, stopped generations and unknown-insert guards remain.
-The complete `sync` wrapper and broader maintenance commands remain unfinished.
+The complete `facet sync --once --yes` entry now composes those same operations;
+without `--once` it uses the existing foreground loop. It is independently
+reviewed and offline/local-image qualified, but its PR integration and real
+invocation remain separate gates. Broader maintenance commands remain unfinished.
 
-PRs #93–#96 are merged with complete dual-Python CI and image checks; #97 is the
-documentation handoff. Published runtime `392fe31969d96c5be4e46dff0bce3fdb249c8fd3`
-passed immutable public-image/provenance checks and is retained on the test host,
-with its original persistent state and continuous container stopped. Historical
-integration evidence is in [history/gap acceptance](reviews/history-gap-recovery.md).
+PRs #93–#98 are merged. Main `c4e3181680910fdc73b700ea617890cfc0b415e0`
+passed both Python CI versions and image publication; its anonymous public
+manifest includes amd64/arm64 and qualified provenance/SBOM attestations.
+The installed continuous container remains stopped; real tests use one-off CLI
+processes with the qualified local image and retained production state.
+Historical integration evidence is in [history/gap acceptance](reviews/history-gap-recovery.md).
 
 The user explicitly approved the refreshed default six-month window for the same
 accounts and sole sender rule. Private writer-locked backups and fresh role/scope/
@@ -39,30 +43,41 @@ image then ran the real production path on the existing state, with no app-sourc
 overlay, schema migration, rule change or new scope. See the current
 [correction and live receipt](reviews/backfill-rule-policy.md).
 
-Real product evidence: discovery completed 43 pages / 4234 candidates; two History
-pages and 30 events processed; **215 new verified mappings, 224 total**. All mapped
-attempts are verified, target IDs distinct and no claims remain. Independent
-read-only sampling of 20 new copies passed MIME/digest, valid Date/internalDate,
-thread mapping and normal All Mail checks. Final target enumeration found 224
-mapped items, two permitted outbound SENT items and zero other unmanaged items.
-The old nine mappings, one unknown, 58 attention jobs and retained blocked/recovery
-work remain unchanged; no new unknown/attention or terminal failure occurred.
+Real product evidence: discovery completed 43 pages / 4234 candidates. After the
+original 215 new copies, a bounded fresh-process continuation added **1000 new
+verified mappings, 1224 total**, with zero repeat discovery, no claims on exit,
+distinct target IDs and unchanged prior mappings/protected work. The old unknown,
+58 attention jobs, rules, selected window and stopped generations remain intact.
+Independent read-only sampling of 20 copies newly added by this continuation
+passed MIME/digest, valid Date/internalDate, thread mapping and normal All Mail
+checks. Fresh target enumeration found 1224 mapped items, two permitted outbound
+SENT items and zero other unmanaged items; a writer-locked private backup passed.
+See [bounded continuation evidence](reviews/historical-continuation.md).
 
-The first cycle took 2276.43 seconds, mostly serial candidate metadata before
-copying; completed discovery is persisted. **4049 message jobs remain queued**;
-this is not completed bulk backfill. Three expansion reads were temporarily
-`source_rate_limited` and recovered safely within the process. Per the trial gate,
-root recorded that observation and withheld cycle2 even though the end-state
-checks were clean. Real fresh-process continuation is therefore not yet accepted.
-The source fix awaits its focused PR/CI/main integration; source/image acceptance
-does not require repeating the completed design/offline checks for these receipts.
+The original cycle's three temporary source read deferrals and its corrected
+stop receipt are retained, not overwritten. Independently reviewed continuation
+guards distinguish safely completed source reads from insert uncertainty while
+preserving all original protected states. The first continuation took 1758.43s
+for 1000 copies; **3049 historical message jobs plus one normal History job remain
+queued** at that receipt. A second batch is running within the same bounded
+authorization. The current copy path is serial; this throughput is implementation
+behavior, not a Gmail limit or product latency promise. Bulk backfill is not yet
+complete.
 
-Next: integrate the bounded policy fix; assess the observed read deferrals before
-a bounded fresh-process continuation of the already selected scope. No unknown
-retry, cleanup, new scope or continuous startup is inferred. Complete `sync`,
-live gap recovery, full target audit and remaining M1–M6/backup-restore/deployment/
-dogfood gates are not complete. Sampled Gmail API checks are not exhaustive or
-browser/UI acceptance, and a stopped container does not establish Dashboard health.
+Complete-entry candidate `c7d95d1390eefc079d2e8fcc26dd6b8f110ebcb9` passed
+independent plan/implementation acceptance. The preceding source passed the full
+2801-case offline suite; the final text-only confirmation correction passed its
+affected tests. Its exact non-root local image passed all 17 complete CLI cases,
+with external-only Gmail/OAuth fakes and no application overlay or seeded state.
+See [complete-entry acceptance](reviews/complete-sync-entry.md).
+
+Next: drain the already selected real queue under bounded continuation guards;
+integrate the qualified complete-entry candidate through required PR CI. No
+unknown retry, cleanup, new scope or continuous live startup is inferred. Domain
+discovery remains fail-closed pending candidate-query evidence; broader CLI,
+live gap recovery, full target audit, backup/restore, Dashboard/browser/deployment
+and dogfood gates remain unfinished. Sampled Gmail API checks are not exhaustive
+or browser/UI acceptance; a stopped container does not establish Dashboard health.
 
 The sections below retain their original candidate/time-bounded evidence;
 their historical pending gates are superseded only by the current summary above.
