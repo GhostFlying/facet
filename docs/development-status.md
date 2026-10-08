@@ -8,42 +8,52 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Historical queue drained; automatic recovery/convergence locally verified
+### Published recovery image installed; bounded real continuation passed
 
-Installed-state baseline: **4306 verified mappings**, completed historical epoch
-(5041 work items), three enabled sender rules, old 58 attention and one unknown.
-The prior three newly failed thread-label aliases were repaired under explicit
-authorization; PR [#102](https://github.com/GhostFlying/facet/pull/102) is merged.
-Same-scope restart and scoped MIME/date/thread/All Mail checks passed. Target had
-4306 mapped items, two permitted outbound items and no other unmanaged mail at
-the last live audit. No live AddDomain learning is claimed. Continuous sync stays
-stopped; today's engineering does not add Gmail writes or mutate old live records.
+PR [#103](https://github.com/GhostFlying/facet/pull/103) is merged at
+`42c586ff1456e919a6c97ab3b434c5a18666b835`; required PR checks, main offline
+checks and image publication passed. Under the user's subsequent deployment
+authorization, the existing Compose project now selects that full-commit image.
+Anonymous pull, published digest/local image identity, non-root UID and all
+112 packaged source files were verified. Writer-locked SQLite/config/credential
+backup preceded the update; accounts, rules, action-label configuration, volume
+and selected historical scope were preserved. Continuous sync remains stopped.
 
-Source `6df5ca719dd5dd106bc66f072ed6e64f73bc9064` passed independent plan and
-implementation acceptance. Normal `run --once` now checks due unknown outcomes,
-persists counts/deadlines and retains precise ambiguity/source-missing diagnostics;
-it never resends or creates an unproven mapping. Known-label removals are no-ops.
-Narrow durable proof permits false action-alias/message-added resolver attention
-to complete, without repeating rules, admissions, expansion or projection.
+One actual production `run --once` completed in **26.37 seconds**: one History
+page, 19 resolved events, three new inserts/readbacks/verified mappings, zero
+new attention and no warnings. **4309 verified mappings** now exist. The normal
+consumer closed 13 proven old resolver events, reducing attention **58 to 45**;
+all retained old attention and previous mappings remained unchanged. The old
+unknown was checked once, retains unknown/no-attribution and a retry deadline,
+and was not resent. No new unknown or duplicate insert attempt was created.
+Fresh target classification found 4309 mapped items, two permitted outbound items
+and no other unmanaged mail. A post-run writer-locked backup also passed.
 
-The exact non-root image passed all selected production CLI/action cases and the
-affected recovery/convergence unit subset (corrected test setup; see receipt).
-In a network-disabled **copy** of installed SQLite state, that production consumer
-closed 13 proven events (58 to 45), then zero on replay; mappings, attempts, rules,
-epochs, checkpoint and threads were unchanged. Installed state was mounted
-read-only. This is evidence of applicable repair, not an executed live repair.
-Full local offline checks passed (2884 tests, lint/format, CLI smoke and safety).
-GitHub holds the authoritative final PR CI/merge/publication state. See the single
-current
-[recovery acceptance receipt](reviews/automatic-recovery-convergence.md).
+Read-only diagnosis distinguishes the remaining 45 jobs, not 45 failed emails:
 
-The remaining 45 attention in the copy are not solved. The old unknown still
-lacks independent ownership proof; content equality or empty search does not
-authorize claim or retry. The local candidate is qualified for PR CI and autonomous
-engineering merge; neither changes the installed deployment. Any live old-state repair/deployment or
-unknown resend needs its separately bounded authorization. Broader maintenance CLI,
-live gap, audit/restore, Dashboard/browser/deployment and dogfood acceptance
-remain unfinished; this is not full Phase 1 acceptance.
+- 17 old message-added events: 11 do not match current rules; six are currently
+  eligible. They remain attention, not automatically reprocessed or projected.
+- 25 label events: nine system-label removals, four configured-action removals,
+  four configured-action additions, and eight unknown/retired-label events.
+  The first 13 are no-business-action candidates; additions need normal deduplicated
+  processing, and unavailable label identity must not become guessed actions.
+- Three projection jobs depend on the single old unknown insert. The automatic
+  evidence check schedules another search; empty search proves neither an absent
+  original insert nor permission to resend.
+
+Only one effective configured action label is currently present in source.
+Local label configuration is unchanged; no source labels were created. No live
+AddDomain learning is claimed. See the compact
+[deployment/diagnosis receipt](reviews/recovery-live-upgrade.md); the earlier
+[engineering acceptance](reviews/automatic-recovery-convergence.md) remains
+candidate-bound historical evidence.
+
+Next engineering gap: safe classification/reprocessing of these unresolved old
+events through production consumers, without general attention retry, business
+replay or new historical scope. Unknown/retired labels and the old unknown remain
+explicit limits, not default allow. Broader maintenance CLI, live gap, audit/restore,
+Dashboard/browser/deployment and dogfood acceptance remain unfinished; this is not
+full Phase 1 acceptance or authorization of an unbounded daemon/unknown resend.
 
 ## Historical evidence
 
