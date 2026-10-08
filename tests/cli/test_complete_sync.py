@@ -480,3 +480,40 @@ def test_reactive_refresh_rejects_changed_account_or_scopes(wire, change, code):
             ("definite_not_inserted",)
         ]
         assert db.execute("SELECT COUNT(*) FROM job_claims").fetchone() == (0,)
+
+
+def test_threshold_refresh_mid_batch_uses_real_cli_manager_and_exchange(wire):
+    invoke, mailbox, state = wire
+    bind_and_rule(invoke)
+    # Only advance the credential clock after the first successful insert.
+    # Fake OAuth deliberately grants year-long tokens; no credential/DB edits.
+    hook = invoke.hook / "sitecustomize.py"
+    hook.write_text(
+        hook.read_text()
+        + """
+from datetime import UTC, datetime, timedelta
+import requests
+import google.auth._helpers as helpers
+import facet.gmail.credentials as credentials
+from facet.contracts import Timestamp
+advanced = False
+def offset():
+    return timedelta(days=365, minutes=-1) if advanced else timedelta()
+credentials._owner_now = lambda: Timestamp(datetime.now(UTC) + offset())
+helpers.utcnow = lambda: datetime.now(UTC).replace(tzinfo=None) + offset()
+routed = requests.Session.request
+def request(self, method, url, **kwargs):
+    global advanced
+    response = routed(self, method, url, **kwargs)
+    if method == 'POST' and url.split('?')[0].endswith('/messages'):
+        advanced = True
+    return response
+requests.Session.request = request
+"""
+    )
+    mailbox.historical = True
+    result = invoke("sync", "--once", "--yes")
+    assert result["cycle"]["projected"] == 4
+    assert sorted(mailbox.refresh_calls) == ["source", "target"]
+    assert len(mailbox.inserted_raw) == len(mailbox.target) == 4
+    assert len(rows(state, "message_mappings")) == 4
