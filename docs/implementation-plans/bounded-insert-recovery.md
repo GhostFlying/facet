@@ -16,8 +16,10 @@ RFC search, unchanged RAM-only source digest/RFC, current ready accounts/binding
 active generation and no mapping permit automatic requeue of that exact project
 job. Query failure is not absence. Missing RFC, candidates/ambiguity, changed or
 missing source and stopped threads do not permit resend. Include Spam/Trash in
-candidate search. Preserve the ordinary target-precondition classification;
-do not add full mailbox enumeration for each unknown. Empty checks before the
+candidate search. Shipping has no full-target inventory/precondition consumer;
+the exact bounded live trial requires a fresh read-only full-target precheck.
+Keep that shipping gate unfinished for unattended/general deployment; do not
+add full mailbox enumeration for each unknown. Empty checks before the
 deadline schedule that deadline; provider failures retain bounded existing
 backoff. Process a bounded batch each cycle, never a bulk unconditional resend.
 Replacement unknowns follow the same five-minute policy, not a one-attempt cap.

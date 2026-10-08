@@ -135,6 +135,11 @@ def test_deadline_then_ordinary_worker_preserves_uncertainty_and_resumes_depende
     assert owner._connection.execute(
         "SELECT COUNT(*) FROM message_mappings"
     ).fetchone() == (2,)
+    from test_db_repositories import view
+
+    with view((None, owner._connection, owner.session, owner.owner_info)) as reader:
+        assert reader.get_attempt(owner.projection_id, attempt.attempt_id) == old
+        assert reader.counts(owner.projection_id, None).unresolved_attempts.value == 0
     root, config = owner.state_dir, owner.config
     owner.close()
     with StateOwner.open(root, config) as reopened:

@@ -25,6 +25,12 @@ passed in the non-root local image; final candidate/full checks and independent
 implementation acceptance are pending. Old manual-proposal tests/image do not
 qualify this policy.
 
+The existing shipping runtime has no full-target inventory/precondition consumer.
+This incremental recovery unit does not claim that gate complete. The exact
+authorized live trial requires a fresh full-target read-only precheck and frozen
+job selection; unattended/general deployment acceptance still needs a shared
+single-cycle target precondition. No per-unknown mailbox scan is introduced.
+
 No new live insert or deployment migration has occurred. The last verified live
 snapshot remains 4321 mappings, one unknown and three dependent attention on
 e165; continuous Compose sync is stopped. Next: finish candidate qualification,

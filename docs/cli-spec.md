@@ -251,8 +251,10 @@ RFC 查询（含 Spam/Trash）零候选，source RAM digest/RFC 不变，ready �
 active generation、无 mapping，才在同一事务记 absence decision、完成旧检查
 job、重排原 project job。原 intent 仍 unknown；五分钟是已接受残余重复风险的
 产品策略，不是 Gmail SLA 或失败证明。补写再次 unknown 也使用同样的新截止时间。
-provider 错误不是空查询，不允许补写；正常 target precondition、401 refresh、
-停机/单 writer/私密完整备份与 v5 升级不变。成功 mapping 才计为复制成功，并继续
+provider 错误不是空查询，不允许补写；401 refresh、停机/单 writer/私密完整备份
+与 v5 升级不变。shipping 尚无完整 target inventory/precondition consumer；本次
+固定范围 live trial 必须先独立只读检查 target，自动/一般部署的该门槛仍未完成。
+成功 mapping 才计为复制成功，并继续
 合法同线程后续 jobs；重启不重置 dispatch 时间，旧 owner 的 prepared/dispatched/
 known 分别退役/检查/只回读，不重放已有请求。`recovery list` 区分 active unknown
 和 historical `assumed_absent_insert_attempts`，迟来候选只报告、不认领或删除。

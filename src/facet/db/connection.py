@@ -279,7 +279,7 @@ def _attach_view(
             raise StorageFailure(ErrorCode.INVALID_INPUT)
         # Provenance is consumed first, but unsupported v2 never configures a
         # read connection or becomes a ReadSession through generic inspection.
-        if connection.execute("PRAGMA user_version").fetchone()[0] in {3, 4}:
+        if connection.execute("PRAGMA user_version").fetchone()[0] in {3, 4, 5}:
             _inspect(connection)
         else:
             _inspect_v1(connection)
@@ -288,7 +288,7 @@ def _attach_view(
         connection.execute("PRAGMA trusted_schema=OFF")
         connection.execute("PRAGMA foreign_keys=ON")
         connection.row_factory = None
-        if connection.execute("PRAGMA user_version").fetchone()[0] in {3, 4}:
+        if connection.execute("PRAGMA user_version").fetchone()[0] in {3, 4, 5}:
             _inspect(connection)
         else:
             _inspect_v1(connection)
