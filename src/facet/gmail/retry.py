@@ -7,6 +7,7 @@ URLs and exception text never cross into persistence or output layers.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -14,6 +15,82 @@ from enum import StrEnum
 from facet.contracts import ErrorCode, Role, Timestamp
 
 _PROVIDER_REQUEST_TIMEOUT_SECONDS = 30
+
+
+class ProviderReason(StrEnum):
+    """Allowlisted provider codes, never arbitrary response text."""
+
+    MISSING = "missing"
+    UNKNOWN = "unknown"
+    AUTH_ERROR = "authError"
+    INVALID_GRANT = "invalid_grant"
+    INVALID_SCOPE = "invalid_scope"
+    INSUFFICIENT_SCOPE = "insufficient_scope"
+    INSUFFICIENT_PERMISSIONS = "insufficientPermissions"
+    DOMAIN_POLICY = "domainPolicy"
+    DAILY_LIMIT = "dailyLimitExceeded"
+    RATE_LIMIT = "rateLimitExceeded"
+    USER_RATE_LIMIT = "userRateLimitExceeded"
+    OAUTH_RATE_LIMIT = "rate_limit_exceeded"
+    STORAGE_QUOTA = "storageQuotaExceeded"
+    BACKEND_ERROR = "backendError"
+    TEMPORARILY_UNAVAILABLE = "temporarily_unavailable"
+
+
+def provider_reason(payload: bytes | dict) -> ProviderReason:
+    """Inspect only structured reason fields; drop messages and unknown values."""
+    if isinstance(payload, bytes):
+        if len(payload) > 65536:
+            return ProviderReason.UNKNOWN
+        try:
+            payload = json.loads(payload)
+        except (ValueError, RecursionError):
+            return ProviderReason.UNKNOWN if payload else ProviderReason.MISSING
+    if not isinstance(payload, dict):
+        return ProviderReason.UNKNOWN
+    error = payload.get("error")
+    candidates = [payload.get("reason")]
+    if isinstance(error, str):
+        candidates.append(error)
+    elif isinstance(error, dict):
+        candidates.append(error.get("reason"))
+        errors = error.get("errors")
+        if isinstance(errors, list):
+            candidates.extend(
+                item.get("reason") for item in errors[:16] if isinstance(item, dict)
+            )
+    # Account-wide stops must not be hidden by an earlier transient rate entry.
+    priority = (
+        ProviderReason.INVALID_GRANT,
+        ProviderReason.INVALID_SCOPE,
+        ProviderReason.INSUFFICIENT_SCOPE,
+        ProviderReason.DOMAIN_POLICY,
+        ProviderReason.INSUFFICIENT_PERMISSIONS,
+        ProviderReason.DAILY_LIMIT,
+        ProviderReason.STORAGE_QUOTA,
+        ProviderReason.AUTH_ERROR,
+        ProviderReason.USER_RATE_LIMIT,
+        ProviderReason.RATE_LIMIT,
+        ProviderReason.OAUTH_RATE_LIMIT,
+        ProviderReason.BACKEND_ERROR,
+        ProviderReason.TEMPORARILY_UNAVAILABLE,
+    )
+    present = False
+    recognized = set()
+    for value in candidates:
+        if value is None:
+            continue
+        present = True
+        try:
+            reason = ProviderReason(value)
+        except (ValueError, TypeError):
+            continue
+        if reason not in {ProviderReason.MISSING, ProviderReason.UNKNOWN}:
+            recognized.add(reason)
+    for reason in priority:
+        if reason in recognized:
+            return reason
+    return ProviderReason.UNKNOWN if present else ProviderReason.MISSING
 
 
 class ProviderStage(StrEnum):
@@ -29,8 +106,10 @@ class ProviderStage(StrEnum):
     TARGET_INSERT = "target_insert"
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(slots=True, repr=False)
 class ProviderFailure(Exception):
+    # Exceptions must allow traceback assignment by context managers. Payload
+    # metadata remains closed and is copied, not mutated, by our adapters.
     code: ErrorCode
     role: Role
     status: int | None = None
@@ -39,6 +118,8 @@ class ProviderFailure(Exception):
     timeout_seconds: int | None = None
     attempt: int | None = None
     observed_at: Timestamp | None = None
+    reason: ProviderReason = ProviderReason.MISSING
+    request_dispatched: bool | None = None
 
     def __post_init__(self) -> None:
         if type(self.code) is not ErrorCode or type(self.role) is not Role:
@@ -62,6 +143,11 @@ class ProviderFailure(Exception):
         if self.attempt is not None and self.attempt != 1:
             raise ValueError("invalid_input")
         if self.observed_at is not None and type(self.observed_at) is not Timestamp:
+            raise ValueError("invalid_input")
+        if type(self.reason) is not ProviderReason or (
+            self.request_dispatched is not None
+            and type(self.request_dispatched) is not bool
+        ):
             raise ValueError("invalid_input")
         Exception.__init__(self, self.code.value)
 
@@ -88,24 +174,19 @@ def classify_http_status(status: int, role: Role, *, body: bytes = b"") -> Error
             else ErrorCode.TARGET_AUTH_REQUIRED
         )
     if status == 403:
-        lowered = body.lower()
-        if role is Role.TARGET and (
-            b"storagequota" in lowered or b"storage quota" in lowered
-        ):
+        reason = provider_reason(body)
+        if role is Role.TARGET and reason is ProviderReason.STORAGE_QUOTA:
             return ErrorCode.TARGET_STORAGE_FULL
-        if not any(
-            token in lowered for token in (b"ratelimit", b"rate_limit", b"backenderror")
-        ):
-            return (
-                ErrorCode.SOURCE_AUTH_REQUIRED
-                if role is Role.SOURCE
-                else ErrorCode.TARGET_AUTH_REQUIRED
-            )
-        return (
-            ErrorCode.SOURCE_RATE_LIMITED
-            if role is Role.SOURCE
-            else ErrorCode.TARGET_RATE_LIMITED
-        )
+        if reason in {
+            ProviderReason.RATE_LIMIT,
+            ProviderReason.USER_RATE_LIMIT,
+            ProviderReason.OAUTH_RATE_LIMIT,
+            ProviderReason.DAILY_LIMIT,
+        }:
+            return classify_http_status(429, role)
+        if reason is ProviderReason.BACKEND_ERROR:
+            return ErrorCode.NETWORK_UNAVAILABLE
+        return ErrorCode.SCOPE_REQUIRED
     if status == 429:
         return (
             ErrorCode.SOURCE_RATE_LIMITED
@@ -115,6 +196,21 @@ def classify_http_status(status: int, role: Role, *, body: bytes = b"") -> Error
     if status >= 500:
         return ErrorCode.NETWORK_UNAVAILABLE
     return ErrorCode.INVALID_INPUT
+
+
+def blocks_sync(error: ProviderFailure) -> bool:
+    """Stop a batch on account-wide dependencies, retaining the current job."""
+    return (
+        error.code
+        in {
+            ErrorCode.SOURCE_AUTH_REQUIRED,
+            ErrorCode.TARGET_AUTH_REQUIRED,
+            ErrorCode.SCOPE_REQUIRED,
+            ErrorCode.BINDING_MISMATCH,
+        }
+        or error.reason is ProviderReason.DAILY_LIMIT
+        or error.request_dispatched is False
+    )
 
 
 def provider_failure(
@@ -151,7 +247,7 @@ def provider_failure(
                 if role is Role.SOURCE
                 else ErrorCode.TARGET_AUTH_REQUIRED
             )
-            if b"invalid_grant" in body.lower()
+            if provider_reason(body) is ProviderReason.INVALID_GRANT
             else classify_http_status(status, role, body=body)
         )
         retry_after = None
@@ -169,6 +265,8 @@ def provider_failure(
             _PROVIDER_REQUEST_TIMEOUT_SECONDS if provider_stage is not None else None,
             1 if provider_stage is not None else None,
             Timestamp(datetime.now(UTC)) if provider_stage is not None else None,
+            reason=provider_reason(body),
+            request_dispatched=True,
         )
     if isinstance(error, (TimeoutError, ConnectionError, OSError)):
         return ProviderFailure(

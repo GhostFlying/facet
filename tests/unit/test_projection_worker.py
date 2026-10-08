@@ -37,7 +37,7 @@ from facet.db.models import (
 )
 from facet.gmail.credential_models import ScopePolicy, policy_scopes
 from facet.gmail.credentials import CredentialManager
-from facet.gmail.retry import ProviderFailure
+from facet.gmail.retry import ProviderFailure, ProviderReason, ProviderStage
 from facet.gmail.source import DiscoveryQuery, SourceAdapter
 from facet.gmail.target import TargetAdapter
 from facet.projection.admission import AdmissionEvaluator, AdmissionRule
@@ -913,7 +913,7 @@ def test_worker_response_loss_stays_in_recovery_without_blind_retry(
             "deferred",
         ),
         (
-            HttpFailure(403, body=b'{"error":{"reason":"storage quota"}}'),
+            HttpFailure(403, body=b'{"error":{"reason":"storageQuotaExceeded"}}'),
             "retry_wait",
             "target_storage_full",
             "definite_not_inserted",
@@ -956,8 +956,13 @@ def test_worker_target_failure_matrix_persists_safe_outcomes(
         try:
             worker, _, _ = _worker_adapters(gmail_controller, owner)
             assert worker.run().expanded == 1
-            actual = worker.run()
-            assert getattr(actual, receipt) == 1
+            if failure.status == 401:
+                with pytest.raises(ProviderFailure) as rejected:
+                    worker.run()
+                assert rejected.value.code.value == error_code
+            else:
+                actual = worker.run()
+                assert getattr(actual, receipt) == 1
             assert owner._connection.execute(
                 "SELECT state,last_error_code FROM sync_jobs "
                 "WHERE kind='project_message'"
@@ -999,7 +1004,12 @@ def test_worker_source_failure_matrix_releases_claims(
         owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
         try:
             worker, _, _ = _worker_adapters(gmail_controller, owner)
-            assert worker.run().deferred == 1
+            if failure.status == 401:
+                with pytest.raises(ProviderFailure) as rejected:
+                    worker.run()
+                assert rejected.value.code.value == error_code
+            else:
+                assert worker.run().deferred == 1
             assert owner._connection.execute(
                 "SELECT state,last_error_code FROM sync_jobs WHERE kind='expand_thread'"
             ).fetchone() == ("retry_wait", error_code)
@@ -1166,6 +1176,108 @@ def test_worker_readback_failure_keeps_typed_attention_and_no_claim(
             assert owner._connection.execute(
                 "SELECT COUNT(*) FROM job_claims"
             ).fetchone() == (0,)
+        finally:
+            owner.close()
+
+
+@pytest.mark.parametrize("stopped", [False, True])
+def test_known_readback_only_unblocks_unstarted_dependents_not_stopped(
+    gmail_controller, monkeypatch, stopped
+):
+    for identifier in ("m-new", "m-old"):
+        raw = _raw(identifier, "READBACK_SENTINEL")
+        gmail_controller.seed(
+            "source", identifier, "thread-1", raw, payload=_payload(raw)
+        )
+    with TemporaryDirectory(
+        prefix="facet-known-readback-", dir=_trusted_parent()
+    ) as root:
+        owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
+        try:
+            worker, _, _ = _worker_adapters(gmail_controller, owner)
+            assert worker.run().expanded == 1
+            gmail_controller.script(
+                "target",
+                "messages.get",
+                {"userId": "me", "id": "inserted-1", "format": "raw"},
+                HttpFailure(429),
+            )
+            assert worker.run().deferred == 1
+            assert worker.run().deferred == 1  # Unstarted dependent blocked by thread.
+            before = owner._connection.execute(
+                "SELECT * FROM insert_attempts"
+            ).fetchall()
+            if stopped:
+                from facet.db.repositories import policy
+
+                with owner.session.transaction() as uow:
+                    policy.stop_thread(
+                        uow,
+                        owner.projection_id,
+                        ProviderId("thread-1"),
+                        Generation(1),
+                        Timestamp(datetime.now(UTC)),
+                        ThreadStopReason.MANUAL_STOP,
+                    )
+                assert worker.verify_known().verified == 0
+                assert (
+                    owner._connection.execute(
+                        "SELECT * FROM insert_attempts"
+                    ).fetchall()
+                    == before
+                )
+            else:
+                assert worker.verify_known().verified == 1
+                assert gmail_controller.identifiers("target") == ("inserted-1",)
+                assert worker.run().verified == 1
+                assert worker.verify_known().processed == 0
+                assert len(gmail_controller.identifiers("target")) == 2
+        finally:
+            owner.close()
+
+
+@pytest.mark.parametrize(
+    "code,reason",
+    [
+        (ErrorCode.NETWORK_UNAVAILABLE, ProviderReason.MISSING),
+        (ErrorCode.TARGET_AUTH_REQUIRED, ProviderReason.INVALID_GRANT),
+    ],
+)
+def test_worker_pre_http_credential_failure_has_no_unknown_or_retry_dispatch(
+    gmail_controller, monkeypatch, code, reason
+):
+    raw = _raw("pre-http", "PRIVATE_SENTINEL")
+    gmail_controller.seed("source", "m-new", "thread-1", raw, payload=_payload(raw))
+
+    class NotDispatched:
+        def insert(self, *args, **kwargs):
+            raise ProviderFailure(
+                code,
+                Role.TARGET,
+                provider_stage=ProviderStage.TOKEN_REFRESH,
+                reason=reason,
+                request_dispatched=False,
+            )
+
+        def refresh_credentials(self):
+            raise AssertionError("must_not_reactively_refresh_pre_http_failure")
+
+    with TemporaryDirectory(prefix="facet-pre-http-", dir=_trusted_parent()) as root:
+        owner = _ready_owner(Path(root), gmail_controller, monkeypatch)
+        try:
+            worker, _, _ = _worker_adapters(gmail_controller, owner)
+            assert worker.run().expanded == 1
+            guarded = ProjectionWorker(owner, worker._source, NotDispatched())
+            with pytest.raises(ProviderFailure) as rejected:
+                guarded.run(max_jobs=100)
+            assert rejected.value.request_dispatched is False
+            assert owner._connection.execute(
+                "SELECT state,certainty FROM insert_attempts"
+            ).fetchall() == [("definite_not_inserted", "definitely_not_inserted")]
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM job_claims"
+            ).fetchone() == (0,)
+            assert gmail_controller.identifiers("target") == ()
         finally:
             owner.close()
 

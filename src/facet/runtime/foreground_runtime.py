@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from dataclasses import dataclass
+from datetime import timedelta
 
 from facet.config import Config
 from facet.contracts import LocalId, Revision, Role, RuleKind, RuleRef, SourceMode
@@ -14,6 +15,7 @@ from facet.gmail.credential_models import (
     policy_scopes,
 )
 from facet.gmail.credentials import CredentialManager, ProfileEvidence, ProfileReader
+from facet.gmail.retry import ProviderFailure, ProviderStage
 from facet.gmail.service_factory import GmailServiceFactory
 from facet.gmail.source import SourceAdapter
 from facet.gmail.target import TargetAdapter
@@ -152,8 +154,47 @@ def prepare_credentials(owner, config, factory):
         for role in (Role.SOURCE, Role.TARGET):
             manager.reconcile_interrupted_refresh(role)
             manager.ensure_current(role, exchange, refreshed_profile)
-    manager.verify_and_publish(probe)
+    reactive_roles = set()
+    while True:
+        try:
+            manager.verify_and_publish(probe)
+            break
+        except ProviderFailure as error:
+            if (
+                not getattr(factory, "supports_refresh", False)
+                or error.status != 401
+                or error.provider_stage is not ProviderStage.PROFILE_PROBE
+                or error.role in reactive_roles
+            ):
+                raise
+            reactive_roles.add(error.role)
+            manager.refresh(error.role, exchange, profile=refreshed_profile)
     return manager.snapshot(Role.SOURCE), manager.snapshot(Role.TARGET)
+
+
+def _request_token_provider(owner, config, factory, snapshot):
+    """One role-local cache; all actual publication stays with the manager."""
+    from facet.gmail.credentials import _owner_now
+    from facet.gmail.refresh_exchange import refresh_google
+
+    manager = CredentialManager(owner.state_dir, config, owner)
+    role = snapshot.role
+
+    def exchange(role, old):
+        return refresh_google(role, old, policy_scopes(_policy(config, role), role))
+
+    def profile(role, secret, scopes):
+        return ProfileEvidence(factory.profile_account(role, secret), scopes)
+
+    def token(*, force=False):
+        nonlocal snapshot
+        if force:
+            snapshot = manager.refresh(role, exchange, profile=profile)
+        elif snapshot.expires_at.value - _owner_now().value <= timedelta(seconds=300):
+            snapshot = manager.ensure_current(role, exchange, profile)
+        return snapshot.access_token.value
+
+    return token
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -169,16 +210,30 @@ class ForegroundRuntime:
         action_consumer=None,
         max_jobs=1000,
         max_events=1000,
+        verify_known_only=False,
     ):
         source_snapshot, target_snapshot = prepare_credentials(
             self.owner, self.config, self.factory
         )
         with ExitStack() as services:
-            source_service = self.factory.service(Role.SOURCE, source_snapshot)
+
+            def service(role, snapshot):
+                build = getattr(self.factory, "service_with_refresh", None)
+                if callable(build):
+                    return build(
+                        role,
+                        snapshot,
+                        _request_token_provider(
+                            self.owner, self.config, self.factory, snapshot
+                        ),
+                    )
+                return self.factory.service(role, snapshot)
+
+            source_service = service(Role.SOURCE, source_snapshot)
             close = getattr(source_service, "close", None)
             if callable(close):
                 services.callback(close)
-            target_service = self.factory.service(Role.TARGET, target_snapshot)
+            target_service = service(Role.TARGET, target_snapshot)
             close = getattr(target_service, "close", None)
             if callable(close):
                 services.callback(close)
@@ -209,6 +264,8 @@ class ForegroundRuntime:
                 action_consumer=(
                     action_consumer
                     if action_consumer is not None
+                    else None
+                    if verify_known_only
                     else _action_consumer(source, self.config, self.owner)
                 ),
                 admission_for_epoch=epoch_loader,
@@ -217,7 +274,11 @@ class ForegroundRuntime:
                     if admission is None
                     else None
                 ),
-            ).run_once(max_jobs=max_jobs, max_events=max_events)
+            ).run_once(
+                max_jobs=max_jobs,
+                max_events=max_events,
+                **({"verify_known_only": True} if verify_known_only else {}),
+            )
 
 
 def run_foreground_once(
@@ -229,6 +290,7 @@ def run_foreground_once(
     action_consumer=None,
     max_jobs=1000,
     max_events=1000,
+    verify_known_only=False,
 ) -> SyncCycleReceipt:
     """Run one complete foreground cycle through the production composition."""
     return ForegroundRuntime(owner, config, factory).run_once(
@@ -236,4 +298,5 @@ def run_foreground_once(
         action_consumer=action_consumer,
         max_jobs=max_jobs,
         max_events=max_events,
+        verify_known_only=verify_known_only,
     )

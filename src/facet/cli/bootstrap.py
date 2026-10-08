@@ -173,6 +173,11 @@ def build_parser() -> _Parser:
     )
     _common(run)
     run.add_argument("--once", action="store_true")
+    run.add_argument(
+        "--verify-known-only",
+        action="store_true",
+        help="complete known successful insert readbacks without copying",
+    )
     run.add_argument("--fake", action="store_true", help="use offline synthetic Gmail")
     run.add_argument("--host", default="127.0.0.1")
     run.add_argument("--port", type=int, default=8080)
@@ -623,12 +628,18 @@ def _run_preflight(options: object) -> tuple[dict, tuple[str, ...]]:
             for binding in bindings.values()
         ):
             raise ConfigError(ErrorCode.BINDING_PENDING)
-        return _run_once_production(owner, config)
+        return _run_once_production(
+            owner,
+            config,
+            verify_known_only=getattr(options, "verify_known_only", False),
+        )
     finally:
         owner.close()
 
 
-def _run_once_production(owner, config) -> tuple[dict, tuple[str, ...]]:
+def _run_once_production(
+    owner, config, *, verify_known_only=False
+) -> tuple[dict, tuple[str, ...]]:
     """Dispatch one real-provider cycle through the reviewed runtime seam."""
 
     from facet.gmail.service_factory import GoogleGmailServiceFactory
@@ -638,6 +649,7 @@ def _run_once_production(owner, config) -> tuple[dict, tuple[str, ...]]:
         owner,
         config,
         GoogleGmailServiceFactory(),
+        **({"verify_known_only": True} if verify_known_only else {}),
     )
     return {
         "discovered": receipt.discovered,
@@ -2105,6 +2117,8 @@ def _provider_failure_private_data(error) -> dict:
         "observed_at": observed_at.value.isoformat() if observed_at else None,
         "status": error.status,
         "retry_after_seconds": error.retry_after_seconds,
+        "reason": error.reason.value,
+        "request_dispatched": error.request_dispatched,
     }
 
 
@@ -2144,6 +2158,8 @@ def main(argv: list[str] | None = None) -> int:
             return _emit(command, data=data, warnings=warnings, json_mode=False)
         if options.family == "run":
             command = "run"
+            if options.verify_known_only and (not options.once or options.fake):
+                raise ConfigError(ErrorCode.INVALID_INPUT)
             if getattr(options, "once", False):
                 data, warnings = (
                     _run_once_fake(options)

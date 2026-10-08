@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from datetime import UTC, datetime
 
 from facet.contracts import ErrorCode, Role, Timestamp
@@ -13,7 +15,13 @@ from .credential_models import (
     ScopeName,
     ScopeSet,
 )
-from .retry import ProviderFailure, ProviderStage, classify_http_status
+from .retry import (
+    ProviderFailure,
+    ProviderReason,
+    ProviderStage,
+    classify_http_status,
+    provider_reason,
+)
 from .service_factory import PROVIDER_REQUEST_TIMEOUT_SECONDS
 
 _SCOPE_URLS = {
@@ -43,32 +51,32 @@ def _refresh_error_code(error: BaseException, role: Role) -> ErrorCode:
     )
     if response_data is not None:
         status = response_data.get("status", response_data.get("code", status))
-        provider_error = response_data.get("error")
-        provider_reason = response_data.get("reason")
-    else:
-        provider_error = None
-        provider_reason = None
     if isinstance(status, str) and status.isdigit():
         status = int(status)
     content = getattr(error, "content", b"")
     if not isinstance(content, bytes):
         content = b""
-    markers = " ".join(
-        value for value in (provider_error, provider_reason) if isinstance(value, str)
-    ).lower()
-    if any(value in markers for value in ("invalid_scope", "insufficient_scope")):
+    reason = provider_reason(response_data if response_data is not None else content)
+    if reason in {ProviderReason.INVALID_SCOPE, ProviderReason.INSUFFICIENT_SCOPE}:
         return ErrorCode.SCOPE_REQUIRED
-    if "invalid_grant" in markers or b"invalid_grant" in content.lower():
+    if reason is ProviderReason.INVALID_GRANT:
         return _role_auth(role)
     if type(status) is int:
-        if status == 403 and any(
-            value in markers for value in ("rate_limit", "ratelimit", "quota")
-        ):
-            return classify_http_status(429, role)
-        return classify_http_status(status, role, body=content)
-    if any(value in markers for value in ("rate_limit", "ratelimit", "quota")):
+        return classify_http_status(
+            status,
+            role,
+            body=json.dumps(response_data).encode()
+            if response_data is not None
+            else content,
+        )
+    if reason in {
+        ProviderReason.RATE_LIMIT,
+        ProviderReason.USER_RATE_LIMIT,
+        ProviderReason.OAUTH_RATE_LIMIT,
+        ProviderReason.DAILY_LIMIT,
+    }:
         return classify_http_status(429, role)
-    if any(value in markers for value in ("backend", "temporarily_unavailable")):
+    if reason in {ProviderReason.BACKEND_ERROR, ProviderReason.TEMPORARILY_UNAVAILABLE}:
         return ErrorCode.NETWORK_UNAVAILABLE
     if getattr(error, "retryable", False):
         return ErrorCode.NETWORK_UNAVAILABLE
@@ -107,6 +115,11 @@ def _refresh_provider_failure(
         timeout_seconds=PROVIDER_REQUEST_TIMEOUT_SECONDS,
         attempt=1,
         observed_at=Timestamp(datetime.now(UTC)),
+        reason=provider_reason(
+            response_data
+            if response_data is not None
+            else getattr(error, "content", b"")
+        ),
     )
 
 
@@ -144,9 +157,21 @@ def refresh_google(role: Role, secret: ProviderSecret, scopes: ScopeSet):
             client_secret=secret.client_secret.value,
             scopes=tuple(_SCOPE_URLS[scope] for scope in scopes.value),
         )
-        credentials.refresh(
-            _BoundedRequest(Request(), PROVIDER_REQUEST_TIMEOUT_SECONDS)
-        )
+        # This SDK logger prints provider-supplied scope details before our
+        # policy validation. Suppress this exchange's library records; expose
+        # only our closed failure metadata instead.
+        logger = logging.getLogger("google.oauth2.credentials")
+
+        def discard(record):
+            return False
+
+        logger.addFilter(discard)
+        try:
+            credentials.refresh(
+                _BoundedRequest(Request(), PROVIDER_REQUEST_TIMEOUT_SECONDS)
+            )
+        finally:
+            logger.removeFilter(discard)
     except RefreshError as error:
         raise _refresh_provider_failure(error, role) from None
     except StorageFailure:

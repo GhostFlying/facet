@@ -1,5 +1,6 @@
 """Bounded serial thread expansion and insert execution, with no raw cache."""
 
+from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -44,7 +45,7 @@ from facet.db.models import (
 from facet.db.repositories import expansion, intents, jobs, mappings
 from facet.db.repositories.base import _decode, _get, _query
 from facet.db.repositories.serialization import COLUMNS
-from facet.gmail.retry import ProviderFailure
+from facet.gmail.retry import ProviderFailure, ProviderStage, blocks_sync
 
 from .fidelity import inspect
 
@@ -78,6 +79,8 @@ class ProjectionWorker:
         self._target = target
         self._max_raw_bytes = max_raw_bytes
         self._projection = owner.projection_id
+        self._reactive_jobs = set()
+        self._dependency_failure = None
 
     def run(self, *, max_jobs=1):
         return self._run(max_jobs=max_jobs)
@@ -105,6 +108,8 @@ class ProjectionWorker:
                 )
             except ProviderFailure as error:
                 self._defer(job, error.code, error.retry_after_seconds)
+                if blocks_sync(error):
+                    raise
                 outcome = "deferred"
             except (KeyError, TypeError, ValueError):
                 self._defer(job, ErrorCode.INVALID_INPUT)
@@ -126,6 +131,8 @@ class ProjectionWorker:
                     self._defer(job, error.code)
                     outcome = "deferred"
             counts[outcome] += 1
+            if self._dependency_failure is not None:
+                raise self._dependency_failure
         return WorkerReceipt(**counts)
 
     def _claim_next(self, expansion_epoch=None):
@@ -187,7 +194,10 @@ class ProjectionWorker:
         }:
             state = "retry_wait"
             retry = Timestamp(
-                _now().value + timedelta(seconds=max(1, retry_seconds or 60))
+                _now().value
+                + timedelta(
+                    seconds=max(0, 60 if retry_seconds is None else retry_seconds)
+                )
             )
         else:
             state, retry = "needs_attention", None
@@ -432,7 +442,7 @@ class ProjectionWorker:
                 date_header=facts.date_policy is DatePolicy.VALID_DATE_HEADER,
             )
         except ProviderFailure as error:
-            unknown = (
+            unknown = error.request_dispatched is not False and (
                 error.code is ErrorCode.NETWORK_UNAVAILABLE
                 or (error.code is ErrorCode.INVALID_INPUT and error.status is None)
                 or (error.status is not None and 300 <= error.status < 400)
@@ -449,6 +459,24 @@ class ProjectionWorker:
             )
             if not unknown:
                 self._defer(job, error.code, error.retry_after_seconds)
+                if (
+                    error.status == 401
+                    and error.provider_stage is ProviderStage.TARGET_INSERT
+                    and error.request_dispatched is True
+                    and job.job_id not in self._reactive_jobs
+                ):
+                    self._reactive_jobs.add(job.job_id)
+                    try:
+                        refresh = getattr(self._target, "refresh_credentials", None)
+                        refreshed = refresh() if callable(refresh) else False
+                    except ProviderFailure as refresh_error:
+                        self._dependency_failure = refresh_error
+                    else:
+                        if refreshed:
+                            self._defer(job, error.code, 0)
+                            return "deferred"
+                if blocks_sync(error) and self._dependency_failure is None:
+                    self._dependency_failure = error
             return "recovery" if unknown else "deferred"
         except Exception:
             self._result(
@@ -508,6 +536,8 @@ class ProjectionWorker:
                 OutcomeCertainty.INSERTED,
                 attention_code,
             )
+            if blocks_sync(error):
+                self._dependency_failure = error
             return "deferred"
         except ValueError:
             valid, visibility = False, Visibility.UNKNOWN
@@ -528,8 +558,15 @@ class ProjectionWorker:
             semantic_version=facts.semantic_version,
             visibility=visibility,
         )
+        return self._verify(attempt, visibility, anchor is None)
+
+    def _verify(self, attempt, visibility, make_anchor, *, uow=None):
         verified = _now()
-        with self._owner.session.transaction() as uow:
+        with (
+            self._owner.session.transaction()
+            if uow is None
+            else nullcontext(uow) as uow
+        ):
             target = _get(
                 uow,
                 self._projection,
@@ -543,7 +580,7 @@ class ProjectionWorker:
                 self._projection,
                 attempt.source_thread_id,
                 attempt.target_thread_id,
-                anchor is None,
+                make_anchor,
                 attempt.attempt_id,
                 verified,
             )
@@ -586,6 +623,137 @@ class ProjectionWorker:
                 RevisionGuard(attempt.revision),
             )
         return "verified"
+
+    def verify_known(self, *, max_jobs=1000):
+        """Complete attributable readbacks only. This method cannot insert."""
+        if type(max_jobs) is not int or not 1 <= max_jobs <= 10_000:
+            raise ValueError("invalid_input")
+        with self._owner.session.transaction() as uow:
+            rows = _query(
+                uow,
+                "SELECT "
+                + ",".join("a." + c for c in COLUMNS["insert_attempts"])
+                + " FROM insert_attempts a JOIN tracked_threads t ON "
+                "t.projection_id=a.projection_id "
+                "AND t.source_thread_id=a.source_thread_id "
+                "WHERE a.projection_id=? AND a.state='needs_attention' "
+                "AND a.certainty='inserted' AND a.attribution='direct_response' "
+                "AND a.target_message_id IS NOT NULL "
+                "AND a.target_thread_id IS NOT NULL "
+                "AND a.error_code IN('target_auth_required','target_rate_limited',"
+                "'network_unavailable','target_storage_full') "
+                "AND t.active=1 AND t.generation=a.generation "
+                "ORDER BY a.prepared_at LIMIT ?",
+                (self._projection.value, max_jobs),
+            )
+            attempts = tuple(
+                _decode(uow, self._projection, "insert_attempts", row) for row in rows
+            )
+        verified = 0
+        for attempt in attempts:
+            raw = self._source.raw(attempt.source_message_id)
+            try:
+                if len(raw) > self._max_raw_bytes:
+                    continue
+                facts = inspect(raw)
+            finally:
+                del raw
+            if facts.raw_digest != attempt.raw_digest:
+                continue
+            readback = self._target.readback(attempt.target_message_id)
+            try:
+                if len(readback.raw) > self._max_raw_bytes:
+                    continue
+                target_facts = inspect(readback.raw)
+                valid = (
+                    readback.message_id == attempt.target_message_id
+                    and readback.thread_id == attempt.target_thread_id
+                    and (
+                        attempt.requested_target_thread_id is None
+                        or readback.thread_id == attempt.requested_target_thread_id
+                    )
+                    and not {"SPAM", "TRASH"}.intersection(readback.labels)
+                    and facts.semantic_version == target_facts.semantic_version
+                    and facts.semantic_digest == target_facts.semantic_digest
+                )
+            finally:
+                del readback
+            if not valid:
+                continue
+            with self._owner.session.transaction() as uow:
+                job = _get(
+                    uow, self._projection, "sync_jobs", (("job_id", attempt.job_id),)
+                )
+                self._active(uow, job)
+                updated = mappings.known_readback_facts(
+                    uow,
+                    self._projection,
+                    attempt.attempt_id,
+                    facts.raw_digest,
+                    facts.semantic_digest,
+                    facts.semantic_version,
+                    RevisionGuard(attempt.revision),
+                )
+                anchors = _query(
+                    uow,
+                    "SELECT 1 FROM thread_targets WHERE projection_id=? "
+                    "AND source_thread_id=? AND anchor=1",
+                    (self._projection.value, attempt.source_thread_id.value),
+                    maximum=1,
+                )
+                # Use this same transaction for facts and verified mapping. Any
+                # provenance conflict rolls back both operations.
+                self._verify(updated, Visibility.NORMAL, not anchors, uow=uow)
+                self._resume_dependents(uow, attempt)
+            verified += 1
+        return WorkerReceipt(
+            processed=len(attempts),
+            verified=verified,
+            deferred=len(attempts) - verified,
+        )
+
+    def _resume_dependents(self, uow, attempt):
+        unresolved = _query(
+            uow,
+            "SELECT 1 FROM insert_attempts WHERE projection_id=? "
+            "AND source_thread_id=? AND state IN('prepared','dispatch_started',"
+            "'pending_recovery','known_inserted','needs_attention') LIMIT 1",
+            (self._projection.value, attempt.source_thread_id.value),
+            maximum=1,
+        )
+        if unresolved:
+            return
+        rows = _query(
+            uow,
+            "SELECT "
+            + ",".join("j." + c for c in COLUMNS["sync_jobs"])
+            + " FROM sync_jobs j WHERE j.projection_id=? AND j.source_thread_id=? "
+            "AND j.generation=? AND j.kind='project_message' "
+            "AND j.state='needs_attention' "
+            "AND j.last_error_code='insert_result_unknown' "
+            "AND NOT EXISTS(SELECT 1 FROM insert_attempts a "
+            "WHERE a.projection_id=j.projection_id AND a.job_id=j.job_id) "
+            "AND NOT EXISTS(SELECT 1 FROM message_mappings m "
+            "WHERE m.projection_id=j.projection_id "
+            "AND m.source_message_id=j.source_message_id)",
+            (
+                self._projection.value,
+                attempt.source_thread_id.value,
+                attempt.generation.value,
+            ),
+        )
+        for row in rows:
+            job = _decode(uow, self._projection, "sync_jobs", row)
+            self._active(uow, job)
+            jobs.defer_job(
+                uow,
+                self._projection,
+                job.job_id,
+                "retry_wait",
+                ErrorCode.INSERT_RESULT_UNKNOWN,
+                _now(),
+                RevisionGuard(job.revision),
+            )
 
     def _active(self, uow, job):
         thread = _get(

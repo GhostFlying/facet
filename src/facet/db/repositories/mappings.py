@@ -2,13 +2,16 @@
 
 from facet.contracts import (
     ClaimPhase,
+    ErrorCode,
     InsertState,
     JobKind,
     JobState,
     LocalId,
     OutcomeCertainty,
+    PolicyVersion,
     ProviderId,
     Revision,
+    Sha256Hex,
     Timestamp,
     Visibility,
 )
@@ -31,6 +34,77 @@ from .intents import (
     _result_job,
 )
 from .serialization import COLUMNS, _decode_row
+
+
+@_mutating
+def known_readback_facts(
+    uow, projection_id, attempt_id, raw_digest, semantic_digest, semantic_version, guard
+):
+    """Fill fidelity facts only for a directly proven, transient readback failure.
+
+    Caller verifies source/target content in memory and completes the mapping in
+    the same transaction. Unknown attribution is never upgraded by this helper.
+    """
+    if (
+        type(attempt_id) is not LocalId
+        or type(raw_digest) is not Sha256Hex
+        or type(semantic_digest) is not Sha256Hex
+        or type(semantic_version) is not PolicyVersion
+    ):
+        invalid()
+    attempt = _get(uow, projection_id, "insert_attempts", (("attempt_id", attempt_id),))
+    if attempt is None:
+        _conflict()
+    _guard(attempt.revision, guard)
+    if (
+        attempt.state is not InsertState.NEEDS_ATTENTION
+        or attempt.certainty is not OutcomeCertainty.INSERTED
+        or attempt.attribution is not AttributionKind.DIRECT_RESPONSE
+        or attempt.target_message_id is None
+        or attempt.target_thread_id is None
+        or attempt.error_code
+        not in {
+            ErrorCode.TARGET_AUTH_REQUIRED,
+            ErrorCode.TARGET_RATE_LIMITED,
+            ErrorCode.NETWORK_UNAVAILABLE,
+            ErrorCode.TARGET_STORAGE_FULL,
+        }
+        or attempt.raw_digest != raw_digest
+        or (
+            attempt.semantic_digest is not None
+            and attempt.semantic_digest != semantic_digest
+        )
+        or (
+            attempt.semantic_version is not None
+            and attempt.semantic_version != semantic_version
+        )
+    ):
+        _conflict()
+    _result_binding(uow, projection_id, attempt)
+    thread = _get(
+        uow,
+        projection_id,
+        "tracked_threads",
+        (("source_thread_id", attempt.source_thread_id),),
+    )
+    if thread is None or not thread.active or thread.generation != attempt.generation:
+        _conflict()
+    original = _mapping_job(uow, projection_id, attempt)
+    _mapping_branch(uow, projection_id, attempt, original, original.updated_at)
+    revision = next_revision(attempt.revision)
+    uow._execute(
+        "UPDATE insert_attempts SET semantic_digest=?,semantic_version=?,revision=? "
+        "WHERE projection_id=? AND attempt_id=? AND revision=?",
+        (
+            semantic_digest.value,
+            semantic_version.value,
+            revision.value,
+            projection_id.value,
+            attempt_id.value,
+            attempt.revision.value,
+        ),
+    )
+    return _get(uow, projection_id, "insert_attempts", (("attempt_id", attempt_id),))
 
 
 def _target_provenance(uow, projection_id, row, verified_at):

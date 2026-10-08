@@ -57,7 +57,7 @@ from facet.db.models import (
 from facet.db.repositories import epochs, events, intents, jobs, policy, reads
 from facet.db.repositories.base import _decode, _get, _query
 from facet.db.repositories.serialization import COLUMNS
-from facet.gmail.retry import ProviderFailure
+from facet.gmail.retry import ProviderFailure, blocks_sync
 from facet.gmail.source import CandidateAttentionReason, DiscoveryItem, DiscoveryQuery
 from facet.projection.action_consumer import ActionEffectConsumer
 from facet.projection.admission import (
@@ -145,6 +145,8 @@ class SourceCandidateAdmission:
                 else self._source.candidate(item)
             )
         except ProviderFailure as error:
+            if blocks_sync(error):
+                raise
             if (
                 recovering
                 and error.code
@@ -274,7 +276,9 @@ class ForegroundSync:
         )
         self._action = action_consumer
 
-    def run_once(self, *, max_jobs: int = 1000, max_events: int = 1000):
+    def run_once(
+        self, *, max_jobs: int = 1000, max_events: int = 1000, verify_known_only=False
+    ):
         """Advance discovery, History and durable jobs once, then return counts."""
         if (
             type(max_jobs) is not int
@@ -284,7 +288,12 @@ class ForegroundSync:
         ):
             raise ValueError("invalid_input")
         self._require_ready()
+        if verify_known_only:
+            return SyncCycleReceipt(
+                projected=self._worker.verify_known(max_jobs=max_jobs)
+            )
         self._recover_pre_dispatch_claims()
+        known = self._worker.verify_known(max_jobs=max_jobs)
         from facet.projection.gap_recovery import GapRecovery
 
         recovery = GapRecovery(
@@ -312,6 +321,12 @@ class ForegroundSync:
         )
         resolved, attention = self._resolve_events(max_events)
         projected = self._worker.run(max_jobs=max_jobs)
+        projected = WorkerReceipt(
+            **{
+                field: getattr(projected, field) + getattr(known, field)
+                for field in WorkerReceipt.__dataclass_fields__
+            }
+        )
         # An action effect may enqueue a thread expansion.  Drain the newly
         # visible event work and projection work in the same foreground cycle.
         more_resolved, more_attention = self._resolve_events(max_events)
@@ -601,6 +616,8 @@ class ForegroundSync:
                         else None
                     ),
                 )
+                if isinstance(error, ProviderFailure) and blocks_sync(error):
+                    raise
                 attention += 1
             else:
                 resolved += 1
