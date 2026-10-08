@@ -48,7 +48,7 @@ from facet.projection.backfill import (
     _encode_query_token,
 )
 from facet.projection.fidelity import inspect
-from facet.projection.rules import normalize_rule
+from facet.projection.rules import load_rule_policy, normalize_rule
 from facet.projection.worker import ProjectionWorker
 from facet.runtime.foreground_runtime import load_persisted_admission
 from facet.runtime.state_owner import StateOwner
@@ -133,7 +133,9 @@ def _payload(raw):
     }
 
 
-def _ready_owner(root, controller, monkeypatch, *, seed=True, with_rule=True):
+def _ready_owner(
+    root, controller, monkeypatch, *, seed=True, with_rule=True, rule_policy=None
+):
     config = initial_template("source@example.invalid", "target@example.invalid")
     owner = StateOwner.create(root / "state", config, b"synthetic-config")
     from test_m2_foundation_consumers import Profiles, write_credentials
@@ -204,7 +206,7 @@ def _ready_owner(root, controller, monkeypatch, *, seed=True, with_rule=True):
                         True,
                         NOW,
                         RuleOrigin.CLI,
-                        PolicyVersion("auth-v1"),
+                        rule_policy or PolicyVersion("auth-v1"),
                     ),
                 ),
                 RulesetRow(projection, Revision(1), NOW, True),
@@ -258,6 +260,71 @@ def _ready_owner(root, controller, monkeypatch, *, seed=True, with_rule=True):
     if seed:
         producer.discover(owner.session, projection, epoch.epoch_id)
     return owner
+
+
+def test_backfill_preserves_learned_rule_policy_version(monkeypatch):
+    version = load_rule_policy().version
+    assert version != PolicyVersion("auth-v1")
+    with TemporaryDirectory(
+        prefix="facet-learned-backfill-", dir=_trusted_parent()
+    ) as root:
+        owner = _ready_owner(
+            Path(root), object(), monkeypatch, seed=False, rule_policy=version
+        )
+        try:
+            epoch_id = LocalId(
+                owner._connection.execute("SELECT epoch_id FROM epochs").fetchone()[0]
+            )
+            producer = BackfillProducer(
+                _SourceDiscovery(),
+                _Admission(__import__("test_m2_foundation_consumers").lid(900)),
+            )
+            assert producer.discover(owner.session, owner.projection_id, epoch_id) == 1
+            assert owner._connection.execute(
+                "SELECT policy_version FROM thread_admissions"
+            ).fetchall() == [(version.value,)]
+        finally:
+            owner.close()
+
+
+def test_backfill_missing_selected_rule_revision_does_not_advance(monkeypatch):
+    class MissingRevision(_Admission):
+        def evaluate(self, item, epoch):
+            return DiscoveryDecision(True, RuleRef(self.rule_id, Revision(99)))
+
+    with TemporaryDirectory(
+        prefix="facet-missing-revision-", dir=_trusted_parent()
+    ) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=False)
+        try:
+            before = owner._connection.execute(
+                "SELECT * FROM epoch_partitions"
+            ).fetchall()
+            epoch_id = LocalId(
+                owner._connection.execute("SELECT epoch_id FROM epochs").fetchone()[0]
+            )
+            producer = BackfillProducer(
+                _SourceDiscovery(),
+                MissingRevision(__import__("test_m2_foundation_consumers").lid(900)),
+            )
+            with pytest.raises(StorageFailure, match="consistency_failure"):
+                producer.discover(owner.session, owner.projection_id, epoch_id)
+            assert (
+                owner._connection.execute("SELECT * FROM epoch_partitions").fetchall()
+                == before
+            )
+            for table in (
+                "tracked_threads",
+                "thread_admissions",
+                "sync_jobs",
+                "insert_attempts",
+                "message_mappings",
+            ):
+                assert owner._connection.execute(
+                    f"SELECT COUNT(*) FROM {table}"
+                ).fetchone() == (0,)
+        finally:
+            owner.close()
 
 
 def test_no_enabled_allow_completes_selected_scope_without_provider_calls(
