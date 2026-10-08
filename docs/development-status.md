@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Published recovery image installed; bounded real continuation passed
+### Published recovery installed; historical cleanup and exact restoration passed
 
 PR [#103](https://github.com/GhostFlying/facet/pull/103) is merged at
 `42c586ff1456e919a6c97ab3b434c5a18666b835`; required PR checks, main offline
@@ -29,29 +29,47 @@ and was not resent. No new unknown or duplicate insert attempt was created.
 Fresh target classification found 4309 mapped items, two permitted outbound items
 and no other unmanaged mail. A post-run writer-locked backup also passed.
 
-Read-only diagnosis distinguishes the remaining 45 jobs, not 45 failed emails:
+Subsequent explicit operator authority allowed exact no-effect completion and
+conditional one-time correction of verified historical state. Independent plan,
+helper and synthetic acceptance preceded each live DB correction. Backup, writer
+lock, frozen selection, durable submission and atomic typed audit/state updates
+were verified. First, 24 no-effect event/job pairs were completed (**45 to 21**
+attention). Then six eligible message notifications and four identified action
+additions were restored to pending/queued (**21 to 11** attention). No business
+consumer was replayed: ten queued notifications are not ten copied messages.
+**4309 mappings and one unknown remain unchanged**, as do all unselected records,
+rules, account/label configuration, scope, thread generations, epoch and cursor.
+No Gmail writes occurred in these operator steps.
 
-- 17 old message-added events: 11 do not match current rules; six are currently
-  eligible. They remain attention, not automatically reprocessed or projected.
-- 25 label events: nine system-label removals, four configured-action removals,
-  four configured-action additions, and eight unknown/retired-label events.
-  The first 13 are no-business-action candidates; additions need normal deduplicated
-  processing, and unavailable label identity must not become guessed actions.
-- Three projection jobs depend on the single old unknown insert. The automatic
-  evidence check schedules another search; empty search proves neither an absent
-  original insert nor permission to resend.
+Remaining eleven attention jobs, not eleven distinct failed emails:
+
+- Eight events refer to one unavailable user-label ID: four additions with lost
+  meaning and four removals. Removals have no business effect, but current code
+  still sends unknown-label removals to attention; this is a current classification
+  gap, not a purely historical artifact. Neither lost additions nor this common
+  gap were swept into the conditional one-time correction.
+- Three projection jobs depend on the old unknown; its owning projection remains
+  blocked. Source still exists and RAM-only raw/RFC checks match the saved intent.
+  Both RFC query forms return zero candidates; full target enumeration found all
+  4309 mappings, two permitted outbound items and no other unmanaged mail. There
+  is no presently identified copy to claim. The unknown predates the earlier
+  target cleanup, but inclusion in that deletion is unproven; it was not resent.
 
 Only one effective configured action label is currently present in source.
 Local label configuration is unchanged; no source labels were created. No live
 AddDomain learning is claimed. See the compact
-[deployment/diagnosis receipt](reviews/recovery-live-upgrade.md); the earlier
+[new operator/diagnosis receipt](reviews/attention-cleanup-diagnosis.md) and
+[deployment receipt](reviews/recovery-live-upgrade.md); the earlier
 [engineering acceptance](reviews/automatic-recovery-convergence.md) remains
 candidate-bound historical evidence.
 
-Next engineering gap: safe classification/reprocessing of these unresolved old
-events through production consumers, without general attention retry, business
-replay or new historical scope. Unknown/retired labels and the old unknown remain
-explicit limits, not default allow. Broader maintenance CLI, live gap, audit/restore,
+Next: normal deduplicated consumers can process the ten restored notifications
+only within separately applicable live scope; the DB correction itself did not
+execute them or broaden Gmail authority. Fix the unnecessary unknown-label-removal
+classification, retain unresolved activation meaning, and define any bounded
+unknown repair without guessed ownership or blind retry. No generic recovery
+framework is required for the completed historical exceptions. Broader maintenance
+CLI, live gap, audit/restore,
 Dashboard/browser/deployment and dogfood acceptance remain unfinished; this is not
 full Phase 1 acceptance or authorization of an unbounded daemon/unknown resend.
 
