@@ -61,6 +61,7 @@ class Mailbox:
         self.refresh_account = None
         self.refresh_scopes = None
         self.insert_reason = "authError"
+        self.expired_profile_roles = set()
 
     def arrive(self):
         self.revision += 1
@@ -136,6 +137,14 @@ class Mailbox:
                 source = "source" in self.headers["Authorization"]
                 if path.endswith("/profile"):
                     role = "source" if source else "target"
+                    if (
+                        role in mailbox.expired_profile_roles
+                        and "refreshed" not in self.headers["Authorization"]
+                    ):
+                        self.reply(
+                            {"error": {"errors": [{"reason": "authError"}]}}, 401
+                        )
+                        return
                     self.reply(
                         {
                             "emailAddress": mailbox.refresh_account

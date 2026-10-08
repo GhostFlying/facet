@@ -649,7 +649,7 @@ def _run_once_production(
         owner,
         config,
         GoogleGmailServiceFactory(),
-        verify_known_only=verify_known_only,
+        **({"verify_known_only": True} if verify_known_only else {}),
     )
     return {
         "discovered": receipt.discovered,

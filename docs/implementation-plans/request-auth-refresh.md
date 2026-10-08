@@ -46,6 +46,9 @@ assertion rejected the changed attention set; it must not be blindly replayed.
   use a static access-only client to avoid recursion. No new account/scope choice,
   SDK implicit retries, shared transport, network-held SQLite transaction or
   competing writer. Existing synthetic service factories need no new framework.
+  Startup profile verification also permits one manager-owned reactive refresh
+  per rejected role on explicit 401, followed by fresh verification. Refreshed
+  token profile probes stay static and do not recursively refresh/retry.
   Credential/profile failures raised before the HTTP request carry a proven
   `request_dispatched=False` boundary. Even after the worker's durable dispatch
   marker, they are definitely-not-inserted, never unknown. Only a received insert

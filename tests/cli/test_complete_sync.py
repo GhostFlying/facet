@@ -517,3 +517,14 @@ requests.Session.request = request
     assert sorted(mailbox.refresh_calls) == ["source", "target"]
     assert len(mailbox.inserted_raw) == len(mailbox.target) == 4
     assert len(rows(state, "message_mappings")) == 4
+
+
+def test_startup_profile_401_refreshes_each_role_once_without_local_expiry(wire):
+    invoke, mailbox, state = wire
+    bind_and_rule(invoke)
+    mailbox.historical = True
+    mailbox.expired_profile_roles = {"source", "target"}
+    result = invoke("sync", "--once", "--yes")
+    assert result["cycle"]["projected"] == 4
+    assert sorted(mailbox.refresh_calls) == ["source", "target"]
+    assert len(mailbox.inserted_raw) == 4 and len(rows(state, "message_mappings")) == 4

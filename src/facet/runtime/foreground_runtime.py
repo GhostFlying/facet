@@ -15,6 +15,7 @@ from facet.gmail.credential_models import (
     policy_scopes,
 )
 from facet.gmail.credentials import CredentialManager, ProfileEvidence, ProfileReader
+from facet.gmail.retry import ProviderFailure, ProviderStage
 from facet.gmail.service_factory import GmailServiceFactory
 from facet.gmail.source import SourceAdapter
 from facet.gmail.target import TargetAdapter
@@ -153,7 +154,21 @@ def prepare_credentials(owner, config, factory):
         for role in (Role.SOURCE, Role.TARGET):
             manager.reconcile_interrupted_refresh(role)
             manager.ensure_current(role, exchange, refreshed_profile)
-    manager.verify_and_publish(probe)
+    reactive_roles = set()
+    while True:
+        try:
+            manager.verify_and_publish(probe)
+            break
+        except ProviderFailure as error:
+            if (
+                not getattr(factory, "supports_refresh", False)
+                or error.status != 401
+                or error.provider_stage is not ProviderStage.PROFILE_PROBE
+                or error.role in reactive_roles
+            ):
+                raise
+            reactive_roles.add(error.role)
+            manager.refresh(error.role, exchange, profile=refreshed_profile)
     return manager.snapshot(Role.SOURCE), manager.snapshot(Role.TARGET)
 
 
