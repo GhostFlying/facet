@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Interrupted sync retained; request-time credential repair in implementation
+### Interrupted sync retained; credential repair qualified locally
 
 Complete CLI sync PR #99 is merged at `e504b696913fba12bab5fc69dbe5ff3f838fd5a4`;
 its main offline CI and image publication passed. Full Phase 1 is not accepted.
@@ -23,12 +23,14 @@ unstarted same-thread job was blocked by that pending attempt. The older unknown
 is still protected. The failed operator receipt is retained, not resubmitted.
 
 The independently reviewed [request-auth plan](implementation-plans/request-auth-refresh.md)
-is being implemented as one coherent fix: structured closed provider reasons,
+is implemented as one coherent fix: structured closed provider reasons,
 manager-owned request-time refresh, durable rejected-insert retry, zero-insert
 known-readback completion and same-scope restart continuation. Actual CLI external
 fakes have passed rejected-insert refresh/new-attempt and known-readback restart
-checks; full-suite, final independent candidate acceptance, exact local-image,
-PR CI/merge and resumed live evidence remain outstanding. No real Gmail writes
+checks. Independent acceptance approved source `1a8eef14937caf8f58bc8035eb964e3b7bcec38f`;
+its exact non-root local image passed all 49 complete CLI/request-reason checks.
+Full final offline suite, PR CI/merge and resumed live evidence remain outstanding.
+See [the current acceptance receipt](reviews/request-auth-refresh.md). No real Gmail writes
 have been performed with this repair candidate.
 
 Next: qualify/merge the fix, back up retained production state, complete the
