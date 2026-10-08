@@ -71,6 +71,11 @@ def test_runtime_closes_services_on_success_cycle_failure_and_partial_build(
     trusted_state_parent, monkeypatch, failure
 ):
     owner, _, _, _, _ = _manager(trusted_state_parent, monkeypatch)
+    # This component fixture did not previously need a managed config file.
+    # Persist the exact artifact bound by its owner for real migration backup.
+    config_path = Path(owner.state_dir) / "config.yaml"
+    config_path.write_bytes(b"synthetic config")
+    config_path.chmod(0o600)
     closed = []
 
     class Service:
@@ -288,6 +293,9 @@ def test_runtime_composes_profiles_services_and_projection(
     trusted_state_parent, gmail_controller, monkeypatch
 ):
     owner = _ready_owner(Path(trusted_state_parent), object(), monkeypatch, seed=False)
+    config_path = Path(owner.state_dir) / "config.yaml"
+    config_path.write_bytes(b"synthetic-config")
+    config_path.chmod(0o600)
     try:
         gmail_controller.labels(
             "source",
@@ -307,7 +315,7 @@ def test_runtime_composes_profiles_services_and_projection(
                 )
 
         monkeypatch.setattr(
-            foreground_runtime, "ActionEffectConsumer", SpyActionConsumer
+            foreground_runtime, "CurrentActionConsumer", SpyActionConsumer
         )
         source, target = write_credentials(owner)
         # _ready_owner advances the synthetic binding revision to exercise the
