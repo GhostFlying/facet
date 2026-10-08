@@ -57,7 +57,7 @@ Source 默认 `gmail.readonly`，便利模式 `gmail.modify`。Action label meta
 `AI/BlackList`，私有 CLI 可为每类设置一个精确名称并在 remove 时回退默认。Facet
 逐类只读查找 source labels；已存在的任意非空子集即可独立启用对应命令，缺失类别保持禁用，
 不创建或修改 Gmail label，不扩大 scope，已有绑定无需 reauth；
-旧 provider label ID 的 pending event 转为 typed attention/unknown，不重写历史或静默重放。
+旧 provider label ID 的 pending event 仅触发当前 thread 标签检查；当前无匹配标签时正常完成，不因旧 ID 不可用而进入 attention，也不重写历史或静默重放。
 Target 固定 `gmail.insert` 和 `gmail.readonly`；后者用于搜索、回读和 audit，insert scope 本身不提供这些能力。[Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes)、[messages.list scopes](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list)
 
 若用户指定已存在的 target label，读取其 label ID 并在 insert 时附带。自动创建 target label 是可选 setup 能力，需要单独核对并申请 `gmail.labels`；默认配置不需要。便利模式中的 `AI/Tracked` 和 `AI/Learned` 默认关闭，action labels 的创建和清理可启用。

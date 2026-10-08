@@ -20,9 +20,19 @@ restart deduplication and observed absence/re-add. BlackList removal does not
 revive a stopped thread; missing tags are no-ops and provider errors retain work.
 Atomic rollback, legacy/current identity collision and matching-only legacy
 acknowledgement have focused repository evidence. Backed-up v3-to-v4 upgrade,
-DDL rollback and owner reopen passed. Independent plan review accepted the
-[short plan](implementation-plans/current-label-observations.md); implementation
-review, final full checks, image qualification and PR CI are pending.
+DDL rollback and owner reopen passed. Independent plan and implementation review
+accepted the [short plan](implementation-plans/current-label-observations.md)
+and source candidate `7e97b21986db07c02e93b6cf5203a7a8b9e15fdb`. A review finding
+was fixed using the existing guarded retry path: rechecking old label attention
+now persists provider error/deadline instead of immediately retrying. Nineteen
+affected current-action/runtime checks passed independently. The earlier full
+run had 2894 passes and four stale integration-fixture failures; the corrected
+runtime subset passed all ten cases. The exact-source non-root production image
+passed 55 actual CLI/current-action/migration/runtime cases with a read-only root
+filesystem and external networking disabled; application source came only from
+the image. Final exact-head full PR CI remains a gate; the earlier failing full
+run is not acceptance. Details are in the
+[candidate review](reviews/current-label-observations.md).
 
 This is implemented/focused-offline evidence, not merged or live acceptance.
 The real stopped deployment remains the image and exact counts described below:
