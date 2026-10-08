@@ -201,8 +201,8 @@ agent 可以在当前测试中自动开始新历史补齐、retry unknown 或启
 unknown insert 留 recovery。`backfill pause` 只暂停历史 jobs，History ingestion 仍
 可持久化；重启不重置 cursor 或复活 stopped generations。
 
-Rules add 按处理时生效状态判断，不保证与邮件到达严格时序；第一期通过 source History 读取用户手工 action
-labels 更新规则，不把逐个手动 track 作为常规入口。Rules remove 不停止已 tracked
+Rules add 按处理时生效状态判断，不保证与邮件到达严格时序；第一期通过 source History 提示检查当前手工 action
+labels 更新规则，不重放旧 add/remove，也不要求解释已删除标签。持久标签只处理一次；观察到不存在后再存在才重新激活，未观察到的短暂切换不保证执行。更换配置映射/label ID 是不同观察身份。初始化旧标签只建立基线；标签移除不撤销学习、不复活 stopped thread。不把逐个手动 track 作为常规入口。Rules remove 不停止已 tracked
 thread。Blacklist 用 exact sender + 当前 thread，取消 unstarted generation，不停止
 同域所有 thread、不删除历史；去掉 blacklist 不自动恢复 tracking。
 

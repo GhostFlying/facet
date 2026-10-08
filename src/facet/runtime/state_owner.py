@@ -517,12 +517,26 @@ class StateOwner:
         self, request_id: LocalId, config_bytes: bytes
     ) -> None:
         """Upgrade an owned v2 database to the closed v3 label catalogue."""
+        self._ensure_label_schema(request_id, config_bytes, 3)
+
+    def ensure_current_action_schema(
+        self, request_id: LocalId, config_bytes: bytes
+    ) -> None:
+        """Back up before upgrading label observations; never reset state."""
+        self.ensure_action_label_schema(request_id, config_bytes)
+        self._ensure_label_schema(request_id, config_bytes, 4)
+
+    def _ensure_label_schema(self, request_id, config_bytes, target_version):
         from facet.db.migrations import (
             _FRESH_V2_MANIFEST,
             _FRESH_V3_MANIFEST,
+            _FRESH_V4_MANIFEST,
             FRESH_V3_CHECKSUMS,
             FRESH_V3_REGISTRY,
             FRESH_V3_REGISTRY_DIGEST,
+            FRESH_V4_CHECKSUMS,
+            FRESH_V4_REGISTRY,
+            FRESH_V4_REGISTRY_DIGEST,
         )
         from facet.db.schema import _inspect_manifest
 
@@ -533,15 +547,28 @@ class StateOwner:
         self.verify_config_artifact(config_bytes)
         connection = self._connection
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version == 3:
-            _inspect_manifest(connection, _FRESH_V3_MANIFEST)
+        manifests = {
+            2: _FRESH_V2_MANIFEST,
+            3: _FRESH_V3_MANIFEST,
+            4: _FRESH_V4_MANIFEST,
+        }
+        if version in manifests and version >= target_version:
+            _inspect_manifest(connection, manifests[version])
             return
-        if version != 2:
+        if version != target_version - 1:
             _invalid(ErrorCode.MAINTENANCE_REQUIRED)
-        _inspect_manifest(connection, _FRESH_V2_MANIFEST)
+        source_manifest, target_manifest = manifests[version], manifests[target_version]
+        registry, checksums, digest = (
+            (FRESH_V3_REGISTRY, FRESH_V3_CHECKSUMS, FRESH_V3_REGISTRY_DIGEST)
+            if target_version == 3
+            else (FRESH_V4_REGISTRY, FRESH_V4_CHECKSUMS, FRESH_V4_REGISTRY_DIGEST)
+        )
+        _inspect_manifest(connection, source_manifest)
         backup_root = self._state_dir / "backups"
-        bundle = backup_root / f"action-label-v3-{request_id.value}"
-        temporary = backup_root / f".action-label-v3-{request_id.value}.tmp"
+        bundle = backup_root / f"action-label-v{target_version}-{request_id.value}"
+        temporary = (
+            backup_root / f".action-label-v{target_version}-{request_id.value}.tmp"
+        )
         created_temporary = False
         try:
             if not backup_root.exists():
@@ -600,7 +627,7 @@ class StateOwner:
             snapshot = sqlite3.connect(temporary / "facet.db", autocommit=True)
             try:
                 connection.backup(snapshot)
-                _inspect_manifest(snapshot, _FRESH_V2_MANIFEST)
+                _inspect_manifest(snapshot, source_manifest)
             finally:
                 snapshot.close()
             _backup_fsync(temporary / "facet.db")
@@ -615,23 +642,28 @@ class StateOwner:
         commit_attempted = False
         try:
             connection.execute("BEGIN IMMEDIATE")
-            _inspect_manifest(connection, _FRESH_V2_MANIFEST)
-            for statement in FRESH_V3_REGISTRY[-1][2]:
+            _inspect_manifest(connection, source_manifest)
+            for statement in registry[-1][2]:
                 connection.execute(statement)
             created = connection.execute(
                 "SELECT created_at FROM schema_metadata WHERE singleton=1"
             ).fetchone()[0]
             connection.execute("DELETE FROM schema_metadata WHERE singleton=1")
             connection.execute(
-                "INSERT INTO schema_metadata VALUES(1,3,?,?)",
-                (FRESH_V3_REGISTRY_DIGEST, created),
+                "INSERT INTO schema_metadata VALUES(1,?,?,?)",
+                (target_version, digest, created),
             )
             connection.execute(
-                "INSERT INTO schema_migrations VALUES(3,?,?,?)",
-                ("v0003", FRESH_V3_CHECKSUMS[-1], timestamp_to_sql(_timestamp())),
+                "INSERT INTO schema_migrations VALUES(?,?,?,?)",
+                (
+                    target_version,
+                    f"v{target_version:04}",
+                    checksums[-1],
+                    timestamp_to_sql(_timestamp()),
+                ),
             )
-            connection.execute("PRAGMA user_version=3")
-            _inspect_manifest(connection, _FRESH_V3_MANIFEST)
+            connection.execute(f"PRAGMA user_version={target_version}")
+            _inspect_manifest(connection, target_manifest)
             commit_attempted = True
             connection.execute("COMMIT")
         except BaseException:

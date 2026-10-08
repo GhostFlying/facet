@@ -279,7 +279,7 @@ def _attach_view(
             raise StorageFailure(ErrorCode.INVALID_INPUT)
         # Provenance is consumed first, but unsupported v2 never configures a
         # read connection or becomes a ReadSession through generic inspection.
-        if connection.execute("PRAGMA user_version").fetchone()[0] == 3:
+        if connection.execute("PRAGMA user_version").fetchone()[0] in {3, 4}:
             _inspect(connection)
         else:
             _inspect_v1(connection)
@@ -288,7 +288,7 @@ def _attach_view(
         connection.execute("PRAGMA trusted_schema=OFF")
         connection.execute("PRAGMA foreign_keys=ON")
         connection.row_factory = None
-        if connection.execute("PRAGMA user_version").fetchone()[0] == 3:
+        if connection.execute("PRAGMA user_version").fetchone()[0] in {3, 4}:
             _inspect(connection)
         else:
             _inspect_v1(connection)
@@ -643,7 +643,7 @@ def _begin_owner_session_v2(
     expected_previous_run: LocalId | None,
     now: Timestamp,
 ) -> WriterSession:
-    from .migrations import _FRESH_V2_MANIFEST, _FRESH_V3_MANIFEST
+    from .migrations import _FRESH_V2_MANIFEST, _FRESH_V3_MANIFEST, _FRESH_V4_MANIFEST
     from .schema import _inspect_manifest
 
     begin_attempted = commit_attempted = attach_started = False
@@ -661,7 +661,11 @@ def _begin_owner_session_v2(
         OwnerSessionInfo.__post_init__(owner)
         _v2_settings(connection)
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        manifest = {2: _FRESH_V2_MANIFEST, 3: _FRESH_V3_MANIFEST}.get(version)
+        manifest = {
+            2: _FRESH_V2_MANIFEST,
+            3: _FRESH_V3_MANIFEST,
+            4: _FRESH_V4_MANIFEST,
+        }.get(version)
         if manifest is None:
             raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
         _inspect_manifest(connection, manifest)

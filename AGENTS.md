@@ -239,13 +239,26 @@ rule and recovery invariants remain.
   stays stable for pagination; rule removal blocks new admission. Reconcile,
   normal restart and new rules cannot trigger arbitrary historical backfill.
   Removing an allow rule does not stop previously tracked threads.
-- Support `AI/AddSender`, `AI/AddDomain`, `AI/BlackList`. Deduplicate action commands
-  by `(projection, history record, label, source thread)`. Learn the latest valid
+- Product decision (2026-10-08): History label add/remove records are dirty-thread
+  notifications, not business commands to replay. Inspect current configured
+  action labels on non-draft source messages; old unknown/deleted label IDs and
+  currently absent tags are ordinary no-ops. Deduplicate History delivery, but
+  acknowledge actions per current thread/category/label activation. A persistent
+  tag cannot repeatedly learn from later participants or notifications. Only
+  observed absence followed by presence reactivates it; unobserved transient
+  remove/re-add or add/remove need not be reconstructed. A changed configured
+  label/provider ID is a different observation identity, not an old receipt.
+- Support `AI/AddSender`, `AI/AddDomain`, `AI/BlackList`. Learn the latest valid
   external sender, excluding explicitly configured own addresses. Never learn
   the user's primary domain. Do not infer all address aliases or request settings
   permissions merely to populate own addresses.
 - Legacy labels at initialization are reported, not executed. Readonly mode
-  leaves labels in place; remove/re-add is a new activation. Convenience cleanup
+  leaves labels in place; observed absence/re-add is a new activation. Persist
+  initial H0 before resumable label-scoped baselining and hold operational work
+  until that baseline completes. Upgrade retains old receipts and acknowledges
+  only proven executed matching category/label activations, not pending actions.
+  Removing a tag does not withdraw rules or reactivate stopped threads.
+  Convenience cleanup
   follows durable command execution; cleanup retries cannot repeat business work.
 - BlackList is exact sender: prevent new admission and stop the selected thread;
   do not stop every other tracked thread/domain. Cancel unstarted jobs using
@@ -271,7 +284,8 @@ rule and recovery invariants remain.
   the entire known downtime admission window, then consumes History from H1.
   Do not replace this with a fixed 24-hour window. Respect rule effective times
   and stopped generations. An unknown gap needs an explicit recovery decision;
-  expired add/remove label events cannot be reconstructed from current labels.
+  expired transient label changes are not reconstructed; current-state action
+  checks do not require restoring their old IDs, directions or intent.
 - Gmail insert and SQLite cannot atomically commit. Do not claim exactly once.
   Before insert, persist intent; unknown outcomes enter recovery, not blind
   retries. Disable unconditional client insert retries. Search delay has no

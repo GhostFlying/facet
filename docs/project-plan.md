@@ -65,7 +65,7 @@ Phase 0 验证了数据面的可行性。六个月 backfill、长期运行、His
 1. 初始化本地配置和数据库，通过 Desktop OAuth 分别授权 source 和 target。
 2. 通过完整同步命令按当前规则和默认固定六个月范围自动准备/start backfill；内部说明完整 thread 披露语义，不要求用户串 preview/start 或逐个选择 thread。细分命令保留用于维护和当前验证。
 3. 从最近六个月的命中邮件自动 discovery，复制每个纳入 thread 的全部可用消息。
-4. 第一阶段持续消费 History：分页、cursor、事件持久化/去重，处理 `messagesAdded` 和 action-label 事件，自动创建规则或 projection jobs。
+4. 第一阶段持续消费 History：分页、cursor、事件持久化/去重，处理 `messagesAdded`，将标签通知作为当前 thread 状态检查的触发器；按当前 action tags 学习规则或创建 projection jobs，不重放旧 add/remove 意图。持续标签每轮激活只处理一次，初始化旧标签不执行。
 5. 用 CLI 或只读观察 `AI/AddSender`、`AI/AddDomain`、`AI/BlackList` 调整规则；便利 label 清理后移。
 6. 在断网、限流、重启和授权故障后保留工作，恢复后继续。
 7. 用 Web Dashboard、status、doctor、审计记录和定期校对说明当前进度、异常与缺失。

@@ -19,7 +19,11 @@ from facet.gmail.retry import ProviderFailure, ProviderStage
 from facet.gmail.service_factory import GmailServiceFactory
 from facet.gmail.source import SourceAdapter
 from facet.gmail.target import TargetAdapter
-from facet.projection.action_consumer import ActionEffectConsumer
+from facet.projection.current_actions import (
+    CurrentActionConsumer,
+    finish_baseline,
+    initialize_baseline,
+)
 from facet.sync import ForegroundSync, SyncCycleReceipt
 
 __all__ = ("ForegroundRuntime", "run_foreground_once")
@@ -123,12 +127,12 @@ def _action_consumer(source: SourceAdapter, config: Config, owner):
     from facet.db.action_labels import effective
 
     labels = source.action_label_map(effective(owner._connection, config.projection.id))
-    if labels is None:
-        return None
+    initialize_baseline(owner, labels)
+    finish_baseline(owner, source, labels)
     own_addresses = tuple(
         PrivateAddress(address) for address in config.projection.own_addresses
     )
-    return ActionEffectConsumer(
+    return CurrentActionConsumer(
         labels,
         source,
         own_addresses,
@@ -215,6 +219,15 @@ class ForegroundRuntime:
         source_snapshot, target_snapshot = prepare_credentials(
             self.owner, self.config, self.factory
         )
+        if not verify_known_only:
+            from uuid import uuid4
+
+            from facet.private_paths import read_managed_config, select_paths
+
+            self.owner.ensure_current_action_schema(
+                LocalId(uuid4().hex),
+                read_managed_config(select_paths(self.owner.state_dir, None)),
+            )
         with ExitStack() as services:
 
             def service(role, snapshot):

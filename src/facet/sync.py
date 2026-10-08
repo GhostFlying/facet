@@ -293,6 +293,8 @@ class ForegroundSync:
             return SyncCycleReceipt(
                 projected=self._worker.verify_known(max_jobs=max_jobs)
             )
+        if callable(getattr(self._action, "begin_cycle", None)):
+            self._action.begin_cycle()
         self._recover_pre_dispatch_claims()
         known = self._worker.verify_known(max_jobs=max_jobs)
         from facet.projection.recovery import UnknownInsertChecks
@@ -547,10 +549,20 @@ class ForegroundSync:
             rows = _query(
                 uow,
                 "SELECT " + ",".join(COLUMNS["sync_jobs"]) + " FROM sync_jobs "
-                "WHERE projection_id=? AND kind='resolve_event' AND state IN "
-                "('queued','retry_wait') AND (next_attempt_at IS NULL OR "
+                "WHERE projection_id=? AND kind='resolve_event' AND (state IN "
+                "('queued','retry_wait') OR (? AND state='needs_attention' "
+                "AND last_error_code IN "
+                "('request_conflict','owner_unavailable','invalid_input') "
+                "AND EXISTS (SELECT 1 FROM source_events e WHERE "
+                "e.projection_id=sync_jobs.projection_id AND "
+                "e.event_id=sync_jobs.event_id AND e.tag='label_changed'))) "
+                "AND (next_attempt_at IS NULL OR "
                 "next_attempt_at<=?) ORDER BY created_at,job_id LIMIT 1000",
-                (self._projection.value, timestamp_to_sql(_now())),
+                (
+                    self._projection.value,
+                    int(callable(getattr(self._action, "begin_cycle", None))),
+                    timestamp_to_sql(_now()),
+                ),
                 maximum=1000,
             )
             return tuple(
@@ -573,14 +585,31 @@ class ForegroundSync:
                         self._event_id(job),
                         epoch_id=self._active_live_epoch() or job.origin_epoch_id,
                     )
-                except StorageFailure as error:
+                except (StorageFailure, ProviderFailure) as error:
+                    if (
+                        isinstance(error, ProviderFailure)
+                        and error.role is Role.SOURCE
+                        and error.status == 404
+                    ):
+                        error = error.with_code(ErrorCode.SOURCE_MISSING)
                     retryable = error.code in {
                         ErrorCode.SOURCE_AUTH_REQUIRED,
                         ErrorCode.SOURCE_RATE_LIMITED,
                         ErrorCode.NETWORK_UNAVAILABLE,
                         ErrorCode.OWNER_BUSY,
                     }
-                    self._defer_event_attention(job, error.code, retryable=retryable)
+                    self._defer_event_attention(
+                        job,
+                        error.code,
+                        retryable=retryable,
+                        retry_after_seconds=(
+                            error.retry_after_seconds
+                            if isinstance(error, ProviderFailure)
+                            else None
+                        ),
+                    )
+                    if isinstance(error, ProviderFailure) and blocks_sync(error):
+                        raise
                     attention += 1
                     continue
                 if result.attention is not None:
@@ -598,6 +627,13 @@ class ForegroundSync:
                 attention += 1
                 continue
             try:
+                if callable(getattr(self._action, "begin_cycle", None)):
+                    self._action.process(
+                        self._owner.session,
+                        self._projection,
+                        self._event_id(job),
+                        epoch_id=self._active_live_epoch() or job.origin_epoch_id,
+                    )
                 self._resolve_message_added(job)
             except (ProviderFailure, StorageFailure) as error:
                 # A vanished source message is not malformed input. Keep this

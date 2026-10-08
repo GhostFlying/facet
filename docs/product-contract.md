@@ -42,7 +42,11 @@ Agent 发信后的回复进入 source，由既有规则、tracked-thread 授权�
 
 ## 默认只读和便利模式
 
-默认 source 使用 `gmail.readonly`。Facet 读取用户手工添加的 action labels，但不创建、清除或添加 source labels。标签留在 Gmail 中不代表命令尚未执行；SQLite 记录执行状态。移除再添加可以产生新的命令。
+默认 source 使用 `gmail.readonly`。Facet 读取用户手工添加的 action labels，但不创建、清除或添加 source labels。按 2026-10-08 用户决定，History 仅提示哪些 thread 需要检查；Facet 按当前配置和当前 non-draft 消息的标签状态执行，不重放旧 add/remove 指令，不要求恢复旧标签含义。当前没有 action tag 就正常结束检查。
+
+SQLite 持久记录当前标签激活是否已经处理。标签持续存在时不因新消息、参与者或重启再次学习；只有实际观察到不存在、后来再存在时才形成新激活。两次检查之间添加后移除、或移除后重加但未观察到中间缺失，不保证执行。修改配置映射到不同标签/新的 Gmail label ID 是新的观察身份。移除 tag 不撤销已学习规则、不复活已停止 thread；同时存在 BlackList 时，先阻止新 admission/停止当前 thread，不由 Add 标签覆盖。
+
+首次运行先持久化 H0，再建立仅查询 action labels 的初始基线；已有标签仅记录，不执行业务。基线是逐 thread 的首次观察，不是瞬间冻结邮箱。升级不对全部标签重新静默基线化：只继承已证明执行且当前类别/标签匹配的旧记录，待处理通知按现状检查。此工程变更不构成真实邮箱操作授权。
 
 便利模式显式申请 `gmail.modify`，自动创建和清理 action labels，并可开启可视化状态标签。该 scope 也允许 compose 和 send，Facet 实现中不提供这些操作；用户应理解 token 实际权限。[Google Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes)
 

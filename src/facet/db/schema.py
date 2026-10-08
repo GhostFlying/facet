@@ -9,6 +9,7 @@ from .codecs import StorageFailure
 from .migrations import (
     _FRESH_V2_MANIFEST,
     _FRESH_V3_MANIFEST,
+    _FRESH_V4_MANIFEST,
     CHECKSUMS,
     REGISTRY,
     REGISTRY_DIGEST,
@@ -38,6 +39,9 @@ def _inspect(connection: sqlite3.Connection) -> None:
         return
     if version == 3:
         _inspect_manifest(connection, _FRESH_V3_MANIFEST)
+        return
+    if version == 4:
+        _inspect_manifest(connection, _FRESH_V4_MANIFEST)
         return
     _inspect_v1(connection)
 

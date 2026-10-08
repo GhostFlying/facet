@@ -635,20 +635,27 @@ class SourceAdapter:
     def get_thread_facts(self, source_thread_id: ProviderId):
         """Return redacted sender/timestamp facts for action-label effects."""
         metadata = self.thread_metadata(source_thread_id)
+        return self.action_facts(metadata, include_drafts=True)
+
+    @staticmethod
+    def action_facts(metadata, *, include_drafts=False):
+        """Reduce an already fetched snapshot; callers decide label presence first."""
         facts = []
         for message in metadata.messages:
+            if not include_drafts and "DRAFT" in message.labels:
+                continue
             values = tuple(
                 value for name, value in message.headers if name.casefold() == "from"
             )
             if len(values) != 1:
-                raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+                raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.SOURCE)
             addresses = tuple(getaddresses([values[0]]))
             if len(addresses) != 1 or not addresses[0][1]:
-                raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+                raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.SOURCE)
             try:
                 sender = PrivateAddress(addresses[0][1])
             except (TypeError, ValueError):
-                raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
+                raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.SOURCE) from None
             facts.append(
                 ActionMessageFact(
                     message.message_id,
@@ -659,6 +666,31 @@ class SourceAdapter:
                 )
             )
         return tuple(facts)
+
+    def action_label_threads(self, label_id: ProviderId, page_token=None):
+        """List only one fixed action label, including Spam/Trash; metadata only."""
+        args = {
+            "userId": "me",
+            "labelIds": [label_id.value],
+            "includeSpamTrash": True,
+            "maxResults": 100,
+        }
+        if page_token is not None:
+            args["pageToken"] = page_token.value
+        value = execute(
+            self._service.users().messages().list(**args),
+            self.role,
+            provider_stage=ProviderStage.MESSAGE_LIST,
+        )
+        try:
+            threads = tuple(
+                dict.fromkeys(
+                    _id(item["threadId"]) for item in value.get("messages", ())
+                )
+            )
+            return threads, _token(value.get("nextPageToken"))
+        except (KeyError, TypeError, ValueError):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
 
 
 GmailSource = SourceAdapter

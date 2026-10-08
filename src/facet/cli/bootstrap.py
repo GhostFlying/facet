@@ -1899,6 +1899,17 @@ def _backfill_start(
             def evaluate(self, _item, _epoch):
                 raise ConfigError(ErrorCode.SOURCE_AUTH_REQUIRED)
 
+        from facet.db.action_labels import effective
+        from facet.projection.current_actions import initialize_baseline
+
+        owner.ensure_current_action_schema(
+            LocalId(uuid4().hex),
+            read_managed_config(select_paths(owner.state_dir, None)),
+        )
+        initialize_baseline(
+            owner,
+            source.action_label_map(effective(owner._connection, config.projection.id)),
+        )
         _, epoch = BackfillProducer(source, Admission()).start(
             owner.session, config.projection.id, start
         )

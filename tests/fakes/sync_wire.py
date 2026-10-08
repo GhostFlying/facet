@@ -89,7 +89,11 @@ class Mailbox:
             "threadId": "future-thread"
             if identifier == "future-gap"
             else identifier.split("-", 1)[0] + "-thread",
-            "labelIds": ["DRAFT"] if identifier.endswith("-draft") else [],
+            "labelIds": ["DRAFT"]
+            if identifier.endswith("-draft")
+            else ["label-add-sender"]
+            if self.learn_sender and identifier.startswith("future-")
+            else [],
             "internalDate": str(
                 self.gap_arrived_at
                 if identifier in {"gap-new", "removed-new", "catchup-new", "future-gap"}

@@ -29,6 +29,15 @@ def install():
 
     def listed(self, **kwargs):
         if self._service.role is Role.SOURCE:
+            if kwargs.get("labelIds"):
+                tags = read().get("tags", [])
+                return synthetic._Request(
+                    {
+                        "messages": [{"id": "future-new", "threadId": "future-thread"}]
+                        if kwargs["labelIds"][0] in tags
+                        else []
+                    }
+                )
             # Initial discovery/preview is genuinely empty; future arrivals are
             # exposed through History, never by changing production DB state.
             return synthetic._Request({"messages": []})
@@ -39,6 +48,30 @@ def install():
         revision = state["revision"]
         rows = []
         if revision > 1 and startHistoryId != f"history-{revision}":
+            if state.get("action_mode"):
+                messages = [
+                    {"id": mid, "threadId": "future-thread"}
+                    for mid in (
+                        "future-old",
+                        "future-new",
+                        "future-third",
+                        "future-fourth",
+                    )
+                ]
+                rows = [
+                    {
+                        "id": f"record-{revision}",
+                        "labelsRemoved"
+                        if state.get("removed_event")
+                        else "labelsAdded": [
+                            {"message": message, "labelIds": ["deleted-action-id"]}
+                            for message in messages
+                        ],
+                    }
+                ]
+                return synthetic._Request(
+                    {"historyId": f"history-{revision}", "history": rows}
+                )
             rows = [
                 {
                     "id": f"record-{revision}",
@@ -65,7 +98,14 @@ def install():
         )
         mailbox.write_text(json.dumps(state))
         sender = (
-            "sender@example.com" if message_id == "future-new" else "other@example.com"
+            state.get(
+                "sender",
+                "sender@vendor.com"
+                if state.get("action_mode")
+                else "sender@example.com",
+            )
+            if message_id == "future-new"
+            else "other@example.com"
         )
         headers = [
             {"name": "From", "value": sender},
@@ -74,7 +114,9 @@ def install():
         value = {
             "id": message_id,
             "threadId": "future-thread",
-            "labelIds": ["DRAFT"] if message_id == "future-draft" else [],
+            "labelIds": ["DRAFT"]
+            if message_id == "future-draft"
+            else state.get("tags", []),
             "internalDate": str(
                 read()["arrived_at"] if message_id == "future-new" else 1767225600000
             ),
@@ -91,13 +133,48 @@ def install():
         return value
 
     def thread(self, thread_id):
+        state = read()
+        state["thread_reads"] = state.get("thread_reads", 0) + 1
+        mailbox.write_text(json.dumps(state))
+        if state.get("source_failure"):
+            from facet.contracts import ErrorCode
+            from facet.gmail.retry import ProviderFailure
+
+            raise ProviderFailure(ErrorCode.NETWORK_UNAVAILABLE, Role.SOURCE)
         return {
             "id": thread_id,
             "messages": [
                 self._message(mid, "metadata")
-                for mid in ("future-old", "future-new", "future-draft")
+                for mid in (
+                    (
+                        "future-old",
+                        "future-new",
+                        "future-third",
+                        "future-fourth",
+                        "future-draft",
+                    )
+                    if state.get("action_mode")
+                    else ("future-old", "future-new", "future-draft")
+                )
             ],
         }
+
+    def labels(self, **kwargs):
+        state = read()
+        return synthetic._Request(
+            {
+                "labels": [
+                    {"id": f"current-{kind}", "name": name}
+                    for kind, name in (
+                        ("sender", "Facet/AddSender"),
+                        ("domain", "Facet/AddDomain"),
+                        ("blacklist", "AI/BlackList"),
+                    )
+                ]
+                if state.get("action_mode")
+                else []
+            }
+        )
 
     original_insert = synthetic.SyntheticGmailService._insert
 
@@ -118,6 +195,7 @@ def install():
     synthetic.SyntheticGmailService.__init__ = initialize
     synthetic._Messages.list = listed
     synthetic._History.list = history
+    synthetic._Labels.list = labels
     synthetic.SyntheticGmailService._message = message
     synthetic.SyntheticGmailService._thread = thread
     synthetic.SyntheticGmailService._insert = insert

@@ -8,6 +8,30 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Current-label observation implementation; live deployment unchanged
+
+The user approved current-state label interpretation on 2026-10-08. Production
+runtime now has a candidate path treating History as dirty-thread notifications,
+with durable presence/activation acknowledgements rather than old add/remove
+command replay. Existing command rows stay historical evidence. Focused actual
+CLI subprocess tests passed initialization/auth binding, preview/start, current
+rule learning, complete non-draft thread insert/readback/mapping, sticky-tag
+restart deduplication and observed absence/re-add. BlackList removal does not
+revive a stopped thread; missing tags are no-ops and provider errors retain work.
+Atomic rollback, legacy/current identity collision and matching-only legacy
+acknowledgement have focused repository evidence. Backed-up v3-to-v4 upgrade,
+DDL rollback and owner reopen passed. Independent plan review accepted the
+[short plan](implementation-plans/current-label-observations.md); implementation
+review, final full checks, image qualification and PR CI are pending.
+
+This is implemented/focused-offline evidence, not merged or live acceptance.
+The real stopped deployment remains the image and exact counts described below:
+4309 mappings, one protected unknown and eleven attention. Eight old label
+notifications will be checked against current tags after a separately scoped
+upgrade/run, not discarded as guessed old commands. Three projection jobs still
+depend on the old unknown; this change does not permit resending it. Final Phase 1
+maintenance/Dashboard/deployment/dogfood gates remain unfinished.
+
 ### Published recovery installed; historical cleanup and exact restoration passed
 
 PR [#103](https://github.com/GhostFlying/facet/pull/103) is merged at
@@ -44,8 +68,8 @@ No Gmail writes occurred in these operator steps.
 Remaining eleven attention jobs, not eleven distinct failed emails:
 
 - Eight events refer to one unavailable user-label ID: four additions with lost
-  meaning and four removals. Removals have no business effect, but current code
-  still sends unknown-label removals to attention; this is a current classification
+  meaning and four removals. The installed image
+  still sends unknown-label removals to attention; this is its classification
   gap, not a purely historical artifact. Neither lost additions nor this common
   gap were swept into the conditional one-time correction.
 - Three projection jobs depend on the old unknown; its owning projection remains
@@ -63,10 +87,10 @@ AddDomain learning is claimed. See the compact
 [engineering acceptance](reviews/automatic-recovery-convergence.md) remains
 candidate-bound historical evidence.
 
-Next: normal deduplicated consumers can process the ten restored notifications
+Next live step: qualified current-state consumers can process the restored notifications
 only within separately applicable live scope; the DB correction itself did not
 execute them or broaden Gmail authority. Fix the unnecessary unknown-label-removal
-classification, retain unresolved activation meaning, and define any bounded
+classification using current tags (D12 supersedes lost-intent reconstruction), and define any bounded
 unknown repair without guessed ownership or blind retry. No generic recovery
 framework is required for the completed historical exceptions. Broader maintenance
 CLI, live gap, audit/restore,

@@ -185,7 +185,8 @@ def test_cli_thread_label_message_aliases_learn_and_copy_once(wire):
     result = invoke("run", "--once")
     assert result["attention"] == 0 and result["projected"] == 2
     assert len(mailbox.inserted_raw) == 2
-    assert len(rows(state, "action_commands")) == len(rows(state, "rules")) == 1
+    assert len(rows(state, "action_commands")) == 0
+    assert len(rows(state, "current_action_receipts")) == len(rows(state, "rules")) == 1
     assert len(rows(state, "message_mappings")) == 2
     with sqlite3.connect(f"{(state / 'facet.db').as_uri()}?mode=ro", uri=True) as db:
         assert db.execute(

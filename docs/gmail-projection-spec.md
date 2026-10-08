@@ -239,11 +239,15 @@ Gmail History 可能过期并返回 404，不能假定固定保留时间。[Gmai
 
 ## Label 命令和 BlackList
 
-支持 `AI/AddSender`、`AI/AddDomain`、`AI/BlackList`；每类标签可独立缺省。按 `(projection_id, history_record_id, label_id, source_thread_id)` 聚合，一次 UI thread 操作只执行一次。
+支持 `AI/AddSender`、`AI/AddDomain`、`AI/BlackList`；每类标签可独立缺省并通过 CLI 配置。2026-10-08 用户决定：History 标签记录仅标记 thread 需要检查；不按旧 add/remove、旧 label ID 还原命令。读取当前 non-draft 消息标签，并按当前精确配置解释类别；没有匹配标签为正常 no-op，即使 History 指向已删除/不认识的标签。
 
 倒序寻找最近 From 不属于 own-addresses 的消息；无法找到或 sender 格式有歧义时进入 review。AddDomain 使用 PSL，不学习用户 primary domain。Command、rule 和 thread jobs 先落盘，便利模式随后清理 label；清理失败只重试清理，不重放业务效果。
 
-只读模式保留标签，并记录已观察的 activation；移除再添加为新命令。首次初始化枚举 legacy labels 仅报告，不当作新命令，避免执行之前 Apps Script 遗留的标签。Current label snapshots 不能代替 History event 去重。
+只读模式保留标签。持久 observation 按 projection/thread/category 保存当前标签身份、presence 和 activation sequence；持续存在只执行一次。只有观察到 absence 后再看到 presence 才重新激活；未观察的短暂切换不重建。改变配置或重新建立不同 Gmail label ID 是不同观察身份。History 的 event delivery 去重仍保留，但不再是业务 activation 的唯一键。
+
+新 activation receipt 使用本地 ID/sequence，保存真实 trigger event 作为审计来源、选定规则和 resulting thread admission/generation；规则、stop/admission/jobs、receipt、ACK 和标签通知 completion 同事务。已跟踪线程不重复要求旧 expansion job 未完成；stopped thread 不复活。旧 action_commands 留作历史证据，不伪造 old ADDED event 或复用其 unique key。当前规则学习后的 admission 复用 enabled-rule admission；label receipt 保留其明确来源。
+
+初始 H0 先持久化，再按固定 label IDs 分页建立零业务效果的 legacy baseline，完成前不消费 operational work。这是逐 thread 首次观察，不承诺瞬时邮箱快照。升级只继承 proven executed 且当前类别/label ID 匹配的旧 activation，不忽略 pending 通知或新映射的标签。Provider 故障不当作 absence；先判断 presence，再解析需要的 sender。
 
 Blacklist 精确 sender 优先于新 thread allow。当前 thread 变 inactive、generation 增加，取消未开始的旧 work；在途 insert 返回后仍保存事实。删除 blacklist 不自动恢复已停止 thread；恢复通过显式 track 操作，并留下新的审计记录。
 
