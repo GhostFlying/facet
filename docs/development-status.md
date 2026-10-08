@@ -8,48 +8,40 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Historical queue drained; action-label alias repair and restart verified
+### Historical queue drained; automatic recovery/convergence locally verified
 
-The installed production CLI has **4306 verified mappings**. The originally
-selected historical epoch is completed (5041 completed work items); no projection
-or thread-expansion work is queued/retrying/claimed. New source labels were not
-consumed during the first copying pass; the following History cycle executed two
-AddSender actions and learned two enabled sender rules, three total. No live
-AddDomain learning is claimed.
+Installed-state baseline: **4306 verified mappings**, completed historical epoch
+(5041 work items), three enabled sender rules, old 58 attention and one unknown.
+The prior three newly failed thread-label aliases were repaired under explicit
+authorization; PR [#102](https://github.com/GhostFlying/facet/pull/102) is merged.
+Same-scope restart and scoped MIME/date/thread/All Mail checks passed. Target had
+4306 mapped items, two permitted outbound items and no other unmanaged mail at
+the last live audit. No live AddDomain learning is claimed. Continuous sync stays
+stopped; today's engineering does not add Gmail writes or mutate old live records.
 
-The second pass added 427 mappings but its private acceptance guard correctly
-blocked on three new false attention rows: Gmail's per-message notifications of
-the same thread label activation were treated as conflicting event IDs after the
-canonical action had already succeeded. There was no repeated rule learning or
-duplicate insert. The original failed receipt remains blocked, not replayed.
-The user explicitly authorized repair of only these three event/job pairs.
+Source `6df5ca719dd5dd106bc66f072ed6e64f73bc9064` passed independent plan and
+implementation acceptance. Normal `run --once` now checks due unknown outcomes,
+persists counts/deadlines and retains precise ambiguity/source-missing diagnostics;
+it never resends or creates an unproven mapping. Known-label removals are no-ops.
+Narrow durable proof permits false action-alias/message-added resolver attention
+to complete, without repeating rules, admissions, expansion or projection.
 
-Source candidate `4e443618fabd5f9486000e7ffa251e201d6c1e85` passed independent
-plan/implementation review and affected host checks. Its exact non-root,
-network-isolated local image passed production CLI and action-consumer checks
-using external-only Gmail/OAuth fakes, including copy/restart deduplication.
-Normal sync only consumes aliases of fully completed canonical activations;
-selected existing attention repair is a separate revision-guarded operation.
-The network-disabled writer-owned operation backed up validated state and
-completed exactly the three authorized event/job pairs. Old 58 attention jobs,
-one unknown, mappings/attempts, rules, checkpoint, epoch and stops were preserved.
-Diagnostic read-only checks passed 22 phase-new mappings, including both action-
-selected threads, for MIME/digests, valid dates/internalDate, threads and All Mail
-visibility; the original failed receipt remains blocked.
+The exact non-root image passed all selected production CLI/action cases and the
+affected recovery/convergence unit subset (corrected test setup; see receipt).
+In a network-disabled **copy** of installed SQLite state, that production consumer
+closed 13 proven events (58 to 45), then zero on replay; mappings, attempts, rules,
+epochs, checkpoint and threads were unchanged. Installed state was mounted
+read-only. This is evidence of applicable repair, not an executed live repair.
+Full local offline checks passed (2884 tests, lint/format, CLI smoke and safety).
+GitHub holds the authoritative final PR CI/merge/publication state. See the single
+current
+[recovery acceptance receipt](reviews/automatic-recovery-convergence.md).
 
-A separate production CLI restart passed in 29.51s: six new source messages
-became six verified mappings, **4306 total**, with no duplicate inserts, new job
-problems or warnings. Historical work remains completed. Fresh target enumeration
-found 4306 mapped items, two permitted outbound items and no other unmanaged mail.
-Full offline checks passed; source PR CI passed on Python 3.12/3.13 and image build.
-Read-only checks of all six restart-added mappings passed MIME/digests, dates,
-threads and All Mail visibility. A final writer-locked private backup passed and
-preserved the validated business snapshot. Documentation-head review/CI and
-merge remain pending in [PR #102](https://github.com/GhostFlying/facet/pull/102).
-Old unresolved work is not successful; the continuous container stays stopped.
-
-See [the alias plan](implementation-plans/action-label-event-aliases.md) and
-[the queue receipt](reviews/same-scope-queue-drain.md). Broader maintenance CLI,
+The remaining 45 attention in the copy are not solved. The old unknown still
+lacks independent ownership proof; content equality or empty search does not
+authorize claim or retry. The local candidate is qualified for PR CI and autonomous
+engineering merge; neither changes the installed deployment. Any live old-state repair/deployment or
+unknown resend needs its separately bounded authorization. Broader maintenance CLI,
 live gap, audit/restore, Dashboard/browser/deployment and dogfood acceptance
 remain unfinished; this is not full Phase 1 acceptance.
 
