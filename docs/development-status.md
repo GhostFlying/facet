@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Published sync path; scoped live historical verification next
+### Granular real historical projection works; backfill still queued
 
 The production CLI supports setup/role binding, persisted sender rules,
 zero-write preview, explicit historical start and `run --once`. It now includes
@@ -18,51 +18,51 @@ Rule eligibility uses processing/scan time; H1 catchup, stable query scope,
 current allow removal, stopped generations and unknown-insert guards remain.
 The complete `sync` wrapper and broader maintenance commands remain unfinished.
 
-Independent integration review checked the previously unpublished parent delta
-and found one action-label 429 scheduling defect. Root fixed it at
-`905c0f4a79c68ed5e4c09211ab5a4397a27661ac`; focused independent rereview approved
-the durable provider deadline and early-read guard, including reopened SQLite
-writers and all three action categories. CI now allows twenty minutes instead
-of ten; both Python versions and every existing check remain enabled.
+PRs #93–#96 are merged with complete dual-Python CI and image checks; #97 is the
+documentation handoff. Published runtime `392fe31969d96c5be4e46dff0bce3fdb249c8fd3`
+passed immutable public-image/provenance checks and is retained on the test host,
+with its original persistent state and continuous container stopped. Historical
+integration evidence is in [history/gap acceptance](reviews/history-gap-recovery.md).
 
-Updated PRs #93–#96 each passed complete Python 3.12/3.13 checks and image builds,
-then merged in dependency order. Main runtime delivery commit is
-`392fe31969d96c5be4e46dff0bce3fdb249c8fd3`. Every resulting main tree matched its
-accepted PR head; the final tree equals integration candidate
-`b634d94c100b4de064cf35782923f753d0470ed8`. Its exact pinned, non-root local image
-passed eight production CLI historical/gap cases with external-only Gmail/OAuth
-fakes, networking disabled and no application-source or real-state overlay.
-See [integration evidence](reviews/history-gap-recovery.md) and
-[parent/focused review](reviews/sync-single-dispatch-transport.md).
+The user explicitly approved the refreshed default six-month window for the same
+accounts and sole sender rule. Private writer-locked backups and fresh role/scope/
+target checks passed. Actual CLI preview/start replay was identical, created one
+historical epoch, preserved the shared checkpoint and made zero target inserts.
+The published runtime's first cycle exposed a pre-insert rule-policy mismatch;
+no attempts/mappings were added. Root corrected historical/gap admission to use
+the selected persisted rule revision, retaining repository validation.
 
-Main dual-Python CI and image publication passed. The public image index is
-`sha256:2f89d96338b7e6cafa421c5f58722a61681bffe8fc80e0285aaae014cfaa2054`;
-anonymous checks verified amd64/arm64 manifests, SBOM and exact-main-SHA SLSA
-provenance. The anonymously imported amd64 runtime's source matches the accepted
-local image and passed the production CLI fake historical/restart case.
+Source candidate `a89f4e83cced6c5d10200ea2d7922d1c159d00d9` passed independent
+plan/implementation review, affected/full offline checks and actual CLI historical/
+gap tests in its exact non-root local image with external-only fakes. That same
+image then ran the real production path on the existing state, with no app-source
+overlay, schema migration, rule change or new scope. See the current
+[correction and live receipt](reviews/backfill-rule-policy.md).
 
-The authorized test-host deployment now references this full main-SHA image,
-with its original persistent volume retained and the container stopped. A
-writer-locked SQLite-API backup includes configuration and credentials; the old
-image remains available for stopped rollback. Fresh production read-only checks
-verified account/scope bindings and classified target as nine mapped copies,
-two permitted source-From SENT items and zero other unmanaged content. The old
-unknown's empty search result is not permission to retry or claim it.
+Real product evidence: discovery completed 43 pages / 4234 candidates; two History
+pages and 30 events processed; **215 new verified mappings, 224 total**. All mapped
+attempts are verified, target IDs distinct and no claims remain. Independent
+read-only sampling of 20 new copies passed MIME/digest, valid Date/internalDate,
+thread mapping and normal All Mail checks. Final target enumeration found 224
+mapped items, two permitted outbound SENT items and zero other unmanaged items.
+The old nine mappings, one unknown, 58 attention jobs and retained blocked/recovery
+work remain unchanged; no new unknown/attention or terminal failure occurred.
 
-Production CLI preview and stable-key replay passed against retained real state
-with networking disabled: zero target writes, no new insert attempts/epochs and
-unchanged protected business state. Nine mappings, one old unknown and 58 old
-attention jobs remain. No historical start/run, mailbox mutation, unknown retry,
-attention reopening or daemon resume occurred in this integration. Dashboard
-health on a running deployment and live historical/gap acceptance are not claimed.
+The first cycle took 2276.43 seconds, mostly serial candidate metadata before
+copying; completed discovery is persisted. **4049 message jobs remain queued**;
+this is not completed bulk backfill. Three expansion reads were temporarily
+`source_rate_limited` and recovered safely within the process. Per the trial gate,
+root recorded that observation and withheld cycle2 even though the end-state
+checks were clean. Real fresh-process continuation is therefore not yet accepted.
+The source fix awaits its focused PR/CI/main integration; source/image acceptance
+does not require repeating the completed design/offline checks for these receipts.
 
-Next delivery: use granular preview/start/run/readback and fresh-process
-continuation on the qualified published image. The old 4203-message/777-thread
-search used the original six-month window, not a final copy count. A new CLI preview ends later;
-the updated default window needs the requested user confirmation before bulk
-start. No scope expansion is inferred from merge or OAuth approval.
-Live historical/gap acceptance, composed sync, full target audit and remaining
-M1–M6/backup-restore/deployment/dogfood gates are not complete.
+Next: integrate the bounded policy fix; assess the observed read deferrals before
+a bounded fresh-process continuation of the already selected scope. No unknown
+retry, cleanup, new scope or continuous startup is inferred. Complete `sync`,
+live gap recovery, full target audit and remaining M1–M6/backup-restore/deployment/
+dogfood gates are not complete. Sampled Gmail API checks are not exhaustive or
+browser/UI acceptance, and a stopped container does not establish Dashboard health.
 
 The sections below retain their original candidate/time-bounded evidence;
 their historical pending gates are superseded only by the current summary above.
