@@ -8,6 +8,56 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Historical queue drained; action-label alias repair and restart verified
+
+The installed production CLI has **4306 verified mappings**. The originally
+selected historical epoch is completed (5041 completed work items); no projection
+or thread-expansion work is queued/retrying/claimed. New source labels were not
+consumed during the first copying pass; the following History cycle executed two
+AddSender actions and learned two enabled sender rules, three total. No live
+AddDomain learning is claimed.
+
+The second pass added 427 mappings but its private acceptance guard correctly
+blocked on three new false attention rows: Gmail's per-message notifications of
+the same thread label activation were treated as conflicting event IDs after the
+canonical action had already succeeded. There was no repeated rule learning or
+duplicate insert. The original failed receipt remains blocked, not replayed.
+The user explicitly authorized repair of only these three event/job pairs.
+
+Source candidate `4e443618fabd5f9486000e7ffa251e201d6c1e85` passed independent
+plan/implementation review and affected host checks. Its exact non-root,
+network-isolated local image passed production CLI and action-consumer checks
+using external-only Gmail/OAuth fakes, including copy/restart deduplication.
+Normal sync only consumes aliases of fully completed canonical activations;
+selected existing attention repair is a separate revision-guarded operation.
+The network-disabled writer-owned operation backed up validated state and
+completed exactly the three authorized event/job pairs. Old 58 attention jobs,
+one unknown, mappings/attempts, rules, checkpoint, epoch and stops were preserved.
+Diagnostic read-only checks passed 22 phase-new mappings, including both action-
+selected threads, for MIME/digests, valid dates/internalDate, threads and All Mail
+visibility; the original failed receipt remains blocked.
+
+A separate production CLI restart passed in 29.51s: six new source messages
+became six verified mappings, **4306 total**, with no duplicate inserts, new job
+problems or warnings. Historical work remains completed. Fresh target enumeration
+found 4306 mapped items, two permitted outbound items and no other unmanaged mail.
+Full offline checks passed; source PR CI passed on Python 3.12/3.13 and image build.
+Read-only checks of all six restart-added mappings passed MIME/digests, dates,
+threads and All Mail visibility. A final writer-locked private backup passed and
+preserved the validated business snapshot. Documentation-head review/CI and
+merge remain pending in [PR #102](https://github.com/GhostFlying/facet/pull/102).
+Old unresolved work is not successful; the continuous container stays stopped.
+
+See [the alias plan](implementation-plans/action-label-event-aliases.md) and
+[the queue receipt](reviews/same-scope-queue-drain.md). Broader maintenance CLI,
+live gap, audit/restore, Dashboard/browser/deployment and dogfood acceptance
+remain unfinished; this is not full Phase 1 acceptance.
+
+## Historical evidence
+
+The following sections retain their candidate/time-bounded evidence. Pending
+statements are historical; only the current summary above states present status.
+
 ### Credential repair merged; same-scope real continuation verified
 
 Complete CLI sync PR #99 is merged at `e504b696913fba12bab5fc69dbe5ff3f838fd5a4`;
@@ -62,11 +112,6 @@ is still retained, not repaired or treated as successful. Bulk backfill and full
 Phase 1 acceptance are incomplete; broader CLI, live gap, audit/restore,
 Dashboard/browser/deployment and dogfood gates remain unfinished.
 No cleanup, old unknown retry, new scope or permanent service startup is implied.
-
-## Historical evidence
-
-The following sections retain their candidate/time-bounded evidence. Pending
-statements are historical; only the current summary above states present status.
 
 ### Complete CLI sync qualified offline; real historical projection continuing
 
