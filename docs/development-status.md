@@ -8,33 +8,59 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Interrupted sync retained; credential repair qualified locally
+### Credential repair merged; same-scope real continuation verified
 
 Complete CLI sync PR #99 is merged at `e504b696913fba12bab5fc69dbe5ff3f838fd5a4`;
 its main offline CI and image publication passed. Full Phase 1 is not accepted.
 The continuous real container is stopped; no new epoch/rule/window is selected.
 
 The second real bounded batch added 648 verified mappings, **1872 total**, before
-token expiry interrupted it. Current saved source/target tokens both returned
+token expiry interrupted it. Pre-repair source/target tokens both returned
 401 in read-only profile probes; runtime checked expiry only at cycle entry.
-159 source-read jobs remain retryable. One target attempt was definitely rejected;
-one directly succeeded but needs readback/mapping completion. A subsequent
-unstarted same-thread job was blocked by that pending attempt. The older unknown
+At interruption 159 source-read jobs were retryable. One target attempt was
+definitely rejected; one directly succeeded but needed readback/mapping completion.
+A subsequent unstarted same-thread job was blocked by that pending attempt. The older unknown
 is still protected. The failed operator receipt is retained, not resubmitted.
 
 The independently reviewed [request-auth plan](implementation-plans/request-auth-refresh.md)
-is implemented as one coherent fix: structured closed provider reasons,
+is merged in PR #100 at `0d885d45b61507b63d4a97a9bc7c608c0909142f`:
+structured closed provider reasons,
 manager-owned request-time refresh, durable rejected-insert retry, zero-insert
 known-readback completion and same-scope restart continuation. Actual CLI external
 fakes have passed rejected-insert refresh/new-attempt and known-readback restart
 checks. Independent acceptance approved source `1a8eef14937caf8f58bc8035eb964e3b7bcec38f`;
 its exact non-root local image passed all 49 complete CLI/request-reason checks.
-Full final offline suite, PR CI/merge and resumed live evidence remain outstanding.
-See [the current acceptance receipt](reviews/request-auth-refresh.md). No real Gmail writes
-have been performed with this repair candidate.
+The final local full suite passed 2837 tests; required PR checks passed on both
+Python versions and the image build. Main offline CI and image publication passed; anonymous
+registry reads confirmed amd64/arm64 manifests and attestation manifests.
+See [the current acceptance receipt](reviews/request-auth-refresh.md).
 
-Next: qualify/merge the fix, back up retained production state, complete the
-known readback with zero inserts, then continue the existing selected queue.
+After a writer-locked private backup, the real installed production CLI completed
+`run --once --verify-known-only`: one pending directly attributed insert became
+a verified mapping, **1873 total**, with zero inserts/new attempts and unchanged
+old unknown, unrelated attention, rules/window, stopped generations and checkpoint.
+The linked unstarted dependent is retryable again. Independent read-only checks
+of that newly recovered mapping passed MIME/digests, valid Date/internalDate,
+thread identity and normal All Mail visibility. Fresh full target classification
+found 1873 mapped items, two permitted outbound items and no other unmanaged mail.
+The new same-scope ordinary cycle then completed: **1000 new verified mappings,
+2873 total**, in 1795.16s, with five History pages / 14 resolved events and zero
+repeat discovery. Existing mappings, old unknown, original 58 attention jobs,
+rules/window, stopped generations and discovery/epoch identity are unchanged.
+No new job problems/warnings or claims remain. Fresh target enumeration found
+2873 mapped items, two permitted outbound items and no other unmanaged mail.
+Independent read-only sampling of 20 mappings added by this exact cycle passed
+MIME/digests, all 20 valid Date/internalDate values, threads and All Mail visibility.
+A post-test writer-locked private backup passed. Both roles' saved credential
+revisions advanced; no new OAuth or scope was needed. Mid-cycle threshold/401
+faults passed offline; this real cycle started with refreshed credentials and
+does not claim to have crossed their next expiry.
+
+Next: continue the already selected queue under bounded guards: 1400 historical
+jobs and three normal projection jobs remain queued. The old unknown/attention
+is still retained, not repaired or treated as successful. Bulk backfill and full
+Phase 1 acceptance are incomplete; broader CLI, live gap, audit/restore,
+Dashboard/browser/deployment and dogfood gates remain unfinished.
 No cleanup, old unknown retry, new scope or permanent service startup is implied.
 
 ## Historical evidence
