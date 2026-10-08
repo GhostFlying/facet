@@ -224,7 +224,7 @@ class ForegroundRuntime:
 
             from facet.private_paths import read_managed_config, select_paths
 
-            self.owner.ensure_current_action_schema(
+            self.owner.ensure_insert_absence_schema(
                 LocalId(uuid4().hex),
                 read_managed_config(select_paths(self.owner.state_dir, None)),
             )

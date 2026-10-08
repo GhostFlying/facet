@@ -42,7 +42,7 @@ from facet.db.models import (
     ThreadExpansionRunRow,
     ThreadTargetRow,
 )
-from facet.db.repositories import expansion, intents, jobs, mappings
+from facet.db.repositories import absence_retry, expansion, intents, jobs, mappings
 from facet.db.repositories.base import _decode, _get, _query
 from facet.db.repositories.serialization import COLUMNS
 from facet.gmail.retry import ProviderFailure, ProviderStage, blocks_sync
@@ -81,9 +81,20 @@ class ProjectionWorker:
         self._projection = owner.projection_id
         self._reactive_jobs = set()
         self._dependency_failure = None
+        self._selected_job_id = None
 
     def run(self, *, max_jobs=1):
         return self._run(max_jobs=max_jobs)
+
+    def run_selected(self, job_id: LocalId):
+        """Run one exact durable job using the ordinary production path."""
+        if type(job_id) is not LocalId:
+            raise ValueError("invalid_input")
+        self._selected_job_id = job_id
+        try:
+            return self._run(max_jobs=1)
+        finally:
+            self._selected_job_id = None
 
     def expand_epoch(self, epoch_id: LocalId, *, max_jobs=1000):
         """Scan a recovery epoch without selecting any target-write jobs."""
@@ -155,9 +166,15 @@ class ProjectionWorker:
                     if expansion_epoch is not None
                     else ""
                 )
+                + ("AND j.job_id=? " if self._selected_job_id is not None else "")
                 + "ORDER BY j.created_at,j.job_id LIMIT 1",
                 (self._projection.value, timestamp_to_sql(now))
-                + ((expansion_epoch.value,) if expansion_epoch is not None else ()),
+                + ((expansion_epoch.value,) if expansion_epoch is not None else ())
+                + (
+                    (self._selected_job_id.value,)
+                    if self._selected_job_id is not None
+                    else ()
+                ),
                 maximum=1,
             )
             if not rows:
@@ -414,7 +431,10 @@ class ProjectionWorker:
                 Revision(0),
             )
             intents.prepare_attempt(
-                uow, self._projection, attempt, RevisionGuard(job.revision)
+                uow,
+                self._projection,
+                attempt,
+                RevisionGuard(job.revision),
             )
         with self._owner.session.transaction() as uow:
             self._active(uow, job)
@@ -622,6 +642,7 @@ class ProjectionWorker:
                 target,
                 RevisionGuard(attempt.revision),
             )
+            self._resume_dependents(uow, attempt)
         return "verified"
 
     def verify_known(self, *, max_jobs=1000):
@@ -704,7 +725,6 @@ class ProjectionWorker:
                 # Use this same transaction for facts and verified mapping. Any
                 # provenance conflict rolls back both operations.
                 self._verify(updated, Visibility.NORMAL, not anchors, uow=uow)
-                self._resume_dependents(uow, attempt)
             verified += 1
         return WorkerReceipt(
             processed=len(attempts),
@@ -713,15 +733,31 @@ class ProjectionWorker:
         )
 
     def _resume_dependents(self, uow, attempt):
-        unresolved = _query(
+        thread = _get(
+            uow,
+            self._projection,
+            "tracked_threads",
+            (("source_thread_id", attempt.source_thread_id),),
+        )
+        if (
+            thread is None
+            or not thread.active
+            or thread.generation != attempt.generation
+        ):
+            # An in-flight success is recorded even if the thread was stopped;
+            # only future work loses permission.
+            return
+        unresolved = absence_retry.blockers(
+            uow, self._projection, attempt.source_thread_id
+        )
+        prepared = _query(
             uow,
             "SELECT 1 FROM insert_attempts WHERE projection_id=? "
-            "AND source_thread_id=? AND state IN('prepared','dispatch_started',"
-            "'pending_recovery','known_inserted','needs_attention') LIMIT 1",
+            "AND source_thread_id=? AND state='prepared' LIMIT 1",
             (self._projection.value, attempt.source_thread_id.value),
             maximum=1,
         )
-        if unresolved:
+        if unresolved or prepared:
             return
         rows = _query(
             uow,

@@ -16,7 +16,7 @@ from facet.contracts import (
 )
 from facet.db.codecs import timestamp_to_sql
 from facet.db.models import RevisionGuard
-from facet.db.repositories import intents, jobs, reads
+from facet.db.repositories import absence_retry, intents, jobs, reads
 from facet.db.repositories.base import _decode, _query
 from facet.db.repositories.serialization import COLUMNS
 from facet.gmail.retry import ProviderFailure, blocks_sync
@@ -33,16 +33,18 @@ class RecoveryEvidence:
     target_thread_id: ProviderId | None = None
 
 
-def check_unknown(source, target, attempt, *, max_raw_bytes=35_000_000):
+def check_unknown(
+    source, target, attempt, *, max_raw_bytes=35_000_000, verify_absent_source=False
+):
     """Read facts in bounded RAM; a unique match is not an ownership assertion."""
     if attempt.rfc_message_id is None:
         return RecoveryEvidence(
             "attention", ErrorCode.ATTRIBUTION_UNKNOWN, reason="missing_rfc_message_id"
         )
     candidates = target.find_by_rfc_message_id(attempt.rfc_message_id)
-    if not candidates:
+    if not candidates and not verify_absent_source:
         return RecoveryEvidence("not_found", ErrorCode.INSERT_RESULT_UNKNOWN)
-    if len(candidates) != 1:
+    if len(candidates) > 1:
         return RecoveryEvidence(
             "duplicate_candidates", ErrorCode.DUPLICATE_CANDIDATES, len(candidates)
         )
@@ -66,10 +68,15 @@ def check_unknown(source, target, attempt, *, max_raw_bytes=35_000_000):
         source_facts = inspect(raw)
     finally:
         del raw
-    if source_facts.raw_digest != attempt.raw_digest:
+    if (
+        source_facts.raw_digest != attempt.raw_digest
+        or source_facts.rfc_message_id != attempt.rfc_message_id
+    ):
         return RecoveryEvidence(
             "attention", ErrorCode.FIDELITY_MISMATCH, 1, "source_changed"
         )
+    if not candidates:
+        return RecoveryEvidence("not_found", ErrorCode.INSERT_RESULT_UNKNOWN)
     readback = target.readback(candidates[0])
     try:
         if len(readback.raw) > max_raw_bytes:
@@ -131,12 +138,24 @@ class UnknownInsertChecks:
                 + ",".join("j." + c for c in COLUMNS["sync_jobs"])
                 + " FROM sync_jobs j JOIN insert_attempts a "
                 "ON a.projection_id=j.projection_id "
-                "AND a.attempt_id=j.attempt_id WHERE j.projection_id=? "
+                "AND a.attempt_id=j.attempt_id JOIN tracked_threads t "
+                "ON t.projection_id=a.projection_id "
+                "AND t.source_thread_id=a.source_thread_id "
+                "WHERE j.projection_id=? AND t.active=1 AND t.generation=a.generation "
                 "AND j.kind='recover_insert' AND j.state IN('queued','retry_wait') "
-                "AND a.state='pending_recovery' AND (j.next_attempt_at IS NULL OR "
+                "AND a.state='pending_recovery' AND (((j.next_attempt_at IS NULL OR "
                 "j.next_attempt_at<=?) AND (a.next_recovery_at IS NULL OR "
-                "a.next_recovery_at<=?) ORDER BY j.created_at,j.job_id LIMIT ?",
-                (projection.value, timestamp_to_sql(now), timestamp_to_sql(now), limit),
+                "a.next_recovery_at<=?)) OR (j.last_error_code='insert_result_unknown' "
+                "AND a.dispatch_started_at+300000000<=?)) "
+                + absence_retry.exclusion(uow)
+                + "ORDER BY j.created_at,j.job_id LIMIT ?",
+                (
+                    projection.value,
+                    timestamp_to_sql(now),
+                    timestamp_to_sql(now),
+                    timestamp_to_sql(now),
+                    limit,
+                ),
                 maximum=limit,
             )
             selected = tuple(_decode(uow, projection, "sync_jobs", row) for row in rows)
@@ -145,6 +164,29 @@ class UnknownInsertChecks:
             now = Timestamp(datetime.now(UTC))
             with self.owner.session.transaction() as uow:
                 attempt = reads.get_attempt(uow, projection, job.subject.attempt_id)
+                automatic = absence_retry.enabled(uow)
+                deadline = (
+                    attempt.dispatch_started_at.value + timedelta(minutes=5)
+                    if attempt.dispatch_started_at is not None
+                    else None
+                )
+                aged = automatic and deadline is not None and now.value >= deadline
+                if (
+                    job.next_attempt_at is not None
+                    and job.next_attempt_at.value > now.value
+                ):
+                    # Only old successful empty checks may bypass their legacy
+                    # backoff at the policy deadline, never a provider error.
+                    jobs.defer_job(
+                        uow,
+                        projection,
+                        job.job_id,
+                        "retry_wait",
+                        ErrorCode.INSERT_RESULT_UNKNOWN,
+                        now,
+                        RevisionGuard(job.revision),
+                    )
+                    job = reads.get_job(uow, projection, job.job_id)
                 claim = Claim(
                     LocalId(uuid4().hex),
                     self.owner.owner_info.owner_run_id,
@@ -157,14 +199,18 @@ class UnknownInsertChecks:
                     uow, projection, job.job_id, claim, RevisionGuard(job.revision), now
                 )
             failure = None
+            assume_absent = False
             try:
                 evidence = check_unknown(
-                    self.source, self.target, attempt, max_raw_bytes=self.max_raw_bytes
+                    self.source,
+                    self.target,
+                    attempt,
+                    max_raw_bytes=self.max_raw_bytes,
+                    verify_absent_source=aged,
                 )
                 code = evidence.code
-                # Content equality cannot establish provenance. Keep checking
-                # an empty index; real ambiguity is precise retained attention.
-                retry = evidence.result == "not_found"
+                assume_absent = aged and evidence.result == "not_found"
+                retry = evidence.result == "not_found" and not assume_absent
             except ProviderFailure as error:
                 code, failure = error.code, error
                 if error.role is Role.SOURCE and error.status == 404:
@@ -181,6 +227,16 @@ class UnknownInsertChecks:
             delay = min(3600, 30 * 2 ** min(attempt.recovery_checks.value, 7))
             if failure is not None:
                 delay = max(delay, failure.retry_after_seconds or 0)
+            retry_at = (
+                Timestamp(now.value + timedelta(seconds=delay)) if retry else None
+            )
+            if (
+                retry
+                and failure is None
+                and deadline is not None
+                and now.value < deadline
+            ):
+                retry_at = Timestamp(deadline)
             with self.owner.session.transaction() as uow:
                 intents.record_recovery_check(
                     uow,
@@ -188,8 +244,9 @@ class UnknownInsertChecks:
                     attempt.attempt_id,
                     code,
                     now,
-                    Timestamp(now.value + timedelta(seconds=delay)) if retry else None,
+                    retry_at,
                     RevisionGuard(attempt.revision),
+                    assume_absent=assume_absent,
                 )
             checked += 1
             if failure is not None and blocks_sync(failure):

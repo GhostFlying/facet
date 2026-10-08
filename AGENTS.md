@@ -290,6 +290,17 @@ rule and recovery invariants remain.
   Before insert, persist intent; unknown outcomes enter recovery, not blind
   retries. Disable unconditional client insert retries. Search delay has no
   spike-proven upper bound. Missing/reused Message-ID needs additional checks.
+- Product decision override (2026-10-09): ordinary startup/sync cycles may
+  automatically requeue a pending unknown insert at least five minutes after
+  its persisted dispatch time, after a successful zero-candidate target lookup,
+  unchanged source digest/RFC, matching ready account bindings, active generation
+  and no mapping. This explicitly accepts residual duplicate risk, not proof of
+  non-insertion or a Gmail consistency SLA. Provider failure is not absence;
+  candidates/ambiguity remain attention, not automatic ownership. Persist the
+  absence decision and requeue atomically; preserve original unknown facts.
+  Repeated replacement unknowns follow the same deadline/check policy. No
+  per-item preview, user acknowledgement or one-replacement budget is required.
+  Preserve writer/stop/privacy/target-precondition guards and existing live scope.
 - Bind recovery candidates only after fingerprint, account, and mapping checks.
   Multiple/mismatching candidates enter attention/review. A candidate in
   Spam/Trash is not evidence of normal visibility. Do not delete duplicates.

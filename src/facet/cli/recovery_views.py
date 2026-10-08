@@ -67,6 +67,17 @@ def read_recovery_list(options) -> dict:
                 attempts[InsertState(state).value] = int(count)
             except (TypeError, ValueError):
                 raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE) from None
+        assumed_absent = 0
+        unknown = connection.execute(
+            "SELECT COUNT(*) FROM insert_attempts WHERE projection_id=? "
+            "AND certainty='unknown'",
+            (projection,),
+        ).fetchone()[0]
+        if connection.execute("PRAGMA user_version").fetchone()[0] == 5:
+            assumed_absent = connection.execute(
+                "SELECT COUNT(*) FROM insert_absence_retries WHERE projection_id=?",
+                (projection,),
+            ).fetchone()[0]
         jobs = dict.fromkeys((state.value for state in JobState), 0)
         for state, count in connection.execute(
             "SELECT state,COUNT(*) FROM sync_jobs "
@@ -78,8 +89,8 @@ def read_recovery_list(options) -> dict:
             except (TypeError, ValueError):
                 raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE) from None
         return {
-            "unknown_insert_attempts": attempts[InsertState.DISPATCH_STARTED.value]
-            + attempts[InsertState.PENDING_RECOVERY.value],
+            "unknown_insert_attempts": unknown - assumed_absent,
+            "assumed_absent_insert_attempts": assumed_absent,
             "attempts_by_state": attempts,
             "recovery_jobs_by_state": jobs,
             "target_writes": 0,
@@ -242,7 +253,16 @@ def read_recovery_job(options) -> dict:
     _paths, _raw, config, connection = _open_snapshot(options)
     try:
         job, attempt = _selected_recovery(connection, config, job_id)
-        return {"job": _job_data(job), "attempt": _attempt_data(attempt)}
+        result = {"job": _job_data(job), "attempt": _attempt_data(attempt)}
+        if connection.execute("PRAGMA user_version").fetchone()[0] == 5:
+            decision = connection.execute(
+                "SELECT checked_at FROM insert_absence_retries WHERE projection_id=? "
+                "AND attempt_id=?",
+                (config.projection.id.value, attempt.attempt_id.value),
+            ).fetchone()
+            if decision is not None:
+                result["absence_retry"] = {"checked_at": _time(decision[0])}
+        return result
     finally:
         if connection.in_transaction:
             connection.rollback()

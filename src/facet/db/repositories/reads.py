@@ -250,12 +250,16 @@ def counts(view, projection_id, epoch_id):
             "WHERE projection_id=:p AND epoch_id=:e"
         )
         params = {"p": p, "e": epoch_id.value}
+    from . import absence_retry
+
     # One materialized SQL result, hence one short snapshot for every aggregate.
     sql = (
         "WITH jobs AS (" + jobs + "),epoch AS (" + epoch_sql + ") "
-        "SELECT 'summary',(" + maps + "),(SELECT COUNT(*) FROM insert_attempts "
-        "WHERE projection_id=:p AND state IN('dispatch_started','pending_recovery',"
-        "'known_inserted','needs_attention')),(SELECT discovery_complete FROM epoch),"
+        "SELECT 'summary',(" + maps + "),(SELECT COUNT(*) FROM insert_attempts a "
+        "WHERE a.projection_id=:p AND a.state IN('dispatch_started','pending_recovery',"
+        "'known_inserted','needs_attention') "
+        + absence_retry.exclusion(view)
+        + "),(SELECT discovery_complete FROM epoch),"
         "(SELECT known_message_total FROM epoch) UNION ALL "
         "SELECT state,n,NULL,NULL,NULL FROM jobs"
     )

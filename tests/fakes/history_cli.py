@@ -3,6 +3,7 @@
 import base64
 import json
 import os
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from facet.contracts import Role
@@ -15,6 +16,37 @@ def install():
 
     def read():
         return json.loads(mailbox.read_text())
+
+    if read().get("recovery_clock"):
+        # Test time and crash points, not manufactured DB business state.
+        from facet import sync
+        from facet.cli import bootstrap
+        from facet.db.repositories import intents
+        from facet.gmail import credentials
+        from facet.projection import recovery, worker
+        from facet.runtime import state_owner
+
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime.now(tz) + timedelta(
+                    seconds=read().get("clock_offset", 0)
+                )
+
+        for module in (sync, bootstrap, credentials, recovery, worker, state_owner):
+            module.datetime = Clock
+
+        original_dispatch = intents.mark_dispatch
+
+        def dispatch(*args, **kwargs):
+            state = read()
+            if state.get("crash_at") == "prepared" and not state.get("crashed"):
+                state["crashed"] = True
+                mailbox.write_text(json.dumps(state))
+                os._exit(81)
+            return original_dispatch(*args, **kwargs)
+
+        intents.mark_dispatch = dispatch
 
     def initialize(self, role, account):
         original_init(self, role, account)
@@ -91,6 +123,15 @@ def install():
 
     def message(self, message_id, format):
         if self.role is Role.TARGET:
+            state = read()
+            if (
+                format == "raw"
+                and state.get("crash_at") == "known"
+                and not state.get("crashed")
+            ):
+                state["crashed"] = True
+                mailbox.write_text(json.dumps(state))
+                os._exit(83)
             return original_message(self, message_id, format)
         state = read()
         state["source_metadata_reads"] = state.get("source_metadata_reads", 0) + (
@@ -179,6 +220,23 @@ def install():
     original_insert = synthetic.SyntheticGmailService._insert
 
     def insert(self, body):
+        state = read()
+        if state.get("crash_at") == "dispatched" and not state.get("crashed"):
+            state["crashed"] = True
+            state["insert_calls"] += 1
+            mailbox.write_text(json.dumps(state))
+            os._exit(82)
+        if (
+            state.get("lose_first_insert_without_effect") and state["insert_calls"] == 0
+        ) or state["insert_calls"] in state.get("lose_insert_calls", []):
+            from facet.contracts import ErrorCode
+            from facet.gmail.retry import ProviderFailure
+
+            state["insert_calls"] += 1
+            mailbox.write_text(json.dumps(state))
+            raise ProviderFailure(
+                ErrorCode.NETWORK_UNAVAILABLE, Role.TARGET, request_dispatched=True
+            )
         result = original_insert(self, body)
         state = read()
         state["target"] = {

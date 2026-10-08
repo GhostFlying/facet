@@ -60,6 +60,18 @@ checks against the journal/current SQLite and verified both backup artifacts.
 
 ## Remaining boundary
 
+Subsequent old-unknown diagnosis read the stored error/audit records: no related
+error row or definite-rejection evidence exists. A read-only production
+`recovery check` first refused an expired access snapshot. Reusing the accepted
+writer-owned credential preparation, refresh/profile verification succeeded
+without interactive OAuth; the actual recovery evaluator returned `not_found`
+with zero candidates. Protected attempts, jobs, mappings, tracking, rules,
+events and epochs were identical before/after. Credential lifecycle metadata
+may legitimately change; this was not a business-state repair. No Gmail write,
+new insert invocation, mapping claim or replacement authorization occurred.
+This adds absence evidence, not proof of definite non-insertion. Current CLI
+has no executable scoped unknown-retry preview/authorization path.
+
 Continuous Compose service remains Created/stopped. This is bounded live
 current-label/migration/continuation evidence, not complete Phase 1 acceptance,
 an indefinite daemon, arbitrary historical expansion or unknown retry authority.

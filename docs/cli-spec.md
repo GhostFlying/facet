@@ -108,9 +108,9 @@ bounded pagination 和受控失败；涉及对象的 `list/show` 只显示持久
 | `facet reconcile --source/--target`；`facet reconcile status` | Durable source 补漏/target 存在性报告与进度；不删除或默认 reinsert；C/R | M4-03、M4-06；G4 |
 | `facet audit target --full`；`facet audit list/show` | 可恢复的全 target 检查、异常/未映射内容报告；metadata 输出；C/R/O | M4-03；G4 |
 | `facet repair preview/start/status --audit <id>` | 只修指定、已管理且确认 missing 的消息；不含 unmanaged/spike；R/C→W/O | M4-03、M2-04、M5-03；G4/G5，部署流程 G6 |
-| `facet recovery list/show/check/preview --job <id>` | Check 核验归属；preview 生成受限 retry 的 scope/risk ID，禁止分支则返回拒绝而不生成许可；默认不 insert；O/C/R | M2、M3；G2/G4 |
+| `facet recovery list/show/check --job <id>` | 离线状态/私有证据读取；check 零 insert，不写 DB；O/C/R | M2、M3；G2/G4 |
 | `facet recovery gap preview --gap <id> --since <UTC> --until <UTC>`；`facet recovery gap approve --gap <id> --preview <id>` | 无可信 coverage time 时，用户明确选择恢复 range，保存 typed decision；H1/fence、范围/generation 不绕过，规则不按邮件时间重建；R/C | M4-02、M3-03；G4，决定 D7 |
-| `facet recovery retry --job <id> --preview <id> --acknowledge-duplicate-risk` | 仅 ADR 允许、预算未超且范围明确的受限 retry；不可 force-bind；C→W | M2-04、M3-03；G2/G3，实际许可 D7 |
+| `facet run --once` 内的到期 unknown 恢复 | 五分钟后成功空查询及 source/binding/generation 核验，自动重排原投影；不认领候选；W | M2/M3；G2/G3，产品决定 D13 |
 | `facet gmail mode show/set`；`facet gmail labels status/setup` | 实际 scopes 校验、readonly/便利 mode；legacy 仅报告，便利 setup 需明确许可；O/C/R/W | M1-04、M5-02；G5 |
 | `facet maintenance inspect/check`；`facet migrate plan/apply/status` | 离线 metadata/schema/迁移兼容性检查；apply 先 backup、停机持锁；O/M | M1-02/03、M6-01/02；G1/G6 |
 | `facet backup create/verify/list`；`facet restore plan/apply` | SQLite backup API + config/binding/credentials 成套保存；离线验证/恢复；M/O | M6-01/02；G6 |
@@ -212,14 +212,14 @@ message/thread 已知计数、旧历史/附件/参与者/own replies/Spam/Trash 
 规则或 generation 改变、scope 不匹配时需重新 preview，不复用过期选择。Preview
 可以保存必要 metadata/H0，但不 insert；bulk start 还需 H0 可消费/gap 能力与真实许可。
 
-`backfill preview`、`repair preview --audit` 和 `recovery preview --job` 都是明确的
+`backfill preview` 和 `repair preview --audit` 都是明确的
 producer；输出本地 scoped preview ID 和固定用途。一个用途的 ID 不能用于另一命令，
 IDs/范围不一致或过期时 guard 拒绝。自动 discovery 的 preview 解释规则、六个月窗口、
 完整 thread 持续披露与 start 范围，不暴露邮件细节。完整同步入口内部生成并引用
 这一快照；下面的独立命令仍适用于维护和分步测试。
 
 ```text
-facet recovery preview --job <job-id> --request-id <recovery-preview-key> --json
+facet backfill preview --request-id <backfill-preview-key> --json
 facet backfill start --preview-id <preview-id> --request-id <backfill-key> --yes --json
 ```
 
@@ -238,17 +238,30 @@ force-bind。
 
 Recovery check 搜索/回读和比较受限候选，只有已评审归属证据成立才写 mapping；
 存在内容相同旧副本、Message-ID 复用、多个候选、索引不确定或冲突时保 attention。
-Recovery retry 先 preview 当前 job、budget、generation 和仍可能重复的风险，再做
-已批准的 scope/风险决定；`--acknowledge-duplicate-risk` 不能使本来禁止的 ADR 分支
-变为允许。候选 Spam/Trash 不是正常可见；任何命令都不清理重复。
+候选 Spam/Trash 不是正常可见；任何 recovery 命令都不清理重复。
 
 当前 `recovery list/show/check` 提供只读证据读取：`show` 通过
 typed `recover_insert` job lineage 读取私有 metadata，`check` 按 RFC Message-ID 搜索
 target 并做 readback/fidelity 比较。它不 insert、不写 SQLite、不授权 retry；recovery
-preview/retry、repair 与完整 backup/restore 验收仍是后续门槛。
+check 不授权 retry；repair 与完整 backup/restore 验收仍是后续门槛。
+
+2026-10-09 产品决定：普通启动/同步轮次统一处理 pending unknown，不新增
+per-item preview/retry 命令或人工预算。自持久 dispatch 起至少五分钟，成功的
+RFC 查询（含 Spam/Trash）零候选，source RAM digest/RFC 不变，ready 绑定、
+active generation、无 mapping，才在同一事务记 absence decision、完成旧检查
+job、重排原 project job。原 intent 仍 unknown；五分钟是已接受残余重复风险的
+产品策略，不是 Gmail SLA 或失败证明。补写再次 unknown 也使用同样的新截止时间。
+provider 错误不是空查询，不允许补写；401 refresh、停机/单 writer/私密完整备份
+与 v5 升级不变。shipping 尚无完整 target inventory/precondition consumer；本次
+固定范围 live trial 必须先独立只读检查 target，自动/一般部署的该门槛仍未完成。
+成功 mapping 才计为复制成功，并继续
+合法同线程后续 jobs；重启不重置 dispatch 时间，旧 owner 的 prepared/dispatched/
+known 分别退役/检查/只回读，不重放已有请求。`recovery list` 区分 active unknown
+和 historical `assumed_absent_insert_attempts`，迟来候选只报告、不认领或删除。
 
 普通 `run --once` 自动处理到期的 unknown 检查，持久化检查次数与下次时间；
-空搜索只安排后续检查，重启不重置进度、不再次 insert。唯一内容匹配但没有独立
+截止前的成功空查询安排五分钟截止时间，provider 故障仍使用退避，不作为重发许可。
+唯一内容匹配但没有独立
 归属证据时保留 `attribution_unknown`；多个候选、内容不符和不可用源分别保留
 具体 attention，不自动认领外部 SENT/DRAFT。搜索最多检查十页、遇到两个不同
 候选即报告非唯一，候选数量是有界观察值，不是全邮箱精确计数。

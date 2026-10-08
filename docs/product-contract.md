@@ -74,6 +74,16 @@ Facet 命令仅提供固定清单的删除，不发送；token 不落盘、不�
 
 Gmail 和 SQLite 无法共同提交事务。常规重启通过 source message ID 和本地映射去重；insert 成功后本地记录丢失时，通过 target 搜索及内容核验尽量恢复。Message-ID 缺失、重复或索引延迟可能导致重复或待人工处理，不承诺 exactly once。
 
+按 2026-10-09 用户决定，普通启动/同步轮次自动检查 pending unknown insert。
+从持久化 dispatch 时间起至少五分钟后，若 target 查询成功且没有候选、source
+digest/RFC 未变、账号 binding 和 active generation 有效且没有 mapping，就按
+未发现副本的恢复策略自动重新排队补写，不要求逐条 preview/人工确认或单次额度。
+这是明确接受残余重复风险，不是 Gmail 五分钟一致性保证；旧请求仍记 unknown，
+不伪造确定失败。查询超时/鉴权/限流不等于不存在；候选或归属/内容歧义保留异常。
+补写再次 unknown 也经过同样的等待和新检查，不能连续立即重发。重启不重置计时，
+已停止 thread 不复活，成功 mapping 后继续合法同线程后续工作。真实 Gmail 范围、
+其他 repair 授权、无自动删除和 raw 仅内存的边界不变。
+
 定期校对补齐 source 中的遗漏，恢复可确认的映射，报告 target 缺失和重复。用户手工删除 target 内容后，默认报告缺失；显式修复才重新插入。自动校对不清理重复，也不重新激活已经停止的 thread。
 
 Source 已删除且尚未取得内容的邮件无法恢复，应显示 `source_missing`。数据库丢失会降低可靠去重能力；备份是部署的一部分，不能把 target 存在等同于全部本地状态可重建。

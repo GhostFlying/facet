@@ -217,6 +217,8 @@ def requeue_preparing_claims(uow, projection_id):
     insert with dispatch/unknown/known evidence is intentionally excluded and
     remains available only to an explicit recovery path.
     """
+    from . import absence_retry
+
     rows = _query(
         uow,
         "SELECT j.job_id,j.revision FROM sync_jobs j JOIN job_claims c "
@@ -225,7 +227,7 @@ def requeue_preparing_claims(uow, projection_id):
         "SELECT 1 FROM insert_attempts a WHERE a.projection_id=j.projection_id "
         "AND a.job_id=j.job_id AND a.state IN "
         "('dispatch_started','pending_recovery','known_inserted',"
-        "'needs_attention'))",
+        "'needs_attention') " + absence_retry.exclusion(uow) + ")",
         (projection_id.value,),
         maximum=10_000,
     )
@@ -263,11 +265,16 @@ def defer_job(uow, projection_id, job_id, state, error, retry_at, guard):
     }:
         _conflict()
     _guard(job.revision, guard)
+    from . import absence_retry
+
     blockers = _query(
         uow,
-        "SELECT 1 FROM insert_attempts WHERE projection_id=? AND job_id=? AND state "
+        "SELECT 1 FROM insert_attempts a "
+        "WHERE a.projection_id=? AND a.job_id=? AND a.state "
         "IN('dispatch_started','pending_recovery',"
-        "'known_inserted','needs_attention') LIMIT 1",
+        "'known_inserted','needs_attention') "
+        + absence_retry.exclusion(uow)
+        + "LIMIT 1",
         (projection_id.value, job_id.value),
         maximum=1,
     )

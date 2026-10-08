@@ -28,9 +28,9 @@ from ..codecs import (
     timestamp_to_sql,
 )
 from ..keys import job_key
-from ..models import RevisionGuard, SyncJobRow, WriteReceipt
+from ..models import JobClaimRow, RevisionGuard, SyncJobRow, WriteReceipt
 from .audit import _audit
-from .base import _conflict, _get, _guard, _insert, _mutating, _query, _require_row
+from .base import _conflict, _get, _guard, _insert, _mutating, _require_row
 from .jobs import _ready, _thread_guard
 from .serialization import COLUMNS, _encode_row
 
@@ -108,15 +108,9 @@ def prepare_attempt(uow, projection_id, row, guard):
         is not None
     ):
         _conflict()
-    if _query(
-        uow,
-        "SELECT 1 FROM insert_attempts WHERE projection_id=? AND "
-        "(source_message_id=? OR source_thread_id=?) AND state "
-        "IN('dispatch_started','pending_recovery','known_inserted','needs_attention') "
-        "LIMIT 1",
-        (projection_id.value, row.source_message_id.value, row.source_thread_id.value),
-        maximum=1,
-    ):
+    from . import absence_retry
+
+    if absence_retry.blockers(uow, projection_id, row.source_thread_id):
         raise StorageFailure(ErrorCode.INSERT_RESULT_UNKNOWN)
     _insert(uow, projection_id, "insert_attempts", row)
     _audit(
@@ -616,9 +610,17 @@ def record_attempt_result(uow, projection_id, row, observed_at, guard):
 
 @_mutating
 def record_recovery_check(
-    uow, projection_id, attempt_id, code, observed_at, retry_at, guard
+    uow,
+    projection_id,
+    attempt_id,
+    code,
+    observed_at,
+    retry_at,
+    guard,
+    *,
+    assume_absent=False,
 ):
-    """Record one owned check; never infer insertion or permission to resend."""
+    """Record a check; aged verified absence may atomically requeue by policy."""
     if type(code) is not ErrorCode or type(observed_at) is not Timestamp:
         _conflict()
     if retry_at is not None and (
@@ -650,6 +652,12 @@ def record_recovery_check(
         or _get(uow, projection_id, "job_claims", (("job_id", original.job_id),))
     ):
         _conflict()
+    if assume_absent:
+        from . import absence_retry
+
+        if code is not ErrorCode.INSERT_RESULT_UNKNOWN or retry_at is not None:
+            _conflict()
+        absence_retry.record(uow, projection_id, attempt, original, observed_at)
     revision = next_revision(attempt.revision)
     checks = next_revision(Revision(attempt.recovery_checks.value))
     uow._execute(
@@ -677,6 +685,19 @@ def record_recovery_check(
         after_state=attempt.state,
         error=code,
     )
+    if assume_absent:
+        _result_disposition(
+            uow, projection_id, recovery, JobState.COMPLETED, code, observed_at
+        )
+        _result_disposition(
+            uow, projection_id, original, JobState.QUEUED, code, observed_at
+        )
+        uow._execute(
+            "UPDATE sync_jobs SET last_error_code=NULL "
+            "WHERE projection_id=? AND job_id=?",
+            (projection_id.value, original.job_id.value),
+        )
+        return WriteReceipt("updated", attempt_id, revision)
     if retry_at is None:
         updated = _get(
             uow, projection_id, "insert_attempts", (("attempt_id", attempt_id),)
@@ -705,6 +726,71 @@ def record_recovery_check(
         RevisionGuard(recovery.revision),
     )
     return WriteReceipt("updated", attempt_id, revision)
+
+
+@_mutating
+def handoff_previous_owner_attempt(uow, projection_id, attempt_id, observed_at):
+    """Under the process lock, retain claim facts while handing off a dead owner."""
+    old = _get(uow, projection_id, "insert_attempts", (("attempt_id", attempt_id),))
+    if old is None or old.state not in {
+        InsertState.PREPARED,
+        InsertState.DISPATCH_STARTED,
+        InsertState.KNOWN_INSERTED,
+    }:
+        _conflict()
+    acquired = _get(uow, projection_id, "job_claims", (("job_id", old.job_id),))
+    if (
+        acquired is None
+        or acquired.claim.owner_run_id == uow._session._info.owner_run_id
+    ):
+        _conflict()
+    # Owner is immutable within a claim row. Replace it in this same transaction,
+    # preserving ID/time/phase/revision/generation for the existing typed guards.
+    uow._execute(
+        "DELETE FROM job_claims WHERE projection_id=? AND job_id=?",
+        (projection_id.value, old.job_id.value),
+    )
+    _insert(
+        uow,
+        projection_id,
+        "job_claims",
+        JobClaimRow(
+            projection_id,
+            old.job_id,
+            replace(acquired.claim, owner_run_id=uow._session._info.owner_run_id),
+        ),
+    )
+    state, certainty, code = {
+        InsertState.PREPARED: (
+            InsertState.CANCELLED_BEFORE_DISPATCH,
+            OutcomeCertainty.NOT_ATTEMPTED,
+            ErrorCode.OWNER_UNAVAILABLE,
+        ),
+        InsertState.DISPATCH_STARTED: (
+            InsertState.PENDING_RECOVERY,
+            OutcomeCertainty.UNKNOWN,
+            ErrorCode.INSERT_RESULT_UNKNOWN,
+        ),
+        InsertState.KNOWN_INSERTED: (
+            InsertState.NEEDS_ATTENTION,
+            OutcomeCertainty.INSERTED,
+            ErrorCode.NETWORK_UNAVAILABLE,
+        ),
+    }[old.state]
+    return record_attempt_result(
+        uow,
+        projection_id,
+        replace(
+            old,
+            state=state,
+            certainty=certainty,
+            error_code=code,
+            result_at=old.result_at or observed_at,
+            revision=next_revision(old.revision),
+        ),
+        observed_at,
+        RevisionGuard(old.revision),
+    )
 
 
 @_mutating

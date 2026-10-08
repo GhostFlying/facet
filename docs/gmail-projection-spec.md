@@ -270,6 +270,15 @@ Blacklist 精确 sender 优先于新 thread allow。当前 thread 变 inactive�
 
 ## 运行故障和备份
 
+2026-10-09 恢复策略：普通启动和每轮同步处理 pending insert，自原 dispatch
+至少五分钟且新 RFC 查询含 Spam/Trash 成功零候选，source RAM digest/RFC、
+账号绑定、active generation 和无 mapping 核验通过后，自动持久 absence decision
+并原子重排原 job。原 outcome 保 unknown，不认领候选、不把 provider 错误当空；
+补写仍使用正常 intent/insert/readback/map，若再次 unknown 以其新 dispatch 计时。
+不需要逐项人工 preview 或单次补写预算。五分钟是产品风险选择，不是 Gmail SLA，
+没有 exactly-once 保证；迟来副本只报告、不自动删除。旧 owner claim 由锁内交接，
+prepared 先退役、dispatched 走检查、known 只回读，重启不盲重放网络请求。
+
 403 要按 Gmail reason 分类：rate limit 退避，权限不足报 scope 问题，storage full 暂停 target；不可把所有 403 作为同一种 retry。429 尊重 Retry-After，5xx 和网络结果未知走恢复策略。401 或 `invalid_grant` 暂停相关方向，队列保留并提示重新授权。
 
 Source 暂停读取不妨碍处理当前进程已读取的内存 payload；target 长期暂停时释放 raw 内存，source 仍可将事件入库，恢复后重新读取。磁盘无法持久化 events 时不能推进 cursor；恢复后按 gap 协议处理。超过 retry 预算的单个 job 显示明确 error 或 review，不静默删除。

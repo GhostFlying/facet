@@ -762,6 +762,7 @@ M3 gap/reconcile/Dashboard→M4 maintenance→真实部署/dogfood。只有 M6-0
 | D10 完整同步入口与细分命令 | 2026-10-07 用户决定并要求记录；拟 `facet sync [--once]`，尚未实现 | 一次有意同步调用按当前规则/默认固定六个月窗口自动准备/start 并运行，完全复用细分操作；细分命令继续用于当前测试 | 不要求用户手动 preview/start；setup/独立 preview 零 insert，普通 run/restart/标签学习仍不扩历史；M1-M6、H0/gap/unknown/generation 和 D3 live 范围不变 |
 | D11 规则时序简化 | 2026-10-07 用户确认 | 不保证规则变更与邮件到达严格一致；History/gap 按处理/扫描时选定的规则，effective_at 作审计，不重建旧规则 | 已知 gap 整个停机窗口内早于规则创建的邮件可纳入；不授权任意旧历史、当前 labels 代替丢失事件、stopped 复活、unknown 重试或新的 live 操作 |
 | D12 标签现状简化 | 2026-10-08 用户确认实施 | History 是 dirty-thread 提示，不重放旧 add/remove；按当前配置/non-draft 标签 presence 和持久 activation ACK 处理 | 持续标签一次、观察到 absence/re-add 才重激活；更换配置标签身份单独观察；旧标签初始基线不执行、升级只继承匹配已执行证据；不恢复短暂丢失动作，不撤销规则、不复活 stopped，不改变 milestone/CI/隐私/live 权限 |
+| D13 五分钟自动 unknown 恢复 | 2026-10-09 用户确认；替代未交付的 per-item 风险 preview/单次预算方案 | 普通启动/轮次检查 aged pending；成功零候选且 source/binding/generation/无 mapping 守卫通过才持久决定并重排；补写 unknown 使用自己的新截止时间 | 五分钟不是 Gmail 保证，残余重复风险已接受；旧事实保 unknown，候选/失败不算空；不删除、不认领、不复活 stopped，不扩大真实账号/规则/窗口/部署授权或 M1-M6 门槛 |
 
 | 工程风险 | 先行门槛/检测 | 安全失败状态 |
 | --- | --- | --- |
