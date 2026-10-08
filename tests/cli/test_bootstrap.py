@@ -259,6 +259,8 @@ def test_provider_stage_diagnostic_is_private_allowlisted(monkeypatch, capsys):
         "observed_at",
         "status",
         "retry_after_seconds",
+        "reason",
+        "request_dispatched",
     }
     assert private["data"]["provider_failure"]["provider_stage"] == "history_list"
 

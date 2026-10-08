@@ -23,6 +23,19 @@ CLI 是 setup、规则/披露选择、故障处理和部署维护的完整入口
 `--timeout <seconds>`、`--version` 和 `--help`。Phase 1 只有一个 projection，显式
 selector 必须匹配该 binding，不能通过参数切换到另一个账号。
 
+`facet run --once --verify-known-only` 只读回校验已有明确成功 insert 的
+可恢复映射：持有正常 writer/credential ownership，可更新本地 mapping/job，
+但不执行 discovery、History、expand 或 insert。只处理 direct-response 已知
+target ID 的暂时读回失败，不认领未知结果或非 managed 邮件、不复活 stopped
+generation。该模式不支持 `--fake`；测试通过外部 HTTP fixture 调用生产 runtime。
+普通 `run --once` 先做同样的已知读回恢复，再继续已有选定队列。
+
+生产 Gmail 请求在 access token 距过期五分钟时通过原 credential manager 刷新。
+读取请求遇到明确 401 最多刷新并重读一次；insert 无 transport/SDK 自动重放，
+明确拒绝先持久化为未写入，再建立新 claim/attempt。401 的持续失败及账号/scope
+问题停止当前批次，未知写入结果始终保留 recovery。`--private-metadata` 的
+provider diagnostics 包含 allowlisted `reason` 与是否已发请求；不输出响应正文。
+
 `--public` 和 `--private-metadata` 互斥。默认使用最少必要的本地操作状态；列出
 账号、rule values、邮件 IDs 或私密路径需明确 `--private-metadata`。`--public`
 仅用于已定义的 aggregate status/doctor 输出，使用独立 Dashboard allowlist DTO，

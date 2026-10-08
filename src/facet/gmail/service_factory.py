@@ -66,17 +66,29 @@ class GoogleGmailServiceFactory:
             raise StorageFailure(ErrorCode.BINDING_MISMATCH)
         return self._build(role, snapshot.access_token.value)
 
+    def service_with_refresh(
+        self, role: Role, snapshot: AccessSnapshot, token_provider
+    ):
+        if type(snapshot) is not AccessSnapshot or snapshot.role is not role:
+            raise StorageFailure(ErrorCode.BINDING_MISMATCH)
+        return self._build(
+            role, snapshot.access_token.value, token_provider=token_provider
+        )
+
     @staticmethod
-    def _build(role: Role, access_token: str):
+    def _build(role: Role, access_token: str, *, token_provider=None):
         # Imports remain lazy so offline CLI help and synthetic tests do not
-        # construct a provider client. The access-only transport cannot refresh
-        # or replay a request behind the credential manager's back.
+        # construct a provider client. Refresh is explicit and manager-owned;
+        # the transport never replays an insert.
         from googleapiclient.discovery import build
 
         from .sync_transport import SyncHttp
 
         transport = SyncHttp(
-            role, access_token, timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS
+            role,
+            access_token,
+            timeout=PROVIDER_REQUEST_TIMEOUT_SECONDS,
+            token_provider=token_provider,
         )
         try:
             return build(

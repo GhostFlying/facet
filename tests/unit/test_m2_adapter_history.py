@@ -358,7 +358,7 @@ def test_provider_failures_are_closed_and_do_not_expose_wire_text(gmail_controll
 
 
 def test_provider_error_classes_are_typed_without_response_payloads():
-    assert classify_http_status(403, Role.SOURCE).value == "source_auth_required"
+    assert classify_http_status(403, Role.SOURCE).value == "scope_required"
     assert (
         classify_http_status(
             403, Role.TARGET, body=b'{"reason":"rateLimitExceeded"}'

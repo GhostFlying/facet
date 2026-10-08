@@ -70,6 +70,12 @@ class TargetAdapter:
     def __init__(self, service) -> None:
         self._service = service
 
+    def refresh_credentials(self):
+        refresh = getattr(
+            getattr(self._service, "_http", None), "refresh_credentials", None
+        )
+        return refresh() if callable(refresh) else False
+
     def profile(self):
         value = execute(
             self._service.users().getProfile(userId="me"),

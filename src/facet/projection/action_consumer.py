@@ -60,7 +60,7 @@ from facet.db.models import (
 )
 from facet.db.repositories import actions, events, jobs, policy, reads
 from facet.db.repositories.base import _get
-from facet.gmail.retry import ProviderFailure
+from facet.gmail.retry import ProviderFailure, blocks_sync
 from facet.projection.actions import (
     ActionActivation,
     ActionAttention,
@@ -292,13 +292,16 @@ class ActionEffectConsumer:
                     error.code,
                 )
             except ProviderFailure as error:
-                return self._attention(
+                result = self._attention(
                     owner,
                     projection_id,
                     prepared,
                     error.code,
                     retry_after_seconds=error.retry_after_seconds,
                 )
+                if blocks_sync(error):
+                    raise
+                return result
             if isinstance(decision, ActionAttention):
                 return self._attention(
                     owner,

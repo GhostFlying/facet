@@ -27,7 +27,7 @@ from facet.projection.actions import ActionMessageFact, PrivateActionLabelMap
 from facet.projection.admission import DiscoveryCandidate
 from facet.projection.rules import RuleInputError, normalize_sender
 
-from .retry import ProviderFailure, ProviderStage, execute
+from .retry import ProviderFailure, ProviderStage, blocks_sync, execute
 
 
 def discovery_window(start: datetime, end: datetime, *, precise=False) -> str:
@@ -422,8 +422,8 @@ class SourceAdapter:
                 self.role,
                 provider_stage=ProviderStage.MESSAGE_GET,
             )
-        except ProviderFailure:
-            if history:
+        except ProviderFailure as error:
+            if history or blocks_sync(error):
                 raise
             return CandidateResult(
                 attention=CandidateAttention(

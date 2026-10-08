@@ -20,7 +20,11 @@ def install_route():
     def request(self, method, url, **kwargs):
         parsed = urlsplit(url)
         assert parsed.scheme == "https"
-        assert parsed.hostname in {"gmail.googleapis.com", "www.googleapis.com"}
+        assert parsed.hostname in {
+            "gmail.googleapis.com",
+            "www.googleapis.com",
+            "oauth2.googleapis.com",
+        }
         self.trust_env = False
         local = origin + parsed.path
         if parsed.query:
@@ -49,6 +53,14 @@ class Mailbox:
         self.catchup_page_failure = False
         self.gap_arrived_at = 0
         self.learn_sender = False
+        self.readback_status = None
+        self.read_reason = "authError"
+        self.reject_insert_once = False
+        self.refresh_error = None
+        self.refresh_calls = []
+        self.refresh_account = None
+        self.refresh_scopes = None
+        self.insert_reason = "authError"
 
     def arrive(self):
         self.revision += 1
@@ -126,7 +138,10 @@ class Mailbox:
                     role = "source" if source else "target"
                     self.reply(
                         {
-                            "emailAddress": f"{role}@example.com",
+                            "emailAddress": mailbox.refresh_account
+                            if mailbox.refresh_account
+                            and "refreshed" in self.headers["Authorization"]
+                            else f"{role}@example.com",
                             "historyId": f"history-{mailbox.revision}",
                             "messagesTotal": len(mailbox.target) if not source else 3,
                             "threadsTotal": 1,
@@ -313,6 +328,17 @@ class Mailbox:
                         else:
                             self.reply(mailbox.message(identifier, raw=raw))
                     else:
+                        if mailbox.readback_status:
+                            self.reply(
+                                {
+                                    "error": {
+                                        "errors": [{"reason": mailbox.read_reason}],
+                                        "message": "WIRE_ERROR_SENTINEL",
+                                    }
+                                },
+                                mailbox.readback_status,
+                            )
+                            return
                         value = mailbox.target.get(identifier)
                         self.reply(value or {}, 200 if value else 404)
                 else:
@@ -321,6 +347,35 @@ class Mailbox:
             def do_POST(self):
                 data = self.rfile.read(int(self.headers["Content-Length"]))
                 mailbox.calls.append(("POST", urlsplit(self.path).path))
+                if urlsplit(self.path).path == "/token":
+                    form = parse_qs(data.decode())
+                    role = (
+                        "source" if "source" in form["refresh_token"][0] else "target"
+                    )
+                    mailbox.refresh_calls.append(role)
+                    if mailbox.refresh_error:
+                        self.reply(
+                            {
+                                "error": mailbox.refresh_error,
+                                "error_description": "WIRE_ERROR_SENTINEL",
+                            },
+                            400,
+                        )
+                    else:
+                        scopes = "https://www.googleapis.com/auth/gmail.readonly"
+                        if role == "target":
+                            scopes += " https://www.googleapis.com/auth/gmail.insert"
+                        self.reply(
+                            {
+                                "access_token": (
+                                    f"facet-synthetic-{role}-refreshed-access"
+                                ),
+                                "expires_in": 3600,
+                                "token_type": "Bearer",
+                                "scope": mailbox.refresh_scopes or scopes,
+                            }
+                        )
+                    return
                 if self.headers.get("x-http-method-override") == "GET":
                     self.reply({"messages": []})
                     return
@@ -330,9 +385,17 @@ class Mailbox:
                 )
                 mailbox.inserted_raw.append(raw)
                 fault = mailbox.fault
-                if fault in {401, 429, 503, 307, 308}:
+                if mailbox.reject_insert_once:
+                    mailbox.reject_insert_once = False
+                    fault = 401
+                if fault in {401, 403, 429, 503, 307, 308}:
                     self.reply(
-                        {"error": {"message": "WIRE_ERROR_SENTINEL"}},
+                        {
+                            "error": {
+                                "message": "WIRE_ERROR_SENTINEL",
+                                "errors": [{"reason": mailbox.insert_reason}],
+                            }
+                        },
                         fault,
                         Location="/gmail/v1/users/me/messages/redirected",
                         **{"Retry-After": "123"},

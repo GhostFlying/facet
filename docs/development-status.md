@@ -8,6 +8,38 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Interrupted sync retained; request-time credential repair in implementation
+
+Complete CLI sync PR #99 is merged at `e504b696913fba12bab5fc69dbe5ff3f838fd5a4`;
+its main offline CI and image publication passed. Full Phase 1 is not accepted.
+The continuous real container is stopped; no new epoch/rule/window is selected.
+
+The second real bounded batch added 648 verified mappings, **1872 total**, before
+token expiry interrupted it. Current saved source/target tokens both returned
+401 in read-only profile probes; runtime checked expiry only at cycle entry.
+159 source-read jobs remain retryable. One target attempt was definitely rejected;
+one directly succeeded but needs readback/mapping completion. A subsequent
+unstarted same-thread job was blocked by that pending attempt. The older unknown
+is still protected. The failed operator receipt is retained, not resubmitted.
+
+The independently reviewed [request-auth plan](implementation-plans/request-auth-refresh.md)
+is being implemented as one coherent fix: structured closed provider reasons,
+manager-owned request-time refresh, durable rejected-insert retry, zero-insert
+known-readback completion and same-scope restart continuation. Actual CLI external
+fakes have passed rejected-insert refresh/new-attempt and known-readback restart
+checks; full-suite, final independent candidate acceptance, exact local-image,
+PR CI/merge and resumed live evidence remain outstanding. No real Gmail writes
+have been performed with this repair candidate.
+
+Next: qualify/merge the fix, back up retained production state, complete the
+known readback with zero inserts, then continue the existing selected queue.
+No cleanup, old unknown retry, new scope or permanent service startup is implied.
+
+## Historical evidence
+
+The following sections retain their candidate/time-bounded evidence. Pending
+statements are historical; only the current summary above states present status.
+
 ### Complete CLI sync qualified offline; real historical projection continuing
 
 The production CLI supports setup/role binding, persisted sender rules,
@@ -59,8 +91,8 @@ stop receipt are retained, not overwritten. Independently reviewed continuation
 guards distinguish safely completed source reads from insert uncertainty while
 preserving all original protected states. The first continuation took 1758.43s
 for 1000 copies; **3049 historical message jobs plus one normal History job remain
-queued** at that receipt. A second batch is running within the same bounded
-authorization. The current copy path is serial; this throughput is implementation
+queued** at that receipt. The second batch later stopped at 1872 total as recorded
+above. The copy path is serial; this throughput is implementation
 behavior, not a Gmail limit or product latency promise. Bulk backfill is not yet
 complete.
 

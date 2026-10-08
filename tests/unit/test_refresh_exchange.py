@@ -14,7 +14,7 @@ from facet.gmail.credential_models import (
     SecretText,
 )
 from facet.gmail.refresh_exchange import refresh_google
-from facet.gmail.retry import ProviderFailure, ProviderStage
+from facet.gmail.retry import ProviderFailure, ProviderReason, ProviderStage
 
 SCOPES = ScopeSet(frozenset({ScopeName.GMAIL_READONLY}))
 
@@ -116,7 +116,7 @@ def test_target_refresh_preserves_target_policy_scope_evidence():
         ("invalid_grant", ErrorCode.SOURCE_AUTH_REQUIRED),
         ("invalid_scope", ErrorCode.SCOPE_REQUIRED),
         (401, ErrorCode.SOURCE_AUTH_REQUIRED),
-        (403, ErrorCode.SOURCE_AUTH_REQUIRED),
+        (403, ErrorCode.SCOPE_REQUIRED),
         (429, ErrorCode.SOURCE_RATE_LIMITED),
         (500, ErrorCode.NETWORK_UNAVAILABLE),
         ("retryable", ErrorCode.NETWORK_UNAVAILABLE),
@@ -132,6 +132,8 @@ def test_refresh_maps_provider_failures_without_raw_payload(mode, expected):
     assert caught.value.timeout_seconds == 30
     assert caught.value.attempt == 1
     assert caught.value.observed_at is not None
+    if mode == "invalid_grant":
+        assert caught.value.reason is ProviderReason.INVALID_GRANT
     assert "synthetic provider payload" not in repr(caught.value)
 
 

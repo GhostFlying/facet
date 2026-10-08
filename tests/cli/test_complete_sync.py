@@ -194,6 +194,8 @@ def test_complete_unknown_does_not_resend_on_restart(wire):
     attempts = rows(state, "insert_attempts")
     assert any("pending_recovery" in attempt for attempt in attempts)
     count = len(mailbox.inserted_raw)
+    assert invoke("run", "--once", "--verify-known-only")["projected"] == 0
+    assert rows(state, "insert_attempts") == attempts
     invoke("sync", "--once", "--yes")
     assert rows(state, "insert_attempts") == attempts
     assert len(mailbox.inserted_raw) == count
@@ -365,3 +367,116 @@ def test_granular_start_still_requires_confirmation(wire):
     )
     assert rows(state, "operations") == before and not rows(state, "epochs")
     assert len(mailbox.calls) == calls
+
+
+def test_insert_401_refresh_has_distinct_attempts_and_no_sdk_replay(wire):
+    invoke, mailbox, state = wire
+    bind_and_rule(invoke)
+    mailbox.historical = True
+    mailbox.reject_insert_once = True
+    result = invoke("sync", "--once", "--yes")
+    assert result["cycle"]["projected"] == 4
+    assert mailbox.refresh_calls == ["target"]
+    assert len(mailbox.inserted_raw) == 5 and len(mailbox.target) == 4
+    with sqlite3.connect(f"{(state / 'facet.db').as_uri()}?mode=ro", uri=True) as db:
+        assert db.execute(
+            "SELECT state,COUNT(*) FROM insert_attempts GROUP BY state"
+        ).fetchall() == [("definite_not_inserted", 1), ("verified", 4)]
+    before = rows(state, "insert_attempts")
+    invoke("run", "--once")
+    assert rows(state, "insert_attempts") == before and len(mailbox.inserted_raw) == 5
+
+
+def test_known_readback_restart_zero_insert_then_copy(wire):
+    invoke, mailbox, state = wire
+    bind_and_rule(invoke)
+    mailbox.historical = True
+    mailbox.readback_status = 401
+    failure = invoke(
+        "sync", "--once", "--yes", "--private-metadata", error="target_auth_required"
+    )
+    assert failure["data"]["provider_failure"]["reason"] == "authError"
+    assert len(mailbox.target) == len(mailbox.inserted_raw) == 1
+    assert not rows(state, "message_mappings")
+    attempts = rows(state, "insert_attempts")
+    epochs = rows(state, "epochs")
+    mailbox.readback_status = None
+    calls = len(mailbox.calls)
+    result = invoke("run", "--once", "--verify-known-only")
+    assert (
+        result["projected"] == 1
+        and result["discovered"] == result["history_pages"] == 0
+    )
+    assert len(mailbox.inserted_raw) == 1
+    assert all(
+        method == "GET" and not path.endswith(("/history", "/threads", "/messages"))
+        for method, path in mailbox.calls[calls:]
+    )
+    assert len(rows(state, "insert_attempts")) == len(attempts)
+    assert rows(state, "epochs") == epochs
+    assert invoke("run", "--once", "--verify-known-only")["projected"] == 0
+    assert invoke("run", "--once")["projected"] == 3
+    assert len(mailbox.target) == len(mailbox.inserted_raw) == 4
+
+
+def test_invalid_grant_keeps_definite_rejection_and_reports_reason(wire):
+    invoke, mailbox, state = wire
+    bind_and_rule(invoke)
+    mailbox.historical = True
+    mailbox.reject_insert_once = True
+    mailbox.refresh_error = "invalid_grant"
+    failure = invoke(
+        "sync", "--once", "--yes", "--private-metadata", error="target_auth_required"
+    )
+    assert failure["data"]["provider_failure"]["reason"] == "invalid_grant"
+    assert len(mailbox.inserted_raw) == 1 and not mailbox.target
+    with sqlite3.connect(f"{(state / 'facet.db').as_uri()}?mode=ro", uri=True) as db:
+        assert db.execute("SELECT state FROM insert_attempts").fetchall() == [
+            ("definite_not_inserted",)
+        ]
+        assert db.execute("SELECT COUNT(*) FROM job_claims").fetchone() == (0,)
+
+
+@pytest.mark.parametrize(
+    "reason,code",
+    [("domainPolicy", "scope_required"), ("dailyLimitExceeded", "target_rate_limited")],
+)
+def test_insert_403_reason_blocks_without_refresh_or_replay(wire, reason, code):
+    invoke, mailbox, state = wire
+    bind_and_rule(invoke)
+    mailbox.historical = True
+    mailbox.fault = 403
+    mailbox.insert_reason = reason
+    failure = invoke("sync", "--once", "--yes", "--private-metadata", error=code)
+    assert failure["data"]["provider_failure"]["reason"] == reason
+    assert (
+        len(mailbox.inserted_raw) == 1
+        and not mailbox.target
+        and not mailbox.refresh_calls
+    )
+    with sqlite3.connect(f"{(state / 'facet.db').as_uri()}?mode=ro", uri=True) as db:
+        assert db.execute("SELECT state FROM insert_attempts").fetchall() == [
+            ("definite_not_inserted",)
+        ]
+        assert db.execute("SELECT COUNT(*) FROM job_claims").fetchone() == (0,)
+
+
+@pytest.mark.parametrize(
+    "change,code", [("account", "binding_mismatch"), ("scope", "scope_required")]
+)
+def test_reactive_refresh_rejects_changed_account_or_scopes(wire, change, code):
+    invoke, mailbox, state = wire
+    bind_and_rule(invoke)
+    mailbox.historical = True
+    mailbox.reject_insert_once = True
+    if change == "account":
+        mailbox.refresh_account = "unbound@example.com"
+    else:
+        mailbox.refresh_scopes = "https://www.googleapis.com/auth/gmail.modify"
+    invoke("sync", "--once", "--yes", error=code)
+    assert len(mailbox.inserted_raw) == 1 and not mailbox.target
+    with sqlite3.connect(f"{(state / 'facet.db').as_uri()}?mode=ro", uri=True) as db:
+        assert db.execute("SELECT state FROM insert_attempts").fetchall() == [
+            ("definite_not_inserted",)
+        ]
+        assert db.execute("SELECT COUNT(*) FROM job_claims").fetchone() == (0,)
