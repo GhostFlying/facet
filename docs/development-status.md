@@ -1,6 +1,6 @@
 # Facet development status
 
-Updated: 2026-10-07 (PRC; historical UTC receipts retain their original dates)
+Updated: 2026-10-08 (PRC; historical UTC receipts retain their original dates)
 
 This is the durable handoff for autonomous development. Update it with evidence
 at the end of each coherent implementation unit. Do not store account addresses,
@@ -8,59 +8,64 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Rule chronology simplification and gap recovery (local image validated)
+### Published sync path; scoped live historical verification next
 
-On 2026-10-07 the user confirmed processing/scan-time rule selection, without
-strict rule-change versus mail-arrival ordering. Known-gap recovery may admit
-pre-rule messages inside the complete downtime window, not arbitrary older mail.
-Effective timestamps remain audit metadata; stable recovery query scope, current
-rule-removal checks, stopped generations and unknown-insert recovery remain.
-The revised [gap plan](implementation-plans/history-gap-recovery.md) passed
-independent review at SHA256
-`49acf9b5b0d1fb67fd268d2691cac9c8ce40d444c013615ebf3953c3733f20c1`.
+The production CLI supports setup/role binding, persisted sender rules,
+zero-write preview, explicit historical start and `run --once`. It now includes
+full-thread projection, durable readback/mapping, restart deduplication and
+resumable known-window History-gap recovery through the same production runtime.
+Rule eligibility uses processing/scan time; H1 catchup, stable query scope,
+current allow removal, stopped generations and unknown-insert guards remain.
+The complete `sync` wrapper and broader maintenance commands remain unfinished.
 
-Source candidate `75093dce1737f3427dff04e9908f746a177e1720` now performs resumable known-gap discovery/active-thread
-expansion and H1 pagination through production runtime. Processing-time allow
-evaluation is shared with ordinary History; internalDate only bounds gap scans.
-Affected admission/History/sync and real CLI external-wire tests passed, including
-pre-rule gap messages, scan/catchup interruption, mapping/readback and restarted
-no-resend. Related repository/worker/status tests also passed. Independent
-implementation review passed after the sole query-boundary fix; the exact
-non-root image passed four production CLI gap cases with external networking
-disabled, read-only rootfs and no application-source or real-state overlay.
-Test-only candidate `a02236d7179b987382fa9230cbe96c6692c6c5bd` corrects a legacy
-fake receipt missing the new warnings field and checks its actual typed result;
-focused rereview passed and runtime/image inputs are unchanged.
-Final full-suite/CI and integration remain pending; no milestone, live gap or
-deployment acceptance is claimed. See [one review receipt](reviews/history-gap-recovery.md).
-Real sync remains stopped; no mailbox operation, unknown retry or service resume
-occurred. Unknown-range approval CLI, composed sync and broader maintenance gates
-remain separate; the next live step is still the previously scoped granular
-historical test, after these engineering gates and current preflight checks.
+Independent integration review checked the previously unpublished parent delta
+and found one action-label 429 scheduling defect. Root fixed it at
+`905c0f4a79c68ed5e4c09211ab5a4397a27661ac`; focused independent rereview approved
+the durable provider deadline and early-read guard, including reopened SQLite
+writers and all three action categories. CI now allows twenty minutes instead
+of ten; both Python versions and every existing check remain enabled.
 
-### Authorized historical test: preflight complete, bulk prerequisite unresolved
+Updated PRs #93–#96 each passed complete Python 3.12/3.13 checks and image builds,
+then merged in dependency order. Main runtime delivery commit is
+`392fe31969d96c5be4e46dff0bce3fdb249c8fd3`. Every resulting main tree matched its
+accepted PR head; the final tree equals integration candidate
+`b634d94c100b4de064cf35782923f753d0470ed8`. Its exact pinned, non-root local image
+passed eight production CLI historical/gap cases with external-only Gmail/OAuth
+fakes, networking disabled and no application-source or real-state overlay.
+See [integration evidence](reviews/history-gap-recovery.md) and
+[parent/focused review](reviews/sync-single-dispatch-transport.md).
 
-On 2026-10-07 the user accepted the next-step real historical test and requested
-continued testing. The qualified image passed current-account/scope preflight:
-one enabled sender rule, nine mapped target messages, two permitted source-From
-SENT items, no other unmanaged items and no drafts. Fresh offline CLI preview/
-stable-key replay succeeded; protected business state stayed unchanged, with
-zero new attempts or epochs. No historical start/run or service restart occurred.
+Main dual-Python CI and image publication passed. The public image index is
+`sha256:2f89d96338b7e6cafa421c5f58722a61681bffe8fc80e0285aaae014cfaa2054`;
+anonymous checks verified amd64/arm64 manifests, SBOM and exact-main-SHA SLSA
+provenance. The anonymously imported amd64 runtime's source matches the accepted
+local image and passed the production CLI fake historical/restart case.
 
-Read-only Gmail search in the **original** six-month discovery window returned
-4203 candidate messages across 777 threads in nine pages. These are provider
-query candidates, not exact-sender eligibility or final copy counts; full thread
-history can be larger. The fresh preview has a later end boundary.
+The authorized test-host deployment now references this full main-SHA image,
+with its original persistent volume retained and the container stopped. A
+writer-locked SQLite-API backup includes configuration and credentials; the old
+image remains available for stopped rollback. Fresh production read-only checks
+verified account/scope bindings and classified target as nine mapped copies,
+two permitted source-From SENT items and zero other unmanaged content. The old
+unknown's empty search result is not permission to retry or claim it.
 
-Independent safety review identified the explicit real-bulk prerequisite in
-AGENTS.md and project-plan.md: gap recovery capability must exist. Current
-deployed production History 404 persists H1/gap and stops before worker inserts, but does
-not implement the complete recovery scan/H1 continuation. The reordered M2 live
-scope does not explicitly waive that gate. Hold start/run pending either the
-missing capability or an explicit, single-test user exception; read-only evidence
-does not complete gap recovery or any Phase 1 milestone. Old unknown/attention
-remain untouched. This is a gate/authority decision, not failed OAuth or target
-classification, and not a reason to reset state or retry unknown inserts.
+Production CLI preview and stable-key replay passed against retained real state
+with networking disabled: zero target writes, no new insert attempts/epochs and
+unchanged protected business state. Nine mappings, one old unknown and 58 old
+attention jobs remain. No historical start/run, mailbox mutation, unknown retry,
+attention reopening or daemon resume occurred in this integration. Dashboard
+health on a running deployment and live historical/gap acceptance are not claimed.
+
+Next delivery: use granular preview/start/run/readback and fresh-process
+continuation on the qualified published image. The old 4203-message/777-thread
+search used the original six-month window, not a final copy count. A new CLI preview ends later;
+the updated default window needs the requested user confirmation before bulk
+start. No scope expansion is inferred from merge or OAuth approval.
+Live historical/gap acceptance, composed sync, full target audit and remaining
+M1–M6/backup-restore/deployment/dogfood gates are not complete.
+
+The sections below retain their original candidate/time-bounded evidence;
+their historical pending gates are superseded only by the current summary above.
 
 ### Granular historical backfill repair (qualified local candidate)
 

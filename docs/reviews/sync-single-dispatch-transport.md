@@ -143,3 +143,24 @@ attention reopening, new OAuth scope or long-running service restart occurred.
 Main integration/publication, production outbound classifier/audit integration,
 full CLI/action-label acceptance, Gmail UI checks, live fault/recovery and complete
 backup/restore/deployment/72-hour gates remain open. The sync service is stopped.
+
+## Parent integration and action retry correction, 2026-10-08
+
+Independent Sol 6.1 xhigh `/root/stack_integration_review` verified parent
+ancestry/identity and inspected the uncovered pre-transport delta, passing 190
+related cases. Its sole P2 reproduced a provider Retry-After 120 being persisted
+as a one-second action retry. The before-coding amendment to the existing
+critical-path plan passed review at SHA256
+`508bbe258515c989eb444e808f31100ac2b98ea4d46bfd6f7577229e2c04b75e`.
+Root's correction candidate `905c0f4a79c68ed5e4c09211ab5a4397a27661ac` passed
+focused independent rereview with 28 action/sync/workflow cases. All three label
+categories preserve the exact deadline, prevent a two-second provider read
+before/after writer reopen and permit due-time retry; the no-header fallback
+stays one second. No schema, insert transport, scope or disclosure change.
+
+The reviewed twenty-minute CI budget retains every check and Python version.
+PR #93's exact updated candidate passed dual-Python checks and its image build,
+then merged to main at `87cb8e578b7fbf88d285b9feeb5ec3e68063356f`; the main tree
+equals that accepted head. Same source/test/plan blobs were carried through the
+remaining stack; earlier unaffected exact-source reviews remain valid.
+This adds engineering/integration evidence, not new live Gmail acceptance.
