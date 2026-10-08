@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Automatic five-minute recovery implemented; candidate qualification in progress
+### Automatic five-minute recovery merged; exact live recovery passed
 
 The user replaced the uncommitted per-item preview/grant/one-budget proposal.
 Ordinary startup/cycles now automatically requeue pending unknowns at least
@@ -16,17 +16,22 @@ five minutes after persisted dispatch, only after successful empty lookup and
 valid source/account/generation checks. This accepts residual duplicate risk;
 it is not proof of non-insertion. Preserve old unknown facts and ordinary
 intent/mapping/restart guards. Replacement unknowns follow the same policy.
-The [revised short plan](implementation-plans/bounded-insert-recovery.md) passed
-independent Sol xhigh review; the final factual-boundary revision is SHA256
-`1ae9bdb9aa8dbb8e065920f637cd7e37ce6c9cabccee5e9b42d2b6fdf38f823f`.
-Real CLI subprocess tests passed setup/auth/preview/start/History/unknown/ordinary
-run/restart, repeated unknowns and fresh process crashes at prepared, dispatched
-and known-result boundaries, also during replacement. All eight cases
-passed in the non-root local image; 639 affected checks passed. Independent
-implementation acceptance approved source candidate `ba026738d532e34adfd0056b0ba8b4e8cde200e6`;
-complete offline checks and final PR CI remain pending. See
-[current review](reviews/automatic-insert-absence.md). Old manual-proposal tests/image do not
-qualify this policy.
+PR [#108](https://github.com/GhostFlying/facet/pull/108) merged at
+`32b2ce4333f2931ec6fc83d5585307ba886050be` after independent plan/implementation
+acceptance and final Python 3.12/3.13 CI plus image build. Full local checks passed;
+all eight complete CLI/fresh-process recovery and crash scenarios also passed in
+the exact-source non-root image. See [acceptance and live evidence](reviews/automatic-insert-absence.md).
+
+The separately authorized frozen old unknown and three dependent projection
+jobs completed through production recovery/worker APIs in 35.08 seconds, without
+business SQL correction or new History/backfill. Confirmed mappings are now
+**4325; active unknown and attention are both zero**. The original unknown remains
+truthful historical evidence with one retained absence decision, not a pending
+action. Before/after writer-locked backups, fresh read-only target checks and a
+fresh-process production CLI recovery view passed. All prior mappings, rules,
+label configuration, selected scope, generations and checkpoint were preserved.
+Target contains all 4325 mapped items, two permitted outbound items and no other
+unmanaged items. Continuous Compose sync remains stopped.
 
 The existing shipping runtime has no full-target inventory/precondition consumer.
 This incremental recovery unit does not claim that gate complete. The exact
@@ -34,12 +39,15 @@ authorized live trial requires a fresh full-target read-only precheck and frozen
 job selection; unattended/general deployment acceptance still needs a shared
 single-cycle target precondition. No per-unknown mailbox scan is introduced.
 
-No new live insert or deployment migration has occurred. The last verified live
-snapshot remains 4321 mappings, one unknown and three dependent attention on
-e165; continuous Compose sync is stopped. Next: finish candidate qualification,
-then use the previously authorized exact old-unknown/three-
-dependency scope with stopped writer-locked backups. No new History/backfill,
-deletion or perpetual service. Final Phase 1 gates remain incomplete.
+The trial used qualified local image `facet:automatic-absence-beb71d2`, whose
+packaged source matches merged main. Schema v5 migration passed. The official
+full-commit image is published and selected by the stopped Compose container;
+anonymous import, dual-architecture SBOM/provenance and all 116 packaged source
+files passed checks. Independent read-only stopped-state and pre/post backup
+acceptance passed. Do not select e165 against migrated state or restore a pre-write DB.
+Next product gap: the shared target-precondition consumer, then remaining
+maintenance/Dashboard/restore/dogfood gates. This bounded success is not complete
+Phase 1 acceptance or authorization for a new scope/perpetual service.
 
 ## Historical evidence
 
