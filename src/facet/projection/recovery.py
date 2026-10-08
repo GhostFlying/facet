@@ -46,11 +46,18 @@ def check_unknown(source, target, attempt, *, max_raw_bytes=35_000_000):
         return RecoveryEvidence(
             "duplicate_candidates", ErrorCode.DUPLICATE_CANDIDATES, len(candidates)
         )
-    raw = source.raw(
-        attempt.source_message_id,
-        thread_id=attempt.source_thread_id,
-        max_bytes=max_raw_bytes,
-    )
+    try:
+        raw = source.raw(
+            attempt.source_message_id,
+            thread_id=attempt.source_thread_id,
+            max_bytes=max_raw_bytes,
+        )
+    except ProviderFailure as error:
+        if error.role is Role.SOURCE and error.status == 404:
+            return RecoveryEvidence(
+                "attention", ErrorCode.SOURCE_MISSING, 1, "source_missing"
+            )
+        raise
     try:
         if len(raw) > max_raw_bytes:
             return RecoveryEvidence(
@@ -161,7 +168,7 @@ class UnknownInsertChecks:
             except ProviderFailure as error:
                 code, failure = error.code, error
                 if error.role is Role.SOURCE and error.status == 404:
-                    code = ErrorCode.ATTRIBUTION_UNKNOWN
+                    code = ErrorCode.SOURCE_MISSING
                 retry = blocks_sync(error) or code in {
                     ErrorCode.SOURCE_AUTH_REQUIRED,
                     ErrorCode.TARGET_AUTH_REQUIRED,

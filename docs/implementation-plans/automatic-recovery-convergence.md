@@ -27,6 +27,9 @@ especially with permitted external SENT/DRAFT. This unit checks automatically bu
 does not fabricate ownership, introduce a fence framework or claim that unknown
 mapping/retry is solved. Missing results remain scheduled checks; genuine ambiguity
 retains a precise code. No new insert-attribution policy or contract change.
+Implementation review correction: a confirmed source raw HTTP 404 retains
+`source_missing`, including attempt/job/audit diagnostics; insertion certainty
+remains unknown and no ownership, mapping or resend is inferred.
 
 Historical attention is not blanket requeued. Automatic closure requires exact
 canonical action completion, or an exact mapped/current-generation durable

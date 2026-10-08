@@ -115,6 +115,31 @@ def test_network_failure_checks_wait_and_preserve_thread_blocker(unknown, monkey
     assert worker.run().processed == 0
 
 
+def test_source_404_retains_missing_cause_without_resend_or_ownership(
+    unknown, monkeypatch
+):
+    owner, worker, source, target, attempt = unknown
+
+    def gone(*args, **kwargs):
+        raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.SOURCE, status=404)
+
+    monkeypatch.setattr(source, "raw", gone)
+    evidence = check_unknown(source, target, attempt)
+    assert evidence.code is ErrorCode.SOURCE_MISSING
+    assert UnknownInsertChecks(owner, source, target).run() == 1
+    assert owner._connection.execute(
+        "SELECT state,certainty,attribution,error_code,recovery_checks "
+        "FROM insert_attempts"
+    ).fetchone() == ("needs_attention", "unknown", "none", "source_missing", 1)
+    assert owner._connection.execute(
+        "SELECT COUNT(*) FROM sync_jobs WHERE last_error_code='source_missing'"
+    ).fetchone() == (2,)
+    assert worker.run().processed == 0
+    assert owner._connection.execute(
+        "SELECT COUNT(*) FROM message_mappings"
+    ).fetchone() == (0,)
+
+
 def test_due_check_increments_without_another_insert(unknown, monkeypatch):
     from facet.projection import recovery
 
