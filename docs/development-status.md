@@ -8,39 +8,39 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Current-label observation implementation; live deployment unchanged
+### Current-label model installed; bounded live verification passed
 
-The user approved current-state label interpretation on 2026-10-08. Production
-runtime now has a candidate path treating History as dirty-thread notifications,
-with durable presence/activation acknowledgements rather than old add/remove
-command replay. Existing command rows stay historical evidence. Focused actual
-CLI subprocess tests passed initialization/auth binding, preview/start, current
-rule learning, complete non-draft thread insert/readback/mapping, sticky-tag
-restart deduplication and observed absence/re-add. BlackList removal does not
-revive a stopped thread; missing tags are no-ops and provider errors retain work.
-Atomic rollback, legacy/current identity collision and matching-only legacy
-acknowledgement have focused repository evidence. Backed-up v3-to-v4 upgrade,
-DDL rollback and owner reopen passed. Independent plan and implementation review
-accepted the [short plan](implementation-plans/current-label-observations.md)
-and source candidate `7e97b21986db07c02e93b6cf5203a7a8b9e15fdb`. A review finding
-was fixed using the existing guarded retry path: rechecking old label attention
-now persists provider error/deadline instead of immediately retrying. Nineteen
-affected current-action/runtime checks passed independently. The earlier full
-run had 2894 passes and four stale integration-fixture failures; the corrected
-runtime subset passed all ten cases. The exact-source non-root production image
-passed 55 actual CLI/current-action/migration/runtime cases with a read-only root
-filesystem and external networking disabled; application source came only from
-the image. Final exact-head full PR CI remains a gate; the earlier failing full
-run is not acceptance. Details are in the
+PR [#106](https://github.com/GhostFlying/facet/pull/106) is merged at
+`e165ac54baa31827ce129466fbaf7122e8f90b8b`. Independent plan/implementation review,
+full Python 3.12/3.13 PR and main checks, dual-architecture publication and anonymous
+pull passed. The exact-source non-root image passed the complete synthetic CLI
+path and restart/fault qualification; source acceptance is recorded in the
 [candidate review](reviews/current-label-observations.md).
 
-This is implemented/focused-offline evidence, not merged or live acceptance.
-The real stopped deployment remains the image and exact counts described below:
-4309 mappings, one protected unknown and eleven attention. Eight old label
-notifications will be checked against current tags after a separately scoped
-upgrade/run, not discarded as guessed old commands. Three projection jobs still
-depend on the old unknown; this change does not permit resending it. Final Phase 1
-maintenance/Dashboard/deployment/dogfood gates remain unfinished.
+With subsequent explicit user deployment/run authority, the existing Compose
+project now selects that immutable image. Writer-locked pre/post SQLite/config/
+credential backups passed. One production `run --once` completed in 68.49 seconds:
+one History page, 28 resolved events, 12 inserts/readbacks/confirmed mappings,
+zero new attention and zero warnings. Runtime upgraded schema v3 to v4 and
+normally completed all eight frozen old-label notifications: **attention 11 to
+3, mappings 4309 to 4321**. No manual business SQL repair or old action replay
+was used. Prior mappings, account/binding lineage, rules, action-label config,
+selected historical scope and stopped generations were preserved.
+
+One old unknown remains protected and was not resent; the three remaining
+attention are projection jobs depending on it. There are no queued jobs; one
+blocked job and one retry-wait recovery remain, not a fully successful queue.
+Fresh read-only target enumeration found 4321 mapped items, two permitted
+outbound SENT items and zero other unmanaged items. No new label activation or
+rule learning occurred, so live AddDomain/reactivation is not claimed. See the
+[live receipt](reviews/current-label-live-upgrade.md).
+
+Continuous Compose sync remains stopped; no new historical scope, source
+mutation, deletion, unknown resend or perpetual daemon was authorized. Next is
+a separately bounded decision for the old unknown, not a blanket queue retry.
+Full Phase 1 maintenance/Dashboard/restore/dogfood gates remain unfinished.
+
+## Historical evidence
 
 ### Published recovery installed; historical cleanup and exact restoration passed
 
@@ -106,8 +106,6 @@ framework is required for the completed historical exceptions. Broader maintenan
 CLI, live gap, audit/restore,
 Dashboard/browser/deployment and dogfood acceptance remain unfinished; this is not
 full Phase 1 acceptance or authorization of an unbounded daemon/unknown resend.
-
-## Historical evidence
 
 The following sections retain their candidate/time-bounded evidence. Pending
 statements are historical; only the current summary above states present status.
