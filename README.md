@@ -6,17 +6,18 @@ vertical slice is a selective Gmail projection into a separate Gmail account.
 Repository: [GhostFlying/facet](https://github.com/GhostFlying/facet) (public).
 License selection is pending; no production release is available yet.
 
-This repository contains the production package/config/CLI foundation and an
-isolated Phase 0 spike, not a working production sync daemon. The spike's purpose
+This repository contains the production Gmail sync runtime and a separate
+Phase 0 spike. The spike's purpose
 and stop conditions are documented in
 [`docs/phase-0-gmail-spike-plan.md`](docs/phase-0-gmail-spike-plan.md).
 The redacted live findings are documented in
 [`docs/phase-0-gmail-spike-results.md`](docs/phase-0-gmail-spike-results.md).
 
-Phase 0 is complete: Gmail API behavior and target Gmail conversation/PDF access
-were verified. The production foundation provides strict offline configuration
-reads; Gmail synchronization, initialization and the complete maintenance CLI
-remain future reviewed work.
+Production CLI setup/binding, persisted rules, discovery/History, full-thread
+insert/readback/mapping and restart continuation are implemented. Granular
+historical projection has scoped real-Gmail evidence; that is not final Phase 1
+acceptance. The complete maintenance CLI, all live/deployment recovery gates and
+dogfood remain unfinished. See the current [development status](docs/development-status.md).
 
 The user approved the complete Phase 1 plan on 2026-10-02 at
 `caba7c73895a303d329cf3eba1c89557530c38c5`; [PR #2](https://github.com/GhostFlying/facet/pull/2)
@@ -130,16 +131,39 @@ uv run --frozen facet config show --config ./standalone-config.yaml --json
 The required `projection` fields are `id`, `source_email` and `target_email`.
 Optional sections/defaults follow the [M1-01 plan](docs/implementation-plans/m1-01-package-config.md).
 Validation is explicitly `structural_only`: it does not verify Google identity,
-scopes, managed state or sender rules. Rules remain pending canonical PSL/auth
-validation. Default show omits addresses, rule/label values and private paths;
+scopes, managed state or sender rules. Rules use canonical PSL/IDNA normalization;
+Gmail owns sender authentication. Default show omits addresses, rule/label values and private paths;
 `--private-metadata` is a local opt-in, not a public export. `--public` config
 output is refused.
 
-Default managed config reads, `facet init`, `facet config init` and `config apply`
-return `owner_unavailable` (exit 4) without writing. They await the reviewed M1-03
-single-owner/read-view implementation and M1-06 integration. There is no unlocked
-fallback, implicit OAuth/backfill, successful stub initialization or spike import.
-These limits do not reduce the required complete CLI delivery.
+`facet init` and `facet setup` implement private production initialization and
+account authorization/binding. `config init/apply` are still unavailable; there
+is no unlocked fallback or implicit import of spike state.
+
+After setup and rule configuration, use the complete entry intentionally:
+
+```bash
+facet --state-dir /var/lib/facet/production sync --once --yes
+```
+
+It automatically reuses the same guarded preview/start/run operations. Without
+`--once` it runs the existing foreground sync/Dashboard service. `--once` is one
+bounded cycle, not a guarantee that every historical job drains. Admission
+discloses the complete available non-draft thread, including older history,
+attachments, other participants, own replies and future thread messages.
+
+The default key resumes the same bound configuration/rules/calendar-window
+operation; normal admissions do not create another scope. Changed rules or a
+new calendar window can select a new intentional operation. Optional
+`--request-id <uuid>` pins replay to one saved scope even after such changes.
+Expired unstarted previews fail closed; a fresh explicit key is a newly confirmed
+intent, not a way to bypass guards. Missing authorization requires the existing
+`setup` or `auth authorize` flow; no account or scope is silently selected.
+
+Use `facet run` for ordinary restart without selecting a new historical scope.
+Granular `backfill preview/start/status` remain available; standalone preview is
+zero-write. Docker/Compose still default to `run`, not automatic new backfill.
+This entry and its offline acceptance do not authorize a live scope or deployment.
 
 ## Google OAuth prerequisite
 

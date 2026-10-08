@@ -106,3 +106,41 @@ sealed rule/stop/unknown/cursor guards. Run affected checks, independent focused
 acceptance and a locally built non-root image before any new PR. Continue the
 same authorized epoch only after confirming the failed cycle produced no new
 attempts/mappings and a fresh preflight; never replay an uncertain insert.
+
+## Authorized continuation after recovered reads, 2026-10-08
+
+The user asked to continue after reviewing the completed first cycle and the
+remaining queue. The original accounts, sole sender rule, fixed preview window
+and epoch remain selected; no fresh preview/start or historical expansion.
+The previous stricter trial stop and its private receipt remain intact. The
+following is an operator-test amendment, not a product contract/gate reduction.
+
+Root changes only the private operator helper and this plan/current receipt.
+Reuse the qualified exact-source image, production CLI/runtime, private atomic
+receipt writer, aggregate query-only observations, preflight and target classifier.
+Introduce separately named, sequential continuation submissions, maximum six;
+each writes its submission marker and pre-run protected snapshot before invoking
+one actual `run --once`. Never replay a pending marker. First continuation is
+qualified by the prior clean end-state, three completed read deferrals and fresh
+preflight, not by erasing the old stopped receipt. Each later submission requires
+the previous completed continuation gate to pass and fresh target classification.
+Stop submitting once the selected epoch is terminal and its queue is drained;
+the finite run budget is not a continuous daemon or an automatic scope expansion.
+
+Completed, safely retried source reads do not block continuation. Unresolved
+provider deferrals, new unknown attempts, attention/terminal failures, warnings,
+scope/binding/stop changes or unexpected target content still stop subsequent
+submissions. Compare every prior mapping and old recovery/attention row; require
+no new epoch or discovery progress change, no newly created intent for an already
+mapped source message, and every new insert attempt verified and mapped. These
+guards validate restart behavior; they do not override production recovery.
+No total timeout around an in-flight insert; raw stays in bounded memory.
+
+Independent plan review precedes the helper edit; independent helper acceptance
+uses synthetic in-memory snapshots/journals, including pending response loss,
+recovered versus unresolved deferrals, changed mapping/scope/stops, duplicate old
+message intents, unknown/attention and sequential/bounded submission guards.
+No production source/dependency/schema change means the previously accepted full
+offline/source/image checks remain valid. Final live evidence states per-cycle
+unique mappings and remaining jobs, explicitly distinguishing restart continuation
+from complete historical queue acceptance and all remaining Phase 1 gates.

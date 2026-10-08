@@ -134,6 +134,28 @@ def _action_consumer(source: SourceAdapter, config: Config, owner):
     )
 
 
+def prepare_credentials(owner, config, factory):
+    """Use the existing refresh/profile guards before any complete-entry work."""
+
+    from facet.gmail.refresh_exchange import refresh_google
+
+    manager = CredentialManager(owner.state_dir, config, owner)
+    probe = _ProfileProbe(config, factory)
+
+    def exchange(role, old):
+        return refresh_google(role, old, policy_scopes(_policy(config, role), role))
+
+    def refreshed_profile(role, secret, scopes):
+        return ProfileEvidence(factory.profile_account(role, secret), scopes)
+
+    if getattr(factory, "supports_refresh", False):
+        for role in (Role.SOURCE, Role.TARGET):
+            manager.reconcile_interrupted_refresh(role)
+            manager.ensure_current(role, exchange, refreshed_profile)
+    manager.verify_and_publish(probe)
+    return manager.snapshot(Role.SOURCE), manager.snapshot(Role.TARGET)
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class ForegroundRuntime:
     owner: object
@@ -148,29 +170,9 @@ class ForegroundRuntime:
         max_jobs=1000,
         max_events=1000,
     ):
-        manager = CredentialManager(self.owner.state_dir, self.config, self.owner)
-        from facet.gmail.refresh_exchange import refresh_google
-
-        probe = _ProfileProbe(self.config, self.factory)
-
-        def exchange(role, old):
-            return refresh_google(
-                role, old, policy_scopes(_policy(self.config, role), role)
-            )
-
-        def refreshed_profile(role, secret, scopes):
-            evidence = self.factory.profile_account(role, secret)
-            return ProfileEvidence(evidence, scopes)
-
-        if getattr(self.factory, "supports_refresh", False):
-            for role in (Role.SOURCE, Role.TARGET):
-                manager.reconcile_interrupted_refresh(role)
-                manager.ensure_current(role, exchange, refreshed_profile)
-        # verify() reads both role envelopes and probes both profiles before
-        # verify_and_publish changes either binding or projection readiness.
-        manager.verify_and_publish(probe)
-        source_snapshot = manager.snapshot(Role.SOURCE)
-        target_snapshot = manager.snapshot(Role.TARGET)
+        source_snapshot, target_snapshot = prepare_credentials(
+            self.owner, self.config, self.factory
+        )
         with ExitStack() as services:
             source_service = self.factory.service(Role.SOURCE, source_snapshot)
             close = getattr(source_service, "close", None)

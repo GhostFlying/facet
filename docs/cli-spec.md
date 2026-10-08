@@ -87,7 +87,7 @@ bounded pagination 和受控失败；涉及对象的 `list/show` 只显示持久
 | `facet gmail auth/reauth <source|target> --port <port>`；`facet gmail auth-status` | 独立 Desktop flow、固定角色/scope、原子替换；reauth 保 binding/jobs，auth-status 默认离线；A/O | M1-04、M1-06；G1，真实 re-auth G6 |
 | `facet status`；`facet doctor [--live]` | 本地汇总和诊断；默认 offline；O/R | M1-03/05/06、M3/M4；G1/G4 |
 | `facet run` | Docker image 内前台唯一 sync/HTTP owner；由 Docker/Compose 负责生命周期；O/C | M1-03、M3；G1/G4 |
-| 完整同步入口（拟 `facet sync [--once]`，未实现） | 自动检查配置/绑定/授权，按当前规则和固定六个月范围准备/启动或续跑 backfill，执行 History/投影；完全复用细分操作；C/R/W | M2/M3；CLI-02/03，最终 G6 |
+| `facet sync [--once] [--yes] [--request-id <uuid>]` | 自动检查配置/绑定/授权，按当前规则和固定六个月范围准备/启动或续跑 backfill，执行 History/投影；完全复用细分操作；C/R/W | M2/M3；CLI-02/03，最终 G6 |
 | `facet rules list/show/add-sender/add-domain/remove`；`facet rules action-label set/remove/list --kind ...`；`facet rules blacklist --sender <address> --thread <id>` | exact 规则、处理时生效状态，effective_at 作审计；blacklist + 所选 thread stop，typed audit；action-label mapping is private, single-writer, exact-name, and source-readonly；O/C | M1-02/06、M3-01/03、M5-03；G3/G5 |
 | `facet backfill preview/start/status/pause/resume` | 固定 cutoff/H0/epoch、明确 start、自动 discovery/backfill、暂停/恢复与进度；R/C→W/O | M2、M3；G2/G3 |
 | `facet queue list/show`；`facet queue retry --job <id>` | 看互斥 job 状态、next attempt/error code；仅安全可重试 job 重新调度；O/C | M2-03/04/05、M4-06；G2/G4 |
@@ -154,9 +154,9 @@ expiry/unknown、mode 和 role，不把 token 文件存在当作 live OAuth 健�
 
 ### 完整入口和细分命令（2026-10-07 用户决定）
 
-最终产品提供完整同步入口与细分维护命令。完整入口的拟定拼写为 `facet sync`：
+产品提供完整同步入口与细分维护命令。完整入口为 `facet sync`：
 不带 `--once` 持续运行，带 `--once` 执行一轮后退出，不承诺一轮耗尽全部任务。
-该命令尚未实现，也不改变当前 Docker/Compose 默认 `run`。它检查现有配置、账号
+该命令不改变当前 Docker/Compose 默认 `run`。它检查现有配置、账号
 binding 和 scopes，缺授权时引导既有 OAuth 交互，不默选账号、覆盖状态或扩权。
 
 一次有意调用选择当前 enabled allow rules 与默认固定六个月窗口，自动完成范围
@@ -172,6 +172,13 @@ discovery/cursor/intents。容器重启/普通 run 续跑已有范围；连续�
 action 学习不触发任意历史回扫，不把重启、每日 reconcile 当作新的历史披露意图；
 按 D11，History/gap 使用处理/扫描时规则，已知 gap 覆盖整个停机窗口。
 单独 init/setup/preview/status 保持原有无复制行为，维修/恢复许可不随 sync 扩张。
+
+当前入口默认按 owner namespace、binding/config/ruleset revision 和日历窗口
+生成稳定内部键，同一条件续跑同一 preview/start；普通 admission/generation
+变化不改变键。规则或月份变化后新的有意 `sync` 可选择新操作，但连续 service
+循环只选范围一次。可选 `--request-id <uuid>` 的子键只依赖 namespace 和调用键，
+跨规则/月变化仍重放已存范围。未启动的过期 preview 保持拒绝；新的显式调用键
+表示重新确认的独立意图，不是自动替换范围或绕过 guards。
 
 当前真实验证继续用细分命令，按具体已批准范围执行。产品入口可自动编排不代表
 agent 可以在当前测试中自动开始新历史补齐、retry unknown 或启动长期服务。
