@@ -164,6 +164,43 @@ def test_complete_sync_initial_history_restart_and_rule_expansion(wire):
     assert len(rows(state, "epochs")) == before
 
 
+def test_cli_thread_label_message_aliases_learn_and_copy_once(wire):
+    invoke, mailbox, state = wire
+    invoke("auth", "authorize", "--fake", "--yes", "--request-id", uuid4().hex)
+    assert invoke("sync", "--once", "--yes")["cycle"]["projected"] == 0
+    invoke(
+        "rules",
+        "action-label",
+        "set",
+        "--kind",
+        "add_sender",
+        "--name",
+        "Facet/AddSender",
+        "--yes",
+        "--request-id",
+        uuid4().hex,
+    )
+    mailbox.learn_sender = mailbox.label_aliases = True
+    mailbox.arrive()
+    result = invoke("run", "--once")
+    assert result["attention"] == 0 and result["projected"] == 2
+    assert len(mailbox.inserted_raw) == 2
+    assert len(rows(state, "action_commands")) == len(rows(state, "rules")) == 1
+    assert len(rows(state, "message_mappings")) == 2
+    with sqlite3.connect(f"{(state / 'facet.db').as_uri()}?mode=ro", uri=True) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM source_events WHERE tag='label_changed' "
+            "AND processing='consumed'"
+        ).fetchone() == (2,)
+        assert db.execute(
+            "SELECT COUNT(*) FROM sync_jobs WHERE state='needs_attention'"
+        ).fetchone() == (0,)
+    prior = rows(state, "insert_attempts")
+    again = invoke("run", "--once")
+    assert again["projected"] == again["attention"] == 0
+    assert rows(state, "insert_attempts") == prior and len(mailbox.inserted_raw) == 2
+
+
 def test_explicit_request_replays_saved_scope_after_new_rules(wire):
     invoke, mailbox, state = wire
     bind_and_rule(invoke)

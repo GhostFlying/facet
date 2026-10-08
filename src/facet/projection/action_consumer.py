@@ -247,12 +247,15 @@ class ActionEffectConsumer:
                 prepared.action is not None
                 and prepared.action.event_id != prepared.event_id
             ):
-                return self._attention(
-                    owner,
-                    projection_id,
-                    prepared,
-                    ErrorCode.REQUEST_CONFLICT,
-                )
+                with owner.transaction() as uow:
+                    return ActionEffectResult(
+                        receipt=events.consume_executed_label_alias(
+                            uow,
+                            projection_id,
+                            prepared.event_id,
+                            RevisionGuard(prepared.event.revision),
+                        )
+                    )
             if (
                 prepared.action is not None
                 and prepared.action.state is ActionState.NEEDS_ATTENTION

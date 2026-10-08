@@ -53,6 +53,7 @@ class Mailbox:
         self.catchup_page_failure = False
         self.gap_arrived_at = 0
         self.learn_sender = False
+        self.label_aliases = False
         self.readback_status = None
         self.read_reason = "authError"
         self.reject_insert_once = False
@@ -302,6 +303,16 @@ class Mailbox:
                                     "labelIds": ["label-add-sender"],
                                 }
                             ]
+                            if mailbox.label_aliases:
+                                rows[0]["labelsAdded"].append(
+                                    {
+                                        "message": {
+                                            "id": "future-old",
+                                            "threadId": "future-thread",
+                                        },
+                                        "labelIds": ["label-add-sender"],
+                                    }
+                                )
                     self.reply(
                         {"historyId": f"history-{mailbox.revision}", "history": rows}
                     )

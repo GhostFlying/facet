@@ -1,14 +1,22 @@
 """Idempotent source-event metadata and durable resolution/effect work."""
 
-from facet.contracts import ErrorCode, JobKind, JobState, ProviderId
+from facet.contracts import (
+    ClaimPhase,
+    ErrorCode,
+    JobKind,
+    JobState,
+    LabelChange,
+    ProviderId,
+)
 from facet.contracts.records import (
+    JobSubjectResolveEvent,
     SourceEventKeyLabelChanged,
     SourceEventKeyMessageAdded,
     SourceEventKeyMessageDeleted,
 )
 
-from ..codecs import EventProcessing, StorageFailure, next_revision
-from ..keys import event_key
+from ..codecs import ActionState, EventProcessing, StorageFailure, next_revision
+from ..keys import event_key, job_key
 from ..models import HistoryPageEventRow, SourceEventRow, SyncJobRow, WriteReceipt
 from .base import (
     _batch,
@@ -20,7 +28,7 @@ from .base import (
     _require_row,
 )
 from .history import _advance_poll_revision, _page, _page_work, _poll
-from .jobs import _thread_guard, enqueue
+from .jobs import _thread_guard, complete_noninsert_job, enqueue
 
 
 def _event(uow, projection_id, event_id, guard):
@@ -196,6 +204,143 @@ def consume_message_added_no_effect(uow, projection_id, event_id, guard):
         (revision.value, projection_id.value, event_id.value, row.revision.value),
     )
     return WriteReceipt("updated", event_id, revision)
+
+
+def _executed_label_alias_job(uow, projection_id, row):
+    key = row.event.key
+    if (
+        type(key) is not SourceEventKeyLabelChanged
+        or key.change is not LabelChange.ADDED
+        or row.event.source_thread_id is None
+    ):
+        _conflict()
+    action = _get(
+        uow,
+        projection_id,
+        "action_commands",
+        (
+            ("history_record_id", key.history_record_id),
+            ("label_id", key.label_id),
+            ("source_thread_id", row.event.source_thread_id),
+        ),
+    )
+    if action is None or action.event_id == row.event_id:
+        _conflict()
+    canonical = _get(
+        uow, projection_id, "source_events", (("event_id", action.event_id),)
+    )
+    if (
+        action.state is not ActionState.EXECUTED
+        or canonical is None
+        or canonical.processing is not EventProcessing.CONSUMED
+        or canonical.error_code is not None
+        or type(canonical.event.key) is not SourceEventKeyLabelChanged
+        or canonical.event.key.change is not LabelChange.ADDED
+        or canonical.event.key.history_record_id != key.history_record_id
+        or canonical.event.key.label_id != key.label_id
+        or canonical.event.source_thread_id != row.event.source_thread_id
+    ):
+        raise StorageFailure(ErrorCode.OWNER_BUSY)
+    canonical_job = _get(
+        uow,
+        projection_id,
+        "sync_jobs",
+        (
+            (
+                "stable_key",
+                job_key(
+                    projection_id,
+                    JobSubjectResolveEvent("resolve_event", canonical.event.key),
+                ),
+            ),
+        ),
+    )
+    if canonical_job is None or canonical_job.state is not JobState.COMPLETED:
+        raise StorageFailure(ErrorCode.OWNER_BUSY)
+    alias_job = _get(
+        uow,
+        projection_id,
+        "sync_jobs",
+        (
+            (
+                "stable_key",
+                job_key(projection_id, JobSubjectResolveEvent("resolve_event", key)),
+            ),
+        ),
+    )
+    if alias_job is None:
+        _conflict()
+    return alias_job
+
+
+@_mutating
+def consume_executed_label_alias(uow, projection_id, event_id, guard):
+    """Close a per-message alias of a completed thread action, with no effect."""
+    row = _event(uow, projection_id, event_id, guard)
+    if row.error_code is not None or row.processing not in {
+        EventProcessing.PENDING,
+        EventProcessing.CONSUMED,
+    }:
+        _conflict()
+    alias_job = _executed_label_alias_job(uow, projection_id, row)
+    if row.processing is EventProcessing.CONSUMED:
+        if alias_job.state is not JobState.COMPLETED:
+            _conflict()
+        return WriteReceipt("replayed", alias_job.job_id, alias_job.revision)
+    claim = _get(uow, projection_id, "job_claims", (("job_id", alias_job.job_id),))
+    if (
+        alias_job.state is not JobState.CLAIMED
+        or claim is None
+        or claim.claim.owner_run_id != uow._session._info.owner_run_id
+        or claim.claim.phase is not ClaimPhase.PREPARING
+        or claim.claim.job_revision != alias_job.revision
+    ):
+        raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+    revision = next_revision(row.revision)
+    uow._execute(
+        "UPDATE source_events SET processing='consumed',revision=? "
+        "WHERE projection_id=? AND event_id=? AND revision=?",
+        (revision.value, projection_id.value, event_id.value, row.revision.value),
+    )
+    from ..models import RevisionGuard
+
+    return complete_noninsert_job(
+        uow, projection_id, alias_job.job_id, RevisionGuard(alias_job.revision)
+    )
+
+
+@_mutating
+def repair_executed_label_alias(uow, projection_id, event_id, event_guard, job_guard):
+    """Explicit owner maintenance only; normal sync never calls this repair."""
+    row = _event(uow, projection_id, event_id, event_guard)
+    job = _executed_label_alias_job(uow, projection_id, row)
+    _guard(job.revision, job_guard)
+    if row.processing is EventProcessing.CONSUMED and job.state is JobState.COMPLETED:
+        if row.error_code is not None or job.last_error_code is not None:
+            _conflict()
+        return WriteReceipt("replayed", job.job_id, job.revision)
+    if (
+        row.processing is not EventProcessing.NEEDS_ATTENTION
+        or row.error_code is not ErrorCode.REQUEST_CONFLICT
+        or job.state is not JobState.NEEDS_ATTENTION
+        or job.last_error_code is not ErrorCode.REQUEST_CONFLICT
+        or _get(uow, projection_id, "job_claims", (("job_id", job.job_id),)) is not None
+    ):
+        _conflict()
+    event_revision = next_revision(row.revision)
+    job_revision = next_revision(job.revision)
+    uow._execute(
+        "UPDATE source_events SET processing='consumed',error_code=NULL,revision=? "
+        "WHERE projection_id=? AND event_id=? AND revision=?",
+        (event_revision.value, projection_id.value, event_id.value, row.revision.value),
+    )
+    uow._execute(
+        "UPDATE sync_jobs SET state='completed',last_error_code=NULL,"
+        "revision=?,next_attempt_at=NULL "
+        "WHERE projection_id=? AND job_id=? AND revision=?",
+        (job_revision.value, projection_id.value, job.job_id.value, job.revision.value),
+    )
+    return WriteReceipt("updated", job.job_id, job_revision)
 
 
 @_mutating
