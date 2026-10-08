@@ -7,17 +7,28 @@ from facet.contracts import (
     JobState,
     LabelChange,
     ProviderId,
+    Timestamp,
 )
 from facet.contracts.records import (
+    JobSubjectProjectMessage,
     JobSubjectResolveEvent,
     SourceEventKeyLabelChanged,
     SourceEventKeyMessageAdded,
     SourceEventKeyMessageDeleted,
 )
 
-from ..codecs import ActionState, EventProcessing, StorageFailure, next_revision
+from ..codecs import (
+    ActionState,
+    AuditKind,
+    AuditObjectKind,
+    EventProcessing,
+    StorageFailure,
+    next_revision,
+    timestamp_to_sql,
+)
 from ..keys import event_key, job_key
 from ..models import HistoryPageEventRow, SourceEventRow, SyncJobRow, WriteReceipt
+from .audit import _audit
 from .base import (
     _batch,
     _conflict,
@@ -28,6 +39,7 @@ from .base import (
     _require_row,
 )
 from .history import _advance_poll_revision, _page, _page_work, _poll
+from .intents import _result_binding
 from .jobs import _thread_guard, complete_noninsert_job, enqueue
 
 
@@ -310,8 +322,10 @@ def consume_executed_label_alias(uow, projection_id, event_id, guard):
 
 
 @_mutating
-def repair_executed_label_alias(uow, projection_id, event_id, event_guard, job_guard):
-    """Explicit owner maintenance only; normal sync never calls this repair."""
+def repair_executed_label_alias(
+    uow, projection_id, event_id, event_guard, job_guard, *, observed_at=None
+):
+    """Close an old alias only with exact proof of canonical completion."""
     row = _event(uow, projection_id, event_id, event_guard)
     job = _executed_label_alias_job(uow, projection_id, row)
     _guard(job.revision, job_guard)
@@ -329,6 +343,12 @@ def repair_executed_label_alias(uow, projection_id, event_id, event_guard, job_g
         _conflict()
     event_revision = next_revision(row.revision)
     job_revision = next_revision(job.revision)
+    if observed_at is not None and (
+        type(observed_at) is not Timestamp
+        or observed_at.value < job.updated_at.value
+        or observed_at.value < row.event.observed_at.value
+    ):
+        _conflict()
     uow._execute(
         "UPDATE source_events SET processing='consumed',error_code=NULL,revision=? "
         "WHERE projection_id=? AND event_id=? AND revision=?",
@@ -340,7 +360,218 @@ def repair_executed_label_alias(uow, projection_id, event_id, event_guard, job_g
         "WHERE projection_id=? AND job_id=? AND revision=?",
         (job_revision.value, projection_id.value, job.job_id.value, job.revision.value),
     )
+    if observed_at is not None:
+        uow._execute(
+            "UPDATE sync_jobs SET updated_at=? WHERE projection_id=? AND job_id=?",
+            (timestamp_to_sql(observed_at), projection_id.value, job.job_id.value),
+        )
+        _audit(
+            uow,
+            projection_id,
+            AuditKind.JOB_STATE_CHANGED,
+            AuditObjectKind.JOB,
+            observed_at,
+            local_id=job.job_id,
+            before_revision=job.revision,
+            after_revision=job_revision,
+            before_state=job.state,
+            after_state=JobState.COMPLETED,
+        )
     return WriteReceipt("updated", job.job_id, job_revision)
+
+
+@_mutating
+def consume_message_added_existing_effect(
+    uow, projection_id, event_id, event_guard, job_guard, observed_at
+):
+    """Consume a notification whose exact durable work already exists.
+
+    This changes only the event and resolver, never the referenced work/mapping.
+    It is not a general attention override or new scheduling permission.
+    """
+    row = _event(uow, projection_id, event_id, event_guard)
+    key = row.event.key
+    if (
+        type(key) is not SourceEventKeyMessageAdded
+        or row.event.source_thread_id is None
+        or type(observed_at) is not Timestamp
+    ):
+        _conflict()
+    job = _get(
+        uow,
+        projection_id,
+        "sync_jobs",
+        (
+            (
+                "stable_key",
+                job_key(projection_id, JobSubjectResolveEvent("resolve_event", key)),
+            ),
+        ),
+    )
+    if job is None:
+        _conflict()
+    _guard(job.revision, job_guard)
+    if row.processing is EventProcessing.CONSUMED and job.state is JobState.COMPLETED:
+        if row.error_code is not None or job.last_error_code is not None:
+            _conflict()
+        return WriteReceipt("replayed", job.job_id, job.revision)
+    if (
+        row.processing not in {EventProcessing.PENDING, EventProcessing.NEEDS_ATTENTION}
+        or row.error_code not in {None, ErrorCode.REQUEST_CONFLICT}
+        or job.state
+        not in {JobState.QUEUED, JobState.RETRY_WAIT, JobState.NEEDS_ATTENTION}
+        or job.last_error_code not in {None, ErrorCode.REQUEST_CONFLICT}
+        or (row.processing is EventProcessing.NEEDS_ATTENTION)
+        != (job.state is JobState.NEEDS_ATTENTION)
+        or _get(uow, projection_id, "job_claims", (("job_id", job.job_id),)) is not None
+        or observed_at.value < job.updated_at.value
+        or observed_at.value < row.event.observed_at.value
+    ):
+        _conflict()
+    mapping = _get(
+        uow,
+        projection_id,
+        "message_mappings",
+        (("source_message_id", key.source_message_id),),
+    )
+    if mapping is not None:
+        if mapping.source_thread_id != row.event.source_thread_id:
+            _conflict()
+        # Verify the persisted mapping's provenance, not just an ID match.
+        attempt = _get(
+            uow, projection_id, "insert_attempts", (("attempt_id", mapping.attempt_id),)
+        )
+        if (
+            attempt is None
+            or attempt.state.value != "verified"
+            or attempt.source_message_id != mapping.source_message_id
+            or attempt.source_thread_id != mapping.source_thread_id
+            or attempt.target_message_id != mapping.target_message_id
+            or attempt.target_thread_id != mapping.target_thread_id
+        ):
+            _conflict()
+        _result_binding(uow, projection_id, attempt)
+    else:
+        thread = _get(
+            uow,
+            projection_id,
+            "tracked_threads",
+            (("source_thread_id", row.event.source_thread_id),),
+        )
+        if thread is None or not thread.active:
+            _conflict()
+        subject = JobSubjectProjectMessage(
+            "project_message",
+            key.source_message_id,
+            row.event.source_thread_id,
+            thread.generation,
+        )
+        effect = _get(
+            uow,
+            projection_id,
+            "sync_jobs",
+            (("stable_key", job_key(projection_id, subject)),),
+        )
+        if (
+            effect is None
+            or effect.kind is not JobKind.PROJECT_MESSAGE
+            or effect.subject != subject
+            or effect.state
+            not in {
+                JobState.QUEUED,
+                JobState.RETRY_WAIT,
+                JobState.CLAIMED,
+                JobState.BLOCKED,
+                JobState.NEEDS_ATTENTION,
+            }
+            or effect.state in {JobState.BLOCKED, JobState.NEEDS_ATTENTION}
+            and effect.last_error_code is not ErrorCode.INSERT_RESULT_UNKNOWN
+        ):
+            _conflict()
+    event_revision, job_revision = (
+        next_revision(row.revision),
+        next_revision(job.revision),
+    )
+    uow._execute(
+        "UPDATE source_events SET processing='consumed',error_code=NULL,revision=? "
+        "WHERE projection_id=? AND event_id=? AND revision=?",
+        (event_revision.value, projection_id.value, event_id.value, row.revision.value),
+    )
+    uow._execute(
+        "UPDATE sync_jobs SET state='completed',last_error_code=NULL,"
+        "next_attempt_at=NULL,"
+        "updated_at=?,revision=? WHERE projection_id=? AND job_id=? AND revision=?",
+        (
+            timestamp_to_sql(observed_at),
+            job_revision.value,
+            projection_id.value,
+            job.job_id.value,
+            job.revision.value,
+        ),
+    )
+    _audit(
+        uow,
+        projection_id,
+        AuditKind.JOB_STATE_CHANGED,
+        AuditObjectKind.JOB,
+        observed_at,
+        local_id=job.job_id,
+        before_revision=job.revision,
+        after_revision=job_revision,
+        before_state=job.state,
+        after_state=JobState.COMPLETED,
+    )
+    return WriteReceipt("updated", job.job_id, job_revision)
+
+
+@_mutating
+def consume_label_removal(uow, projection_id, event_id, guard):
+    """An observed removal does not execute a business command."""
+    row = _event(uow, projection_id, event_id, guard)
+    key = row.event.key
+    if (
+        type(key) is not SourceEventKeyLabelChanged
+        or key.change is not LabelChange.REMOVED
+        or row.processing is not EventProcessing.PENDING
+        or row.error_code is not None
+    ):
+        _conflict()
+    job = _get(
+        uow,
+        projection_id,
+        "sync_jobs",
+        (
+            (
+                "stable_key",
+                job_key(projection_id, JobSubjectResolveEvent("resolve_event", key)),
+            ),
+        ),
+    )
+    claim = (
+        None
+        if job is None
+        else _get(uow, projection_id, "job_claims", (("job_id", job.job_id),))
+    )
+    if (
+        job is None
+        or job.state is not JobState.CLAIMED
+        or claim is None
+        or claim.claim.owner_run_id != uow._session._info.owner_run_id
+        or claim.claim.phase is not ClaimPhase.PREPARING
+        or claim.claim.job_revision != job.revision
+    ):
+        _conflict()
+    revision = next_revision(row.revision)
+    uow._execute(
+        "UPDATE source_events SET processing='consumed',revision=? "
+        "WHERE projection_id=? AND event_id=? AND revision=?",
+        (revision.value, projection_id.value, event_id.value, row.revision.value),
+    )
+    from ..models import RevisionGuard
+
+    return complete_noninsert_job(
+        uow, projection_id, job.job_id, RevisionGuard(job.revision)
+    )
 
 
 @_mutating

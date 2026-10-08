@@ -28,7 +28,7 @@ from ..codecs import (
     timestamp_to_sql,
 )
 from ..keys import job_key
-from ..models import SyncJobRow, WriteReceipt
+from ..models import RevisionGuard, SyncJobRow, WriteReceipt
 from .audit import _audit
 from .base import _conflict, _get, _guard, _insert, _mutating, _query, _require_row
 from .jobs import _ready, _thread_guard
@@ -611,6 +611,99 @@ def record_attempt_result(uow, projection_id, row, observed_at, guard):
         error=row.error_code,
     )
     return WriteReceipt("updated", row.attempt_id, row.revision)
+
+
+@_mutating
+def record_recovery_check(
+    uow, projection_id, attempt_id, code, observed_at, retry_at, guard
+):
+    """Record one owned check; never infer insertion or permission to resend."""
+    if type(code) is not ErrorCode or type(observed_at) is not Timestamp:
+        _conflict()
+    if retry_at is not None and (
+        type(retry_at) is not Timestamp or retry_at.value <= observed_at.value
+    ):
+        _conflict()
+    attempt = _get(uow, projection_id, "insert_attempts", (("attempt_id", attempt_id),))
+    if attempt is None:
+        _conflict()
+    _guard(attempt.revision, guard)
+    if (
+        attempt.state is not InsertState.PENDING_RECOVERY
+        or attempt.certainty is not OutcomeCertainty.UNKNOWN
+        or attempt.attribution.value != "none"
+        or attempt.target_message_id is not None
+        or attempt.target_thread_id is not None
+    ):
+        _conflict()
+    _result_binding(uow, projection_id, attempt)
+    recovery = _recovery_claim(uow, projection_id, attempt, observed_at)
+    original = _get(uow, projection_id, "sync_jobs", (("job_id", attempt.job_id),))
+    if (
+        original is None
+        or original.state is not JobState.BLOCKED
+        or original.last_error_code is not ErrorCode.INSERT_RESULT_UNKNOWN
+        or original.subject.source_message_id != attempt.source_message_id
+        or original.subject.source_thread_id != attempt.source_thread_id
+        or original.subject.generation != attempt.generation
+        or _get(uow, projection_id, "job_claims", (("job_id", original.job_id),))
+    ):
+        _conflict()
+    revision = next_revision(attempt.revision)
+    checks = next_revision(Revision(attempt.recovery_checks.value))
+    uow._execute(
+        "UPDATE insert_attempts SET recovery_checks=?,next_recovery_at=?,revision=? "
+        "WHERE projection_id=? AND attempt_id=? AND revision=?",
+        (
+            checks.value,
+            None if retry_at is None else timestamp_to_sql(retry_at),
+            revision.value,
+            projection_id.value,
+            attempt_id.value,
+            attempt.revision.value,
+        ),
+    )
+    _audit(
+        uow,
+        projection_id,
+        AuditKind.ATTEMPT_STATE_CHANGED,
+        AuditObjectKind.ATTEMPT,
+        observed_at,
+        local_id=attempt_id,
+        before_revision=attempt.revision,
+        after_revision=revision,
+        before_state=attempt.state,
+        after_state=attempt.state,
+        error=code,
+    )
+    if retry_at is None:
+        updated = _get(
+            uow, projection_id, "insert_attempts", (("attempt_id", attempt_id),)
+        )
+        return record_attempt_result(
+            uow,
+            projection_id,
+            replace(
+                updated,
+                state=InsertState.NEEDS_ATTENTION,
+                error_code=code,
+                revision=next_revision(updated.revision),
+            ),
+            observed_at,
+            RevisionGuard(revision),
+        )
+    from .jobs import defer_job
+
+    defer_job(
+        uow,
+        projection_id,
+        recovery.job_id,
+        "retry_wait",
+        code,
+        retry_at,
+        RevisionGuard(recovery.revision),
+    )
+    return WriteReceipt("updated", attempt_id, revision)
 
 
 @_mutating

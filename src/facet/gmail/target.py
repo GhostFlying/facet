@@ -124,28 +124,40 @@ class TargetAdapter:
     def find_by_rfc_message_id(self, value: str):
         if type(value) is not RfcMessageId:
             raise ValueError("invalid_input")
-        response = execute(
-            self._service.users()
-            .messages()
-            .list(
-                userId="me",
-                q=(
-                    f"rfc822msgid:{value.value}"
-                    if value.value.startswith("<")
-                    else f"rfc822msgid:<{value.value}>"
-                ),
-                includeSpamTrash=True,
-                maxResults=100,
-            ),
-            self.role,
-            provider_stage=ProviderStage.MESSAGE_GET,
-        )
-        try:
-            return tuple(
-                ProviderId(item["id"]) for item in response.get("messages", ())
+        candidates, tokens, token = {}, set(), None
+        # Two distinct candidates suffice to reject uniqueness. A singleton is
+        # only returned after completing pagination; cap malformed empty pages.
+        for _ in range(10):
+            arguments = {
+                "userId": "me",
+                "q": f"rfc822msgid:{value.value}"
+                if value.value.startswith("<")
+                else f"rfc822msgid:<{value.value}>",
+                "includeSpamTrash": True,
+                "maxResults": 100,
+            }
+            if token is not None:
+                arguments["pageToken"] = token
+            response = execute(
+                self._service.users().messages().list(**arguments),
+                self.role,
+                provider_stage=ProviderStage.MESSAGE_GET,
             )
-        except (KeyError, TypeError, ValueError):
-            raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.TARGET) from None
+            try:
+                for item in response.get("messages", ()):
+                    candidate = ProviderId(item["id"])
+                    candidates[candidate] = None
+                    if len(candidates) == 2:
+                        return tuple(candidates)
+                token = response.get("nextPageToken")
+                if token is None:
+                    return tuple(candidates)
+                if type(token) is not str or not token or token in tokens:
+                    raise ValueError
+                tokens.add(token)
+            except (KeyError, TypeError, ValueError):
+                raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.TARGET) from None
+        raise ProviderFailure(ErrorCode.ATTRIBUTION_UNKNOWN, Role.TARGET)
 
     def readback(self, message_id: ProviderId) -> TargetReadback:
         if type(message_id) is not ProviderId:

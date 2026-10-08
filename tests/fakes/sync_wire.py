@@ -54,6 +54,7 @@ class Mailbox:
         self.gap_arrived_at = 0
         self.learn_sender = False
         self.label_aliases = False
+        self.recovery_search_hidden = False
         self.readback_status = None
         self.read_reason = "authError"
         self.reject_insert_once = False
@@ -237,6 +238,10 @@ class Mailbox:
                         {
                             "messages": []
                             if source
+                            or (
+                                mailbox.recovery_search_hidden
+                                and query.get("q", [""])[0].startswith("rfc822msgid:")
+                            )
                             else [
                                 {"id": key, "threadId": value["threadId"]}
                                 for key, value in mailbox.target.items()

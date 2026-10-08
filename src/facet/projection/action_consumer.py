@@ -19,6 +19,7 @@ from facet.contracts import (
     Generation,
     JobKind,
     JobState,
+    LabelChange,
     LocalId,
     Priority,
     ProjectionId,
@@ -244,6 +245,31 @@ class ActionEffectConsumer:
             if prepared is None:
                 continue
             if (
+                prepared.event.processing is EventProcessing.CONSUMED
+                and prepared.event.event.key.change is LabelChange.REMOVED
+                and self._labels.kind(prepared.event.event.key.label_id) is not None
+                and prepared.job.state is JobState.COMPLETED
+            ):
+                return ActionEffectResult(
+                    receipt=WriteReceipt(
+                        "replayed", prepared.job.job_id, prepared.job.revision
+                    )
+                )
+            if (
+                prepared.event.event.key.change is LabelChange.REMOVED
+                and self._labels.kind(prepared.event.event.key.label_id) is not None
+                and prepared.event.processing is EventProcessing.PENDING
+            ):
+                with owner.transaction() as uow:
+                    return ActionEffectResult(
+                        receipt=events.consume_label_removal(
+                            uow,
+                            projection_id,
+                            event_id,
+                            RevisionGuard(prepared.event.revision),
+                        )
+                    )
+            if (
                 prepared.action is not None
                 and prepared.action.event_id != prepared.event_id
             ):
@@ -352,6 +378,14 @@ class ActionEffectConsumer:
             }:
                 return _Prepared(event_id, job.job_id, event, job, action)
             if event.processing is EventProcessing.CONSUMED:
+                if (
+                    key.change is LabelChange.REMOVED
+                    and self._labels.kind(key.label_id) is not None
+                    and job.state is JobState.COMPLETED
+                    and event.error_code is None
+                    and job.last_error_code is None
+                ):
+                    return _Prepared(event_id, job.job_id, event, job, action)
                 if action is None or action.state is not ActionState.EXECUTED:
                     raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
                 return _Prepared(event_id, job.job_id, event, job, action)

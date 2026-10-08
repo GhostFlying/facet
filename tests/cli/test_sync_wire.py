@@ -27,6 +27,7 @@ def run_cli_wire(
     gap=False,
     gap_fault=None,
     learned_rule=False,
+    delayed_recovery_index=False,
 ):
     if lost_response:
         fault = "lost_response"
@@ -132,6 +133,7 @@ def run_cli_wire(
             )
         mailbox.arrive()
         mailbox.fault = fault
+        mailbox.recovery_search_hidden = delayed_recovery_index
         first = invoke("run", "--once")
         if learned_rule:
             from facet.projection.rules import load_rule_policy
@@ -165,6 +167,31 @@ def run_cli_wire(
         again = invoke("run", "--once")
         assert again["projected"] == 0
         assert len(mailbox.inserted_raw) == inserts
+        if fault:
+            with sqlite3.connect(state / "facet.db") as db:
+                recovery = db.execute(
+                    "SELECT state,recovery_checks,next_recovery_at,error_code "
+                    "FROM insert_attempts"
+                ).fetchone()
+                assert recovery[1] == 1
+                if mailbox.target and not delayed_recovery_index:
+                    assert recovery[0] == "needs_attention"
+                    assert recovery[3] == "attribution_unknown"
+                else:
+                    assert recovery[0] == "pending_recovery"
+                    assert recovery[2] is not None
+            # A further actual process must retain the check deadline/ambiguity,
+            # not reset the schedule or send the original message again.
+            invoke("run", "--once")
+            assert len(mailbox.inserted_raw) == inserts
+            with sqlite3.connect(state / "facet.db") as db:
+                assert (
+                    db.execute(
+                        "SELECT state,recovery_checks,next_recovery_at,error_code "
+                        "FROM insert_attempts"
+                    ).fetchone()
+                    == recovery
+                )
         if historical:
             # Fresh scopes must work with existing tracked generations. Nothing
             # below seeds production tables: even state inspection is read-only.
@@ -354,7 +381,7 @@ def run_cli_wire(
                 ).fetchone() == (0,)
                 assert db.execute(
                     "SELECT state FROM epochs WHERE kind='history_gap'"
-                ).fetchone() == ("catching_up" if fault else "completed",)
+                ).fetchone() == ("completed_with_issues" if fault else "completed",)
                 for attempt in old_attempts:
                     assert (
                         attempt
@@ -418,6 +445,10 @@ def test_cli_historical_unknown_keeps_expansion_pending_without_resend(tmp_path)
 
 def test_cli_production_wire_unknown_insert_is_not_resent_on_restart(tmp_path):
     run_cli_wire(tmp_path, lost_response=True)
+
+
+def test_cli_delayed_recovery_index_keeps_durable_checks_on_restart(tmp_path):
+    run_cli_wire(tmp_path, lost_response=True, delayed_recovery_index=True)
 
 
 def test_cli_production_wire_503_stays_in_recovery_on_restart(tmp_path):

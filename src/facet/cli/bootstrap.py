@@ -1929,7 +1929,7 @@ def _recovery_check(options: object) -> tuple[dict, tuple[str, ...]]:
     from facet.gmail.source import SourceAdapter
     from facet.gmail.synthetic import SyntheticGmailServiceFactory
     from facet.gmail.target import TargetAdapter
-    from facet.projection.fidelity import inspect
+    from facet.projection.recovery import check_unknown
 
     paths, _raw, config, connection = _open_snapshot(options)
     try:
@@ -1994,52 +1994,28 @@ def _recovery_check(options: object) -> tuple[dict, tuple[str, ...]]:
             source_account=PrivateAddress(config.projection.source_email),
         )
         target = TargetAdapter(factory.service(Role.TARGET, target_snapshot))
-        candidate_ids = target.find_by_rfc_message_id(attempt.rfc_message_id)
+        evidence = check_unknown(source, target, attempt)
         base = {
             "job_id": job.job_id.value,
             "attempt_id": attempt.attempt_id.value,
-            "candidate_count": len(candidate_ids),
+            "candidate_count": evidence.candidate_count,
             "retry_authorized": False,
             "target_writes": 0,
             "insert_invocations": 0,
             "sqlite_mutated": False,
         }
-        if not candidate_ids:
-            return {**base, "result": "not_found"}, ()
-        if len(candidate_ids) != 1:
-            return {**base, "result": "duplicate_candidates"}, ()
-        source_raw = source.raw(
-            attempt.source_message_id,
-            thread_id=attempt.source_thread_id,
-            max_bytes=35_000_000,
-        )
-        source_facts = inspect(source_raw)
-        del source_raw
-        if source_facts.raw_digest != attempt.raw_digest:
-            return {**base, "result": "attention", "reason": "source_changed"}, ()
-        readback = target.readback(candidate_ids[0])
-        target_message_id = readback.message_id
-        target_thread_id = readback.thread_id
-        labels = readback.labels
-        target_facts = inspect(readback.raw)
-        del readback
-        if target_message_id != candidate_ids[0] or (
-            attempt.requested_target_thread_id is not None
-            and target_thread_id != attempt.requested_target_thread_id
-        ):
-            return {**base, "result": "attention", "reason": "attribution_unknown"}, ()
-        if (
-            source_facts.semantic_version != target_facts.semantic_version
-            or source_facts.semantic_digest != target_facts.semantic_digest
-            or any(label in {"SPAM", "TRASH"} for label in labels)
-        ):
-            return {**base, "result": "attention", "reason": "fidelity_mismatch"}, ()
+        if evidence.result != "unique_match":
+            result = {**base, "result": evidence.result}
+            if evidence.reason is not None:
+                result["reason"] = evidence.reason
+            return result, ()
         return {
             **base,
             "result": "unique_match",
             "fidelity_verified": True,
-            "target_message_id": target_message_id.value,
-            "target_thread_id": target_thread_id.value,
+            "attribution_verified": False,
+            "target_message_id": evidence.target_message_id.value,
+            "target_thread_id": evidence.target_thread_id.value,
         }, ()
     except ProviderFailure as error:
         raise ConfigError(error.code) from None

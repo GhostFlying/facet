@@ -258,6 +258,7 @@ class ForegroundSync:
         self._owner = owner
         self._source = source
         self._target = target
+        self._max_raw_bytes = max_raw_bytes
         self._projection = owner.projection_id
         self._admission_for_epoch = admission_for_epoch
         self._admission_for_history = admission_for_history
@@ -294,6 +295,12 @@ class ForegroundSync:
             )
         self._recover_pre_dispatch_claims()
         known = self._worker.verify_known(max_jobs=max_jobs)
+        from facet.projection.recovery import UnknownInsertChecks
+
+        UnknownInsertChecks(
+            self._owner, self._source, self._target, max_raw_bytes=self._max_raw_bytes
+        ).run(limit=min(max_jobs, 100))
+        converged = self._converge_completed_events(max_events)
         from facet.projection.gap_recovery import GapRecovery
 
         recovery = GapRecovery(
@@ -320,6 +327,7 @@ class ForegroundSync:
             recovery_pages if recovery_epoch is not None else self._poll_history()
         )
         resolved, attention = self._resolve_events(max_events)
+        resolved += converged
         projected = self._worker.run(max_jobs=max_jobs)
         projected = WorkerReceipt(
             **{
@@ -623,6 +631,55 @@ class ForegroundSync:
                 resolved += 1
         return resolved, attention
 
+    def _converge_completed_events(self, limit):
+        """Repair only false attention backed by an exact existing durable effect."""
+        with self._owner.session.transaction() as uow:
+            rows = _query(
+                uow,
+                "SELECT "
+                + ",".join(COLUMNS["sync_jobs"])
+                + " FROM sync_jobs WHERE projection_id=? AND kind='resolve_event' "
+                "AND state='needs_attention' AND last_error_code='request_conflict' "
+                "ORDER BY created_at,job_id LIMIT ?",
+                (self._projection.value, limit),
+                maximum=limit,
+            )
+            selected = tuple(
+                _decode(uow, self._projection, "sync_jobs", row) for row in rows
+            )
+        resolved = 0
+        for job in selected:
+            # Failed evidence guards poison a UoW, so each candidate owns a
+            # separate transaction. No swallowing a failed guard then committing.
+            try:
+                event_id = self._event_id(job)
+                with self._owner.session.transaction() as uow:
+                    event = reads.get_event(uow, self._projection, event_id)
+                    if job.subject.event_key.tag == "label_changed":
+                        events.repair_executed_label_alias(
+                            uow,
+                            self._projection,
+                            event.event_id,
+                            RevisionGuard(event.revision),
+                            RevisionGuard(job.revision),
+                            observed_at=_now(),
+                        )
+                    else:
+                        events.consume_message_added_existing_effect(
+                            uow,
+                            self._projection,
+                            event.event_id,
+                            RevisionGuard(event.revision),
+                            RevisionGuard(job.revision),
+                            _now(),
+                        )
+            except StorageFailure as error:
+                if error.code not in {ErrorCode.REQUEST_CONFLICT, ErrorCode.OWNER_BUSY}:
+                    raise
+            else:
+                resolved += 1
+        return resolved
+
     def _ignore_untracked_deletion(self, resolve_job: SyncJobRow) -> bool:
         """Close a deletion event only when its source thread was never tracked."""
         with self._owner.session.transaction() as uow:
@@ -816,6 +873,23 @@ class ForegroundSync:
             )
             if mapped is not None and mapped.source_thread_id != thread_id:
                 raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+
+        # Existing projection work is already the durable effect of this
+        # notification, including unknown-blocked work. Do not enqueue it twice.
+        try:
+            with self._owner.session.transaction() as uow:
+                events.consume_message_added_existing_effect(
+                    uow,
+                    self._projection,
+                    event_id,
+                    RevisionGuard(event.revision),
+                    RevisionGuard(job.revision),
+                    _now(),
+                )
+            return True
+        except StorageFailure as error:
+            if error.code is not ErrorCode.REQUEST_CONFLICT:
+                raise
 
         selected_policy = decision = metadata = None
         if mapped is None and (thread is None or thread.active):

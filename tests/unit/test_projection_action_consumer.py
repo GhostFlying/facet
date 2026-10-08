@@ -210,7 +210,7 @@ def test_draft_only_facts_become_attention_without_action_or_rule(state):
         assert reads.get_job(uow, P, lid(1070)).state.value == "needs_attention"
 
 
-def test_removed_label_becomes_attention_without_source_read(state):
+def test_known_removed_label_completes_without_source_read(state):
     _, _, session, _ = state
     labels = PrivateActionLabelMap(
         ProviderId("add-sender"), ProviderId("add-domain"), ProviderId("blacklist")
@@ -222,13 +222,28 @@ def test_removed_label_becomes_attention_without_source_read(state):
         change=LabelChange.REMOVED,
     )
     result = _consumer(labels, ()).process(session, P, row.event_id)
-    assert result.receipt is None
+    assert result.receipt is not None
+    assert result.attention is None
+    with session.transaction() as uow:
+        assert reads.get_event(uow, P, row.event_id).processing.value == "consumed"
+        assert reads.get_job(uow, P, lid(1075)).state.value == "completed"
+    replay = _consumer(labels, ()).process(session, P, row.event_id)
+    assert replay.attention is None
+    assert replay.receipt.disposition == "replayed"
+
+
+def test_unknown_removed_label_is_not_silently_consumed(state):
+    _, _, session, _ = state
+    labels = PrivateActionLabelMap(ProviderId("add-sender"), None, None)
+    row = _event(
+        session, label=ProviderId("retired-label"), n=175, change=LabelChange.REMOVED
+    )
+    result = _consumer(labels, ()).process(session, P, row.event_id)
     assert result.attention is not None
     with session.transaction() as uow:
         assert (
             reads.get_event(uow, P, row.event_id).processing.value == "needs_attention"
         )
-        assert reads.get_job(uow, P, lid(1075)).state.value == "needs_attention"
 
 
 def test_source_auth_failure_retains_resolve_job_for_retry(state):

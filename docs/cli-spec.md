@@ -242,10 +242,19 @@ Recovery retry 先 preview 当前 job、budget、generation 和仍可能重复�
 已批准的 scope/风险决定；`--acknowledge-duplicate-risk` 不能使本来禁止的 ADR 分支
 变为允许。候选 Spam/Trash 不是正常可见；任何命令都不清理重复。
 
-当前已接入的恢复检查单元只实现 `recovery list/show/check` 的证据读取：`show` 通过
+当前 `recovery list/show/check` 提供只读证据读取：`show` 通过
 typed `recover_insert` job lineage 读取私有 metadata，`check` 按 RFC Message-ID 搜索
 target 并做 readback/fidelity 比较。它不 insert、不写 SQLite、不授权 retry；recovery
-preview/retry、gap 恢复、repair 与 backup/restore 仍是后续门槛。
+preview/retry、repair 与完整 backup/restore 验收仍是后续门槛。
+
+普通 `run --once` 自动处理到期的 unknown 检查，持久化检查次数与下次时间；
+空搜索只安排后续检查，重启不重置进度、不再次 insert。唯一内容匹配但没有独立
+归属证据时保留 `attribution_unknown`；多个候选、内容不符和不可用源分别保留
+具体 attention，不自动认领外部 SENT/DRAFT。搜索最多检查十页、遇到两个不同
+候选即报告非唯一，候选数量是有界观察值，不是全邮箱精确计数。
+已完整执行的 thread action 别名，以及已有可靠映射/当前 generation 投影任务的
+重复 message-added 通知，可以在普通运行中完成事件记账；不再学习规则或投影。
+真正的 unknown/blocked 任务仍保留，未知/停用标签不默认执行或清除。
 
 Unknown History gap 通过 `recovery gap preview/approve` 显式选择 UTC range，approve
 引用同 gap/范围 preview、稳定请求键与确认。执行仍先持久 H1/fence，遵守 rule
