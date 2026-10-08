@@ -17,12 +17,15 @@ valid source/account/generation checks. This accepts residual duplicate risk;
 it is not proof of non-insertion. Preserve old unknown facts and ordinary
 intent/mapping/restart guards. Replacement unknowns follow the same policy.
 The [revised short plan](implementation-plans/bounded-insert-recovery.md) passed
-independent Sol xhigh review at SHA256 `bb84eb14a1afcd7e48a2467e19c173720286c2e856582783742c25bc07ec735f`.
+independent Sol xhigh review; the final factual-boundary revision is SHA256
+`1ae9bdb9aa8dbb8e065920f637cd7e37ce6c9cabccee5e9b42d2b6fdf38f823f`.
 Real CLI subprocess tests passed setup/auth/preview/start/History/unknown/ordinary
 run/restart, repeated unknowns and fresh process crashes at prepared, dispatched
-and known-result boundaries, also during replacement. The first five cases
-passed in the non-root local image; final candidate/full checks and independent
-implementation acceptance are pending. Old manual-proposal tests/image do not
+and known-result boundaries, also during replacement. All eight cases
+passed in the non-root local image; 639 affected checks passed. Independent
+implementation acceptance approved source candidate `ba026738d532e34adfd0056b0ba8b4e8cde200e6`;
+complete offline checks and final PR CI remain pending. See
+[current review](reviews/automatic-insert-absence.md). Old manual-proposal tests/image do not
 qualify this policy.
 
 The existing shipping runtime has no full-target inventory/precondition consumer.

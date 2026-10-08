@@ -212,14 +212,14 @@ message/thread 已知计数、旧历史/附件/参与者/own replies/Spam/Trash 
 规则或 generation 改变、scope 不匹配时需重新 preview，不复用过期选择。Preview
 可以保存必要 metadata/H0，但不 insert；bulk start 还需 H0 可消费/gap 能力与真实许可。
 
-`backfill preview`、`repair preview --audit` 和 `recovery preview --job` 都是明确的
+`backfill preview` 和 `repair preview --audit` 都是明确的
 producer；输出本地 scoped preview ID 和固定用途。一个用途的 ID 不能用于另一命令，
 IDs/范围不一致或过期时 guard 拒绝。自动 discovery 的 preview 解释规则、六个月窗口、
 完整 thread 持续披露与 start 范围，不暴露邮件细节。完整同步入口内部生成并引用
 这一快照；下面的独立命令仍适用于维护和分步测试。
 
 ```text
-facet --private-metadata recovery preview --job <job-id> --request-id <recovery-preview-key> --json
+facet backfill preview --request-id <backfill-preview-key> --json
 facet backfill start --preview-id <preview-id> --request-id <backfill-key> --yes --json
 ```
 
