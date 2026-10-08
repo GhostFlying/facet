@@ -14,6 +14,7 @@ from facet.gmail.retry import (
     ProviderFailure,
     ProviderReason,
     ProviderStage,
+    blocks_sync,
     classify_http_status,
     provider_failure,
     provider_reason,
@@ -77,6 +78,28 @@ def test_known_reason_among_unknown_entries():
             }
         )
         is ProviderReason.RATE_LIMIT
+    )
+
+
+@pytest.mark.parametrize(
+    "denial", ["dailyLimitExceeded", "domainPolicy", "insufficientPermissions"]
+)
+@pytest.mark.parametrize("reverse", [False, True])
+def test_account_denial_dominates_rate_reason_regardless_of_order(denial, reverse):
+    reasons = ["rateLimitExceeded", denial]
+    if reverse:
+        reasons.reverse()
+    body = json.dumps(
+        {"error": {"errors": [{"reason": reason} for reason in reasons]}}
+    ).encode()
+    reason = provider_reason(body)
+    assert reason is ProviderReason(denial)
+    assert blocks_sync(
+        ProviderFailure(
+            classify_http_status(403, Role.TARGET, body=body),
+            Role.TARGET,
+            reason=reason,
+        )
     )
 
 

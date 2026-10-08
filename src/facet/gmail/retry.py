@@ -59,8 +59,24 @@ def provider_reason(payload: bytes | dict) -> ProviderReason:
             candidates.extend(
                 item.get("reason") for item in errors[:16] if isinstance(item, dict)
             )
-    # Prefer a recognized reason even when another error entry is unknown.
+    # Account-wide stops must not be hidden by an earlier transient rate entry.
+    priority = (
+        ProviderReason.INVALID_GRANT,
+        ProviderReason.INVALID_SCOPE,
+        ProviderReason.INSUFFICIENT_SCOPE,
+        ProviderReason.DOMAIN_POLICY,
+        ProviderReason.INSUFFICIENT_PERMISSIONS,
+        ProviderReason.DAILY_LIMIT,
+        ProviderReason.STORAGE_QUOTA,
+        ProviderReason.AUTH_ERROR,
+        ProviderReason.USER_RATE_LIMIT,
+        ProviderReason.RATE_LIMIT,
+        ProviderReason.OAUTH_RATE_LIMIT,
+        ProviderReason.BACKEND_ERROR,
+        ProviderReason.TEMPORARILY_UNAVAILABLE,
+    )
     present = False
+    recognized = set()
     for value in candidates:
         if value is None:
             continue
@@ -70,6 +86,9 @@ def provider_reason(payload: bytes | dict) -> ProviderReason:
         except (ValueError, TypeError):
             continue
         if reason not in {ProviderReason.MISSING, ProviderReason.UNKNOWN}:
+            recognized.add(reason)
+    for reason in priority:
+        if reason in recognized:
             return reason
     return ProviderReason.UNKNOWN if present else ProviderReason.MISSING
 
