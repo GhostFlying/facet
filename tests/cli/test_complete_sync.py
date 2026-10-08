@@ -234,7 +234,15 @@ def test_complete_unknown_does_not_resend_on_restart(wire):
     assert invoke("run", "--once", "--verify-known-only")["projected"] == 0
     assert rows(state, "insert_attempts") == attempts
     invoke("sync", "--once", "--yes")
-    assert rows(state, "insert_attempts") == attempts
+    checked = rows(state, "insert_attempts")
+    assert len(checked) == len(attempts)
+    with sqlite3.connect(state / "facet.db") as db:
+        assert db.execute(
+            "SELECT state,recovery_checks,error_code FROM insert_attempts "
+            "WHERE certainty='unknown'"
+        ).fetchone() == ("needs_attention", 1, "attribution_unknown")
+    invoke("sync", "--once", "--yes")
+    assert rows(state, "insert_attempts") == checked
     assert len(mailbox.inserted_raw) == count
     assert len(rows(state, "epochs")) == 1
 

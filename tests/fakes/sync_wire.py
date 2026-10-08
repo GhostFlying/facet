@@ -6,6 +6,7 @@ import os
 import socket
 import threading
 import time
+from email.parser import BytesHeaderParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
@@ -245,6 +246,10 @@ class Mailbox:
                             else [
                                 {"id": key, "threadId": value["threadId"]}
                                 for key, value in mailbox.target.items()
+                                if not query.get("q", [""])[0].startswith(
+                                    "rfc822msgid:"
+                                )
+                                or value["rfc_id"] == query["q"][0].split(":", 1)[1]
                             ]
                         }
                     )
@@ -432,6 +437,7 @@ class Mailbox:
                     "threadId": body.get("threadId", "target-thread"),
                     "labelIds": [],
                     "raw": body["raw"],
+                    "rfc_id": BytesHeaderParser().parsebytes(raw)["Message-ID"],
                 }
                 mailbox.target[identifier] = value
                 if fault == "lost_response":
