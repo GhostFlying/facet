@@ -65,10 +65,11 @@ a new deployment/Release gate pass.
 
 ## Real-test boundary
 
-The current real test is interrupted, not discarded: 1872 confirmed mappings,
-one definitely rejected insert, one direct-response pending readback and its
-unstarted dependent. The older unknown is frozen. The failed second-batch marker
-must remain intact. Engineering qualification is not live acceptance.
+At the authentication interruption, the retained test had 1872 confirmed mappings,
+one definitely rejected insert, one direct-response insert needing readback and
+its blocked unstarted dependent. The older unknown remained frozen; the failed
+second-batch marker was retained. This is the historical pre-repair state, not
+the completed continuation below. Engineering qualification is not live acceptance.
 
 User authorizes continued testing after merge on the same accounts/rules/selected
 epoch/window. Use a private writer-locked SQLite-API/config/credential backup,
@@ -112,3 +113,5 @@ acceptance is claimed.
 Private operator and read-only sample-selector plans/implementations passed
 independent review with entirely synthetic guard checks. Submitted interrupted
 legacy receipts remain immutable; lost responses cannot trigger operator replay.
+Root executed the live checks. The independent reviewer examined code,
+documentation and synthetic guards without mailbox or private-state access.
