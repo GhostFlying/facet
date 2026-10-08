@@ -24,7 +24,9 @@ def _confirm(options):
     ):
         raise ConfigError(ErrorCode.CONFIRMATION_REQUIRED)
     print(
-        "Synchronize current rules over the default six-month window? Admission "
+        "Continue the saved scope, or select current rules and the default "
+        "six-month window for a new operation? Replay retains its saved scope. "
+        "Admission "
         "discloses complete available non-draft threads, attachments, other "
         "participants, own replies and future thread messages. [yes/no]",
         flush=True,

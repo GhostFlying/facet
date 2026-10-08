@@ -318,7 +318,9 @@ def test_explicit_keys_survive_calendar_and_revision_changes(monkeypatch):
 
 
 @pytest.mark.parametrize("answer,accepted", [("yes", True), ("no", False)])
-def test_tty_confirmation_accepts_only_explicit_yes(monkeypatch, answer, accepted):
+def test_tty_confirmation_accepts_only_explicit_yes(
+    monkeypatch, capsys, answer, accepted
+):
     monkeypatch.setattr(sync_entry.sys, "stdin", SimpleNamespace(isatty=lambda: True))
     monkeypatch.setattr(sync_entry.sys.stdout, "isatty", lambda: True)
     monkeypatch.setattr(sync_entry.sys.stderr, "isatty", lambda: True)
@@ -329,6 +331,9 @@ def test_tty_confirmation_accepts_only_explicit_yes(monkeypatch, answer, accepte
         with pytest.raises(ConfigError) as error:
             sync_entry._confirm(SimpleNamespace(yes=False, json=False))
         assert error.value.code.value == "confirmation_required"
+    prompt = capsys.readouterr().out
+    assert "Continue the saved scope" in prompt
+    assert "Replay retains its saved scope" in prompt
 
 
 @pytest.mark.parametrize("role", ["source", "target"])
