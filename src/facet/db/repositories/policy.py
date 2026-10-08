@@ -281,13 +281,16 @@ _STOP_TARGETS = (
     "AND NOT EXISTS(SELECT 1 FROM insert_attempts a "
     "WHERE a.projection_id=j.projection_id AND a.job_id=j.job_id "
     "AND a.state IN('dispatch_started','pending_recovery',"
-    "'known_inserted','needs_attention'))"
+    "'known_inserted','needs_attention') "
 )
 
 
 @_mutating
 def stop_thread(uow, projection_id, thread_id, expected_generation, stopped_at, reason):
+    from .absence_retry import exclusion
     from .actions import _after_thread, _before_stop
+
+    stop_targets = _STOP_TARGETS + exclusion(uow) + ")"
 
     _before_stop(uow, projection_id, thread_id, expected_generation, stopped_at, reason)
     if (
@@ -305,7 +308,7 @@ def stop_thread(uow, projection_id, thread_id, expected_generation, stopped_at, 
     identity = (projection_id.value, thread_id.value, expected_generation.value)
     if _query(
         uow,
-        _STOP_TARGETS + " AND j.revision=? LIMIT 1",
+        stop_targets + " AND j.revision=? LIMIT 1",
         (*identity, MAX_INTEGER),
         maximum=1,
     ) or _query(
@@ -340,14 +343,14 @@ def stop_thread(uow, projection_id, thread_id, expected_generation, stopped_at, 
     # Set-based statements avoid truncating a large thread at the read-page cap.
     uow._execute(
         "DELETE FROM job_claims WHERE projection_id=? AND job_id IN("
-        + _STOP_TARGETS
+        + stop_targets
         + ")",
         (projection_id.value, *identity),
     )
     uow._execute(
         "UPDATE sync_jobs SET state='cancelled',revision=revision+1,updated_at=?,"
         "next_attempt_at=NULL WHERE projection_id=? AND job_id IN("
-        + _STOP_TARGETS
+        + stop_targets
         + ")",
         (timestamp, projection_id.value, *identity),
     )

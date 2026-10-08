@@ -643,7 +643,12 @@ def _begin_owner_session_v2(
     expected_previous_run: LocalId | None,
     now: Timestamp,
 ) -> WriterSession:
-    from .migrations import _FRESH_V2_MANIFEST, _FRESH_V3_MANIFEST, _FRESH_V4_MANIFEST
+    from .migrations import (
+        _FRESH_V2_MANIFEST,
+        _FRESH_V3_MANIFEST,
+        _FRESH_V4_MANIFEST,
+        _FRESH_V5_MANIFEST,
+    )
     from .schema import _inspect_manifest
 
     begin_attempted = commit_attempted = attach_started = False
@@ -665,6 +670,7 @@ def _begin_owner_session_v2(
             2: _FRESH_V2_MANIFEST,
             3: _FRESH_V3_MANIFEST,
             4: _FRESH_V4_MANIFEST,
+            5: _FRESH_V5_MANIFEST,
         }.get(version)
         if manifest is None:
             raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)

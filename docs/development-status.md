@@ -1,12 +1,38 @@
 # Facet development status
 
-Updated: 2026-10-08 (PRC; historical UTC receipts retain their original dates)
+Updated: 2026-10-09 (PRC; historical UTC receipts retain their original dates)
 
 This is the durable handoff for autonomous development. Update it with evidence
 at the end of each coherent implementation unit. Do not store account addresses,
 mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
+
+### Automatic five-minute recovery implemented; candidate qualification in progress
+
+The user replaced the uncommitted per-item preview/grant/one-budget proposal.
+Ordinary startup/cycles now automatically requeue pending unknowns at least
+five minutes after persisted dispatch, only after successful empty lookup and
+valid source/account/generation checks. This accepts residual duplicate risk;
+it is not proof of non-insertion. Preserve old unknown facts and ordinary
+intent/mapping/restart guards. Replacement unknowns follow the same policy.
+The [revised short plan](implementation-plans/bounded-insert-recovery.md) passed
+independent Sol xhigh review at SHA256 `bb84eb14a1afcd7e48a2467e19c173720286c2e856582783742c25bc07ec735f`.
+Real CLI subprocess tests passed setup/auth/preview/start/History/unknown/ordinary
+run/restart, repeated unknowns and fresh process crashes at prepared, dispatched
+and known-result boundaries, also during replacement. The first five cases
+passed in the non-root local image; final candidate/full checks and independent
+implementation acceptance are pending. Old manual-proposal tests/image do not
+qualify this policy.
+
+No new live insert or deployment migration has occurred. The last verified live
+snapshot remains 4321 mappings, one unknown and three dependent attention on
+e165; continuous Compose sync is stopped. Next: finish candidate qualification,
+then use the previously authorized exact old-unknown/three-
+dependency scope with stopped writer-locked backups. No new History/backfill,
+deletion or perpetual service. Final Phase 1 gates remain incomplete.
+
+## Historical evidence
 
 ### Current-label model installed; bounded live verification passed
 
@@ -30,6 +56,13 @@ selected historical scope and stopped generations were preserved.
 One old unknown remains protected and was not resent; the three remaining
 attention are projection jobs depending on it. There are no queued jobs; one
 blocked job and one retry-wait recovery remain, not a fully successful queue.
+Subsequent bounded diagnosis found no stored definite-rejection evidence. After
+normal writer-owned credential refresh/profile verification, another read-only
+recovery check returned zero candidates; attempts, jobs, mappings, tracking,
+rules, events and epochs remained unchanged. The initial read-only CLI refusal
+was an expired access snapshot, not evidence that interactive OAuth is required.
+Empty search does not prove non-insertion. No replacement was authorized or
+submitted; scoped risk-preview/retry execution remains unimplemented.
 Fresh read-only target enumeration found 4321 mapped items, two permitted
 outbound SENT items and zero other unmanaged items. No new label activation or
 rule learning occurred, so live AddDomain/reactivation is not claimed. See the
@@ -39,8 +72,6 @@ Continuous Compose sync remains stopped; no new historical scope, source
 mutation, deletion, unknown resend or perpetual daemon was authorized. Next is
 a separately bounded decision for the old unknown, not a blanket queue retry.
 Full Phase 1 maintenance/Dashboard/restore/dogfood gates remain unfinished.
-
-## Historical evidence
 
 ### Published recovery installed; historical cleanup and exact restoration passed
 

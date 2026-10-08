@@ -381,13 +381,22 @@ class ForegroundSync:
                     raise StorageFailure(ErrorCode.BINDING_PENDING)
 
     def _recover_pre_dispatch_claims(self) -> int:
-        """Requeue safe claims and materialize orphaned dispatch markers.
-
-        Dispatch-started attempts with a live claim remain explicit recovery;
-        only a marker with no claim and no recovery job is materialized into
-        the existing unknown-insert recovery state machine.
-        """
+        """Hand off dead-owner claims; never replay a dispatched request."""
         with self._owner.session.transaction() as uow:
+            stale = _query(
+                uow,
+                "SELECT a.attempt_id FROM insert_attempts a JOIN job_claims c "
+                "ON c.projection_id=a.projection_id AND c.job_id=a.job_id "
+                "WHERE a.projection_id=? AND c.owner_run_id<>? "
+                "AND a.claim_id=c.claim_id AND a.state IN "
+                "('prepared','dispatch_started','known_inserted')",
+                (self._projection.value, self._owner.owner_info.owner_run_id.value),
+                maximum=10_000,
+            )
+            for (attempt_id,) in stale:
+                intents.handoff_previous_owner_attempt(
+                    uow, self._projection, LocalId(attempt_id), _now()
+                )
             orphaned = _query(
                 uow,
                 "SELECT "

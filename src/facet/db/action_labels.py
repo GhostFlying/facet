@@ -43,7 +43,7 @@ def effective(connection, projection_id: ProjectionId) -> dict[ActionKind, str]:
         if version == 2:
             _inspect_manifest(connection, _FRESH_V2_MANIFEST)
             return dict(DEFAULTS)
-        if version not in {3, 4}:
+        if version not in {3, 4, 5}:
             raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
         rows = connection.execute(
             "SELECT action_kind,label_name FROM action_label_mappings "
@@ -69,7 +69,7 @@ def check_request_conflict(context, projection_id, request_id):
     """Refuse a label receipt reused by another command (v2 has no receipts)."""
     version = context._execute("PRAGMA user_version").fetchone()[0]
     if (
-        version in {3, 4}
+        version in {3, 4, 5}
         and context._execute(
             "SELECT 1 FROM action_label_receipts WHERE projection_id=? "
             "AND request_id=?",
@@ -113,7 +113,7 @@ def mutate(owner, request_id, kind, name, now, config_bytes):
         ).fetchone():
             raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
         names = effective(connection, owner.projection_id)
-        if connection.execute("PRAGMA user_version").fetchone()[0] in {3, 4}:
+        if connection.execute("PRAGMA user_version").fetchone()[0] in {3, 4, 5}:
             prior = uow._execute(
                 "SELECT action_kind,operation,label_name,revision "
                 "FROM action_label_receipts WHERE projection_id=? AND request_id=?",
