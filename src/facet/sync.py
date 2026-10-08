@@ -36,6 +36,7 @@ from facet.contracts.records import (
     AdmissionRefFutureRule,
     JobSubjectExpandThread,
     JobSubjectProjectMessage,
+    SourceEventKeyLabelChanged,
     SourceEventKeyMessageDeleted,
     ThreadGenerationGuardUntracked,
 )
@@ -810,6 +811,58 @@ class ForegroundSync:
                 else reads.get_event(uow, self._projection, event_row.event_id)
             )
             job = reads.get_job(uow, self._projection, resolve_job.job_id)
+            if (
+                event is not None
+                and job is not None
+                and job.state is JobState.NEEDS_ATTENTION
+                and callable(getattr(self._action, "begin_cycle", None))
+                and isinstance(event.event.key, SourceEventKeyLabelChanged)
+                and event.processing is EventProcessing.NEEDS_ATTENTION
+                and event.error_code
+                in {
+                    ErrorCode.OWNER_UNAVAILABLE,
+                    ErrorCode.REQUEST_CONFLICT,
+                    ErrorCode.INVALID_INPUT,
+                }
+                and job.last_error_code
+                in {
+                    ErrorCode.OWNER_UNAVAILABLE,
+                    ErrorCode.REQUEST_CONFLICT,
+                    ErrorCode.INVALID_INPUT,
+                }
+            ):
+                # A qualified current-state recheck is not a generic queue
+                # retry. Reuse guarded deferral; never ACK or dispatch effects.
+                now = _now()
+                if error is ErrorCode.SOURCE_MISSING:
+                    events.classify_event(
+                        uow,
+                        self._projection,
+                        event.event_id,
+                        EventProcessing.SOURCE_MISSING,
+                        error,
+                        (),
+                        RevisionGuard(event.revision),
+                    )
+                jobs.defer_job(
+                    uow,
+                    self._projection,
+                    job.job_id,
+                    "retry_wait"
+                    if retryable
+                    else "source_missing"
+                    if error is ErrorCode.SOURCE_MISSING
+                    else "needs_attention",
+                    error,
+                    Timestamp(
+                        now.value
+                        + max(_RETRY_DELAY, timedelta(seconds=retry_after_seconds or 0))
+                    )
+                    if retryable
+                    else None,
+                    RevisionGuard(job.revision),
+                )
+                return
             if (
                 event is None
                 or job is None

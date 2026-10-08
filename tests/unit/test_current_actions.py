@@ -1,6 +1,8 @@
 """Focused current-tag transaction/upgrade evidence; full CLI tested separately."""
 
 from dataclasses import replace
+from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from test_db_actions import action_row, prepare_epoch
@@ -16,12 +18,14 @@ from facet.db.codecs import (
     EventProcessing,
     PrivateAddress,
     StorageFailure,
+    timestamp_to_sql,
 )
 from facet.db.migrations.v0004 import STATEMENTS
 from facet.db.repositories.base import _insert
 from facet.gmail.source import MessageMetadata, ThreadMetadata
 from facet.projection.actions import PrivateActionLabelMap
 from facet.projection.current_actions import CurrentActionConsumer
+from facet.sync import ForegroundSync, _now
 
 
 class Source:
@@ -188,3 +192,60 @@ def test_upgrade_seeds_only_matching_executed_legacy_label(state, matching):
         0 if matching else 1,
     )
     assert db.execute("SELECT state FROM action_commands").fetchone() == ("executed",)
+
+
+def test_old_label_attention_recheck_persists_provider_backoff(state, monkeypatch):
+    _, db, session, info = state
+    row = _event(session, label=ProviderId("deleted-label"))
+    with session.transaction() as uow:
+        uow._execute(
+            "UPDATE source_events SET processing='needs_attention',"
+            "error_code='request_conflict'"
+        )
+        uow._execute(
+            "UPDATE sync_jobs SET state='needs_attention',"
+            "last_error_code='request_conflict'"
+        )
+    runner = object.__new__(ForegroundSync)
+    runner._owner = SimpleNamespace(session=session, owner_info=info)
+    runner._projection = P
+    runner._action = consumer(Source(), None)
+    selected = runner._pending_resolve_jobs()
+    assert len(selected) == 1
+    before = timestamp_to_sql(_now())
+    runner._defer_event_attention(
+        selected[0],
+        ErrorCode.SOURCE_RATE_LIMITED,
+        retryable=True,
+        retry_after_seconds=3600,
+    )
+    job = db.execute(
+        "SELECT state,last_error_code,next_attempt_at FROM sync_jobs"
+    ).fetchone()
+    assert job[:2] == ("retry_wait", "source_rate_limited")
+    assert job[2] >= before + 3600 * 1_000_000
+    assert runner._pending_resolve_jobs() == ()
+    assert db.execute("SELECT processing,error_code FROM source_events").fetchone() == (
+        "needs_attention",
+        "request_conflict",
+    )
+    assert db.execute(
+        "SELECT COUNT(*) FROM current_action_observations"
+    ).fetchone() == (0,)
+    import facet.sync as sync_module
+
+    after_backoff = _now()
+    monkeypatch.setattr(
+        sync_module,
+        "_now",
+        lambda: replace(
+            after_backoff, value=after_backoff.value + timedelta(seconds=3601)
+        ),
+    )
+    assert len(runner._pending_resolve_jobs()) == 1
+    runner._action.process(session, P, row.event_id)
+    assert db.execute("SELECT state,last_error_code FROM sync_jobs").fetchone() == (
+        "completed",
+        None,
+    )
+    assert db.execute("SELECT COUNT(*) FROM current_action_receipts").fetchone() == (0,)
