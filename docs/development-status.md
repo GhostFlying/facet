@@ -8,13 +8,15 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Observable continuous sync — implemented, local-image acceptance passed
+### Observable continuous sync — merged and running in the current test deployment
 
-The user authorized the current test deployment's continuous-sync direction,
-not production migration or a new historical scope. Root is implementing the
-[short reviewed plan](implementation-plans/observable-continuous-sync.md).
-Independent Sol 6.1 xhigh plan review approved revision SHA-256
-`6f8cdcd6daa5a7660671e85143674c8772826220462b5a8d54a63208617215ec`.
+The user authorized current-machine continuous testing, not production migration
+or a new historical scope. PR [#110](https://github.com/GhostFlying/facet/pull/110)
+merged at `7fa0cc7a761e29628b4753729bf452d994f30e00` after independent plan/source/
+acceptance review, the complete offline baseline and Python 3.12/3.13 plus image
+CI. The reviewed [short plan](implementation-plans/observable-continuous-sync.md)
+and [acceptance record](reviews/observable-continuous-sync.md) retain exact
+candidate and evidence boundaries.
 
 Implemented consumers: lazy cycle-shared target inventory before project-job
 claim, proven ownership before allowed source-From SENT/DRAFT classification,
@@ -24,25 +26,35 @@ owner-thread progress during discovery/History/worker pagination and jobs;
 graceful between-request stop; Compose restart/log rotation. Necessary source EML
 hashes are permitted only in validated local logs/private DB/CLI, not public DTOs.
 
-Source candidate `b0bce4d745c2a049064be323e7871456fa93b59d` has independent
-implementation/acceptance APPROVE. Its exact-source non-root, read-only local
-image passed ten CLI domain/outbound/continuous/restart/refresh/recovery scenarios.
-The actual continuous CLI publishes intermediate confirmed counts, stops cleanly,
-and issues a new History request after restart without another insert. Four
-outbound/unmanaged cases include correcting only the external fake mailbox.
-Final full baseline and exact PR CI remain pending; see the concise
-[acceptance record](reviews/observable-continuous-sync.md).
+The official full-commit image is published and anonymously imported; both
+architectures have matching-source SPDX/SLSA evidence, and all packaged source
+and static files match the qualified source. The non-root Compose service uses
+the original volume, accounts and selected window, with rotated logs and graceful
+shutdown. Necessary source EML hashes remain private, never public DTO fields.
 
-The source-only live query probe stopped at an expired access snapshot, before
-target calls/writes. Normal writer-owned refresh after backup is the next check;
-interactive reauthorization is not yet established. Real Gmail domain recall
-and this new running image are not verified. The real deployment remains stopped
-at the preceding qualified image; no live writes in this unit yet.
+Normal writer-owned refresh/profile verification passed with locked backups and
+unchanged checked business tables; no new OAuth was needed. Within the existing
+window, eight source-only searches found no omitted IDs for three exact-sender
+samples versus domain/parent queries, including two subdomain samples. This is
+finite real-provider evidence, not exhaustive recall. Pre-upgrade inventory found
+4325 managed items, two permitted outbound items and no other unmanaged content.
 
-Next: finish those acceptance gates, merge qualified engineering, then install
-the immutable image with a stopped/locked backup and exercise only the existing
-accounts/rules/window. Final maintenance/restore/browser/dogfood gates remain
-unfinished; this is not completed Phase 1.
+The first ordinary continuous cycle completed in 73.621 seconds: **15 new
+insert/readback/mappings, 4340 total confirmed, queue empty, active unknown and
+attention zero**. Owner snapshots showed in-cycle counts. Graceful stop exited
+zero, a stopped/locked post-write backup passed, and a new process completed a
+zero-insert cycle; mappings and total attempt count stayed unchanged. Fresh
+read-only target enumeration confirmed all 4340 mapped items plus the same two
+permitted outbound items, with no other unmanaged content. The historical assumed-
+absent unknown remains an audit fact, not active recovery.
+
+Continuous testing remains running. Next: observe new incremental/user-label work
+and finish remaining maintenance, restore and browser acceptance. The role
+`last_verified_at` currently reports persisted binding/credential verification,
+not every successful profile request; cycle freshness is reported separately.
+This diagnostic timestamp refinement is not a new sync blocker. Production
+migration, Release and the planned production dogfood gate remain unfinished;
+this is not completed Phase 1.
 
 ## Previous qualified delivery
 
