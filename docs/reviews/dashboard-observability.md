@@ -48,3 +48,27 @@ new OAuth scope, source mutation, extra backfill or Release. Live page smoke is
 cached GET-only. A later qualified test image upgrade requires graceful stop,
 writer-locked backup, immutable provenance and retained-state verification.
 Phase 1 maintenance/restore/reconcile/audit and production dogfood remain open.
+
+## Qualified current-test deployment
+
+PR #112 merged at `d7232ddcbaa390a4317f25b230d218c454fbd359` after independent
+APPROVE of source `9ff469b` and docs-only head `feebaa1`, the local baseline
+(2944 tests) and exact-head Python 3.12/3.13/image CI. The published index is
+`sha256:a1dfe6cf9fdfe8ec509562e228a50022a92ee7c9447a5977a733c4b4f8efe797`;
+anonymous import and complete packaged source/static comparison passed. Both
+SPDX 2.3/SLSA v1 payloads bind the corresponding amd64/arm64 subject and main SHA;
+only amd64 execution is qualified here. Arm64 OCI metadata export hit a registry
+TLS timeout at the empty config fetch; both needed attestation payloads had been
+downloaded and their SHA-256 matched the manifest. No arm64 runtime claim.
+
+The existing authorized Compose deployment was gracefully stopped (exit zero).
+Normal owner preflight created integrity-checked SQLite/config/credential bundles
+with 0600/0700 permissions before/after refresh/profile checks. Checked business
+tables remained identical, 4351 mappings, zero target writes. Only the private
+image selector changed; original project/volume/accounts/rules/window remained.
+The service restarted with the published image, UID 10001 and read-only root;
+successive cycles completed with zero inserts and queue/attention zero. Live page
+hash matched qualified asset; actual desktop/mobile viewport smoke showed 4351
+confirmed, Healthy, no overflow, no addresses/digests and only same-origin page/
+four cached GET requests. Continuous sync remains running. This does not accept
+production migration, remaining maintenance gates, 72-hour dogfood or Release.
