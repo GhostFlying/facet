@@ -11,7 +11,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 ### Dashboard operational consumer — merged and running in the current test deployment
 
 The [short plan](implementation-plans/dashboard-observability.md) and source
-`9ff469be8202efd235c9a36aaa7a2393937ae8f8` add a responsive consumer of the four
+`9ff469be8202efd235c9a36aaa7a2393937ae8f8` add a responsive consumer of the five
 existing cached public families: unique confirmed messages, exclusive queue
 states, current-scope thread discovery, fixed exception suggestions, binding
 state/times and DB/scope diagnostics. No new backend collector, Gmail access,
@@ -89,6 +89,23 @@ not every successful profile request; cycle freshness is reported separately.
 This diagnostic timestamp refinement is not a new sync blocker. Production
 migration, Release and the planned production dogfood gate remain unfinished;
 this is not completed Phase 1.
+
+### Configured polling, server-local times and current rules — implementation in progress
+
+The short plan [configured-sync-interval](implementation-plans/configured-sync-interval.md)
+now covers the user-requested fix. New configurations default to a 60-second idle
+wait; an explicit `--interval` remains an override, and `run --once` validates but
+does not wait. During idle time the owner refreshes only local aggregate snapshots
+within the existing freshness budget; it does not poll Gmail or advance sync state.
+Persisted instants remain UTC, while public Dashboard/aggregate CLI timestamps are
+formatted using the sync server's local offset.
+
+The read-only Dashboard now has a fifth `rules` snapshot showing current configured
+sender/domain values and action-label text, enabled state, and no message details,
+IDs, credentials, or binding addresses. This explicit user-approved exception is
+private Dashboard configuration; it is not a write API and is not added to other
+public DTOs, logs, or exports. Targeted config/runtime/HTTP/privacy tests passed;
+candidate merge, image upgrade and live 60-second observation remain pending.
 
 ## Previous qualified delivery
 

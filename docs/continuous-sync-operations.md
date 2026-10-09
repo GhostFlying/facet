@@ -7,8 +7,10 @@ Use an immutable approved full-commit image/digest. Back up stopped, writer-lock
 state/config/credentials before upgrades; do not restore a pre-insert DB against
 a mailbox retaining later inserts. Keep deployments' proxies in private overrides.
 
-The foreground owner polls at `--interval` (default five seconds **between
-cycles**, not a total cycle duration/latency promise). One bounded `run --once`
+The foreground owner waits at `--interval` after each cycle; when omitted it
+uses `sync.poll_interval_seconds` (new configurations default to 60 seconds).
+An explicit `--interval` overrides the configuration. This is **between cycles**,
+not a total cycle duration/latency promise. One bounded `run --once`
 may leave queued work; continuous run continues it. `sync --yes` intentionally
 selects current rules and the fixed default six-month scope using the same guarded
 granular operations. Do not use it merely to restart or silently expand scope.
@@ -25,7 +27,8 @@ exceptions are logged. Identical EML bytes have identical hashes; use private
 attempt records for occurrence identity. Target raw hashes can differ legitimately.
 
 The Dashboard reads only cached aggregate snapshots, refreshed by the owner
-between pages/jobs with throttling. Snapshot freshness/heartbeat means the owner
+between pages/jobs and locally during the idle wait with throttling. Snapshot
+freshness/heartbeat means the owner
 published observations, not that Gmail or every job succeeded; in-progress
 unverified cycles stay unknown rather than green. Counts are confirmed unique
 mappings, not insert attempts or external agent outbound mail. `/healthz` means

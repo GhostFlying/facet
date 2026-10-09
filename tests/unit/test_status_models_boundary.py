@@ -130,7 +130,9 @@ def test_all_families_explicit_keys_pure_and_no_missing_source_success(
         "scope",
     }
     assert set(result["data"]) == {f.name for f in fields(data)}
-    assert result["sampled_at"] == "2026-10-02T12:00:00.123456Z"
+    assert result["sampled_at"] == NOW.value.astimezone().isoformat(
+        timespec="microseconds"
+    )
     assert result["freshness"] == "unavailable"
     assert result["age_seconds"] is None
     assert json.loads(public_json(value)) == result

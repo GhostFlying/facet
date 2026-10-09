@@ -82,7 +82,7 @@ class ProjectionConfig:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class SyncConfig:
-    poll_interval_seconds: int = 30
+    poll_interval_seconds: int = 60
     backfill_lookback_months: int = 6
     thread_concurrency: int = 4
     source_reconcile_interval_hours: int = 24

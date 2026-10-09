@@ -29,7 +29,7 @@ def test_defaults_are_conservative_and_immutable():
     assert config.projection.own_addresses == ("source@synthetic.example",)
     assert config.sync.backfill_lookback_months == 6
     assert config.sync.thread_concurrency == 4
-    assert config.sync.poll_interval_seconds == 30
+    assert config.sync.poll_interval_seconds == 60
     assert config.sync.source_reconcile_interval_hours == 24
     assert config.sync.target_audit_interval_hours == 168
     assert config.target.inbox is False

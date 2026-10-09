@@ -3,7 +3,7 @@
 Development tooling only: Node plus `playwright-core@1.62.1` and a compatible
 installed Chromium. No browser dependency, CDN or Node server is shipped in the
 Facet image. This bounded script exercises the actual bundled page from a
-loopback test server; only the four aggregate API responses are intercepted.
+loopback test server; only the five aggregate API responses are intercepted.
 It never opens an OAuth flow or touches Gmail/config/state. Negative malformed
 fixtures test failure handling, not permissible production DTO output.
 

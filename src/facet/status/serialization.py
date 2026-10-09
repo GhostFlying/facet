@@ -17,6 +17,7 @@ from .models import (
     Progress,
     PublicEnvelope,
     RoleStatus,
+    Rules,
     Status,
     _exact,
     _record,
@@ -27,7 +28,9 @@ from .models import (
 
 
 def _time(value):
-    return value.value.isoformat(timespec="microseconds").replace("+00:00", "Z")
+    # Persisted instants remain UTC; public operational timestamps use the
+    # sync server's local offset so all Dashboard viewers see the same clock.
+    return value.value.astimezone().isoformat(timespec="microseconds")
 
 
 def _RoleStatus(value):
@@ -141,6 +144,18 @@ def _Issues(value):
     }
 
 
+def _RuleSummary(value):
+    return {
+        "kind": value.kind,
+        "value": value.value,
+        "enabled": value.enabled,
+    }
+
+
+def _Rules(value):
+    return {"entries": [_RuleSummary(entry) for entry in value.entries]}
+
+
 def _Diagnostics(value):
     return {
         "app_version": value.app_version,
@@ -164,6 +179,7 @@ _SERIALIZERS = {
     Status: _Status,
     Progress: _Progress,
     Issues: _Issues,
+    Rules: _Rules,
     Diagnostics: _Diagnostics,
 }
 

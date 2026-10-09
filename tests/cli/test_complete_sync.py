@@ -435,6 +435,14 @@ def test_complete_rejects_before_scope_or_provider_work(wire, args, code):
     assert not rows(state, "epochs") and not mailbox.calls
 
 
+def test_run_once_rejects_invalid_interval_before_owner_or_provider_work(wire):
+    invoke, mailbox, state = wire
+    before = rows(state, "operations")
+    invoke("run", "--once", "--interval", "nan", error="invalid_input")
+    assert rows(state, "operations") == before
+    assert not rows(state, "epochs") and not mailbox.calls
+
+
 def test_single_writer_conflict_does_not_create_scope(wire):
     invoke, mailbox, state = wire
     bind_and_rule(invoke)

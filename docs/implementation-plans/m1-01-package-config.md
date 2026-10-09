@@ -202,7 +202,7 @@ profile verification; config validity never claims that has happened.
 | `projection.source_email`, `target_email` | Required single plain mailbox strings; private declared roles, different; live verification still pending |
 | `projection.source_mode` | `readonly`; core `readonly`/`convenience`, configuration never grants modify scope |
 | `projection.own_addresses` | Explicit list; default only the declared source, no inferred aliases/settings access |
-| `sync.poll_interval_seconds` | Positive integer; default 30 |
+| `sync.poll_interval_seconds` | Positive integer; default 60 |
 | `sync.backfill_lookback_months` | Exactly 6; any other initial-discovery value rejected, historical expansion remains a separate explicit epoch |
 | `sync.thread_concurrency` | Positive integer; default 4; actual raw budget/rate-limit scheduler is M2-03 |
 | `sync.source_reconcile_interval_hours` | Positive integer; default 24 |

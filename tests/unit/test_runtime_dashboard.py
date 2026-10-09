@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "integration"))
 
 from test_projection_worker import _ready_owner
 
+from facet.cli import bootstrap
 from facet.cli.bootstrap import _foreground_gate
 from facet.contracts import BindingState, ErrorCode, PublicHealth
 from facet.runtime.dashboard import LiveSnapshotProvider, snapshot_from_owner
@@ -88,3 +89,41 @@ def test_foreground_gate_blocks_pending_bindings_without_provider_access(
         assert _foreground_gate(owner) == (False, ErrorCode.BINDING_PENDING)
     finally:
         owner.close()
+
+
+def test_idle_wait_refreshes_local_snapshot_without_shortening_interval(monkeypatch):
+    class Stop:
+        def __init__(self):
+            self.waits = []
+
+        def is_set(self):
+            return False
+
+        def wait(self, value):
+            self.waits.append(value)
+            return False
+
+    clock = iter((0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0))
+    monkeypatch.setattr(bootstrap, "monotonic", lambda: next(clock))
+    stop = Stop()
+    refreshed = []
+    assert bootstrap._wait_with_local_heartbeat(
+        stop, 60.0, lambda: refreshed.append(True)
+    )
+    assert stop.waits == [10.0] * 5
+    assert len(refreshed) == 5
+
+
+def test_idle_wait_stop_does_not_publish_an_extra_heartbeat():
+    class Stop:
+        def is_set(self):
+            return False
+
+        def wait(self, _value):
+            return True
+
+    refreshed = []
+    assert not bootstrap._wait_with_local_heartbeat(
+        Stop(), 60.0, lambda: refreshed.append(True)
+    )
+    assert refreshed == []

@@ -247,7 +247,7 @@ def test_run_rejects_changed_managed_config_after_initialization(trusted_root):
     config_path = state / "config.yaml"
     config_path.write_bytes(
         config_path.read_bytes().replace(
-            b"poll_interval_seconds: 30", b"poll_interval_seconds: 31"
+            b"poll_interval_seconds: 60", b"poll_interval_seconds: 61"
         )
     )
     blocked = _run(trusted_root, "run", "--state-dir", str(state), "--once")
