@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Observable continuous sync — implementation/offline acceptance in progress
+### Observable continuous sync — implemented, local-image acceptance passed
 
 The user authorized the current test deployment's continuous-sync direction,
 not production migration or a new historical scope. Root is implementing the
@@ -24,14 +24,20 @@ owner-thread progress during discovery/History/worker pagination and jobs;
 graceful between-request stop; Compose restart/log rotation. Necessary source EML
 hashes are permitted only in validated local logs/private DB/CLI, not public DTOs.
 
-Offline evidence so far: existing projection/runtime unit path passes; actual
-CLI continuous service publishes an intermediate confirmed mapping count,
-stops cleanly, and restarts without another insert. Four CLI outbound/unmanaged
-cases pass, including recovery by correcting only the external fake mailbox.
-Domain CLI sync/restart passes. Full checks, exact local-image acceptance,
-independent implementation review and PR CI remain pending. Real Gmail domain
-recall and this new running image are not verified. The real deployment remains
-stopped at the preceding qualified image; no live writes in this unit yet.
+Source candidate `b0bce4d745c2a049064be323e7871456fa93b59d` has independent
+implementation/acceptance APPROVE. Its exact-source non-root, read-only local
+image passed ten CLI domain/outbound/continuous/restart/refresh/recovery scenarios.
+The actual continuous CLI publishes intermediate confirmed counts, stops cleanly,
+and issues a new History request after restart without another insert. Four
+outbound/unmanaged cases include correcting only the external fake mailbox.
+Final full baseline and exact PR CI remain pending; see the concise
+[acceptance record](reviews/observable-continuous-sync.md).
+
+The source-only live query probe stopped at an expired access snapshot, before
+target calls/writes. Normal writer-owned refresh after backup is the next check;
+interactive reauthorization is not yet established. Real Gmail domain recall
+and this new running image are not verified. The real deployment remains stopped
+at the preceding qualified image; no live writes in this unit yet.
 
 Next: finish those acceptance gates, merge qualified engineering, then install
 the immutable image with a stopped/locked backup and exercise only the existing
