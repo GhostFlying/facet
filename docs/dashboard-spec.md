@@ -52,6 +52,7 @@ Discovery 完成后的 `known_message_total` 是搜索候选消息数，不是�
 | `GET /api/v1/status` | 同步阶段、健康状态、角色状态和 operational timestamps |
 | `GET /api/v1/progress` | 当前 epoch、message 与 thread 汇总、队列和速率 |
 | `GET /api/v1/issues` | 按错误类别分组的汇总与固定处理建议 |
+| `GET /api/v1/rules` | 当前 sender/domain 规则和 action-label 文本、启用状态；仅限私有部署 Dashboard |
 | `GET /api/v1/diagnostics` | 已脱敏的组件检查、版本与资源状态 |
 | `GET /healthz` | Web 进程存活状态 |
 | `GET /readyz` | Dashboard 状态数据是否可读 |
@@ -65,7 +66,7 @@ Discovery 完成后的 `known_message_total` 是搜索候选消息数，不是�
 页面、API、DOM、前端状态、URL 和诊断导出均不得包含以下内容：
 
 - 邮件标题、正文、snippet、HTML、raw MIME 和完整 headers。
-- 发件人、收件人、Cc、邮箱地址、规则中的地址或域名值。
+- 发件人、收件人、Cc、邮箱地址；规则快照是唯一例外，仅显示当前配置的 sender/domain 值和 action-label 文本。
 - 附件名称、内容、Content-ID、邮件链接。
 - Gmail message/thread/history IDs、RFC Message-ID 和用于内容恢复的 fingerprint。
 - OAuth client secret、access/refresh token、授权链接和授权响应。
@@ -81,7 +82,7 @@ Dashboard 诊断与 CLI doctor 共享检查逻辑，但使用单独的公开输�
 
 SQLite 保存同步所需的 IDs、source 到 target 映射、RFC Message-ID、时间、hash、规则、checkpoint、job 状态、重试计划、标准化 error code 和汇总运行指标。
 
-不保存邮件完整内容，也不保存正文、HTML、snippet、附件 bytes、完整 header dump、每封邮件的 Subject 或 From/To/Cc 副本。Rules 中的明确 sender/domain 和账号 binding 是必要的私密配置，保存在内部 DB 或配置中，不能进入 Dashboard。
+不保存邮件完整内容，也不保存正文、HTML、snippet、附件 bytes、完整 header dump、每封邮件的 Subject 或 From/To/Cc 副本。Rules 中的明确 sender/domain 和账号 binding 是必要的私密配置，保存在内部 DB 或配置中；当前规则快照按明确批准的私有 Dashboard 例外只读展示 sender/domain 值和 action-label 文本，不进入其他公共 DTO、日志或导出。
 
 `source_events` 和 jobs 的 payload 仅包含必要的类型、IDs、label ID 与调度信息；`last_error` 使用受控字段，不能成为任意 provider response 的存储容器。审计记录保存操作和状态变化，不复制邮件字段。
 

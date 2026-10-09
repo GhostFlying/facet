@@ -34,6 +34,10 @@ sender/domain values, enabled state, and configured action-label text. It does
 not expose binding addresses, message IDs/content, credentials, or rule values
 through other public DTOs, logs, or exports.
 
+The bounded rules envelope has a 2 MiB serialized limit, sufficient for 1024
+entries at 512 UTF-8 bytes including JSON Unicode escaping; other envelopes and
+structured logs retain their existing limits. It never truncates silently.
+
 ## Acceptance and bounds
 
 - Missing/configured/explicit interval precedence for both entrypoints; invalid

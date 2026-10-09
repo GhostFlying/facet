@@ -26,6 +26,9 @@ from .models import (
     _timestamp,
 )
 
+_MAX_PUBLIC_JSON_BYTES = 262144
+_MAX_RULES_JSON_BYTES = 2097152
+
 
 def _time(value):
     # Persisted instants remain UTC; public operational timestamps use the
@@ -194,11 +197,18 @@ def serialize_public(envelope: PublicEnvelope) -> dict:
         "age_seconds": envelope.age_seconds,
         "scope": envelope.scope,
     }
-    _encode(result)
+    _encode(
+        result,
+        maximum=(
+            _MAX_RULES_JSON_BYTES
+            if type(envelope.data) is Rules
+            else _MAX_PUBLIC_JSON_BYTES
+        ),
+    )
     return result
 
 
-def _encode(result):
+def _encode(result, *, maximum=_MAX_PUBLIC_JSON_BYTES):
     try:
         encoded = json.dumps(
             result,
@@ -209,13 +219,21 @@ def _encode(result):
         )
     except (ValueError, TypeError, OverflowError):
         raise OutputBoundaryError() from None
-    if len(encoded.encode("ascii")) > 262144:
+    if len(encoded.encode("ascii")) > maximum:
         raise OutputBoundaryError()
     return encoded
 
 
 def public_json(envelope: PublicEnvelope) -> str:
-    return _encode(serialize_public(envelope))
+    value = serialize_public(envelope)
+    return _encode(
+        value,
+        maximum=(
+            _MAX_RULES_JSON_BYTES
+            if type(envelope.data) is Rules
+            else _MAX_PUBLIC_JSON_BYTES
+        ),
+    )
 
 
 def _private_text(value, maximum):

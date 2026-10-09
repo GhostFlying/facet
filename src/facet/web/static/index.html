@@ -159,7 +159,7 @@
           put('issues', 'Unknown — no current exception snapshot.'); put('freshness', note);
         };
         const render = ([s, p, i, r, d]) => {
-          if ([s, p, i, d].some(data => data.freshness !== 'Fresh' || data.expires <= performance.now())) { unavailable('Stale or unavailable snapshot — current sync health and counts are unknown.'); return; }
+          if ([s, p, i, r, d].some(data => data.freshness !== 'Fresh' || data.expires <= performance.now())) { unavailable('Stale or unavailable snapshot — current sync health and counts are unknown.'); return; }
           put('freshness', `Fresh aggregate snapshots · sampled ${s.sampled}`);
           put('health', s.health); get('health').className = s.health === 'Healthy' ? 'badge healthy' : 'badge';
           ['phase', 'poll', 'insert', 'heartbeat'].forEach(id => put(id, s[id]));

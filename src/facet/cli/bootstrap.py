@@ -897,6 +897,9 @@ def _run_once_fake(options: object) -> tuple[dict, tuple[str, ...]]:
         raise ConfigError(ErrorCode.INVALID_INPUT)
     raw = read_managed_config(paths)
     config = load_config(raw)
+    # Even the synthetic provider path must reject an invalid explicit
+    # interval before opening the owner or touching state.
+    _resolved_poll_interval(options, config)
     owner = StateOwner.open(paths.root, config)
     try:
         owner.verify_config_artifact(raw)
