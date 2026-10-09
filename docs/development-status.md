@@ -11,7 +11,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 ### Dashboard operational consumer — implemented and browser-tested
 
 The [short plan](implementation-plans/dashboard-observability.md) and source
-`ae950076530909eb8fa86ecb3efd4c47cc192fa6` add a responsive consumer of the four
+`9ff469be8202efd235c9a36aaa7a2393937ae8f8` add a responsive consumer of the four
 existing cached public families: unique confirmed messages, exclusive queue
 states, current-scope thread discovery, fixed exception suggestions, binding
 state/times and DB/scope diagnostics. No new backend collector, Gmail access,
@@ -20,7 +20,8 @@ remain explicit. Search candidates are not a final copy denominator.
 
 Actual Chromium desktop/mobile viewports passed synthetic backlog, auth, gap,
 partial completion, mixed-family freshness, request failure, malformed-response,
-timeout and recovery checks on the bundled page. The same checks passed in an
+timeout and recovery checks on the bundled page, including a 29-second-old
+snapshot expiring within its remaining budget. The same checks passed in an
 isolated non-root read-only candidate container; no real state or credentials
 were mounted. Endpoint/runtime/public-privacy checks passed. Review and final
 candidate checks belong to the [acceptance record](reviews/dashboard-observability.md)
