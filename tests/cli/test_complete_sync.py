@@ -1,15 +1,20 @@
 """Actual complete CLI with only external OAuth/Gmail fixtures."""
 
+import base64
 import json
 import os
+import socket
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.error import URLError
+from urllib.request import urlopen
 from uuid import uuid4
 
 import pytest
@@ -63,9 +68,15 @@ def wire(tmp_path):
                 text=True,
                 timeout=30,
             )
-            assert result.stderr == ""
+            for line in result.stderr.splitlines():
+                assert json.loads(line)["kind"] in {
+                    "lifecycle",
+                    "work_summary",
+                    "boundary_failure",
+                    "dependency_state",
+                }
             assert not any(
-                sentinel in result.stdout
+                sentinel in result.stdout + result.stderr
                 for sentinel in (
                     "WIRE_BODY_SENTINEL",
                     "WIRE_HEADER_SENTINEL",
@@ -95,6 +106,8 @@ def wire(tmp_path):
             f"rq1_{uuid4().hex}_{uuid4().hex}",
         )
         invoke.hook = hook
+        invoke.env = env
+        invoke.cwd = tmp_path
         yield invoke, mailbox, state
         for path in state.rglob("*"):
             if path.is_file():
@@ -162,6 +175,149 @@ def test_complete_sync_initial_history_restart_and_rule_expansion(wire):
     before = len(rows(state, "epochs"))
     invoke("run", "--once")
     assert len(rows(state, "epochs")) == before
+
+
+def test_domain_rule_complete_cli_uses_provider_filter_and_restart(wire):
+    invoke, mailbox, state = wire
+    bind_and_rule(invoke)
+    invoke(
+        "rules",
+        "add-domain",
+        "--domain",
+        "example.com",
+        "--yes",
+        "--request-id",
+        uuid4().hex,
+    )
+    mailbox.historical = True
+    assert invoke("sync", "--once", "--yes")["cycle"]["projected"] == 4
+    assert all(
+        'from:"example.com"' in item["q"][0] for item in mailbox.discovery_queries
+    )
+    assert len(rows(state, "message_mappings")) == 4
+    assert invoke("run", "--once")["projected"] == 0
+    assert len(mailbox.inserted_raw) == 4
+
+
+@pytest.mark.parametrize(
+    "labels,sender,allowed",
+    [
+        (["SENT"], "source@example.com", True),
+        (["DRAFT"], "source@example.com", True),
+        (["SENT"], "wrong@example.com", False),
+        ([], "source@example.com", False),
+    ],
+)
+def test_cli_target_outbound_classification_does_not_adopt_or_lose_history(
+    wire, labels, sender, allowed
+):
+    invoke, mailbox, state = wire
+    bind_and_rule(invoke)
+    invoke("sync", "--once", "--yes")
+    raw = b"From: source@example.com\r\n\r\nWIRE_BODY_SENTINEL"
+    mailbox.target["outbound"] = {
+        "id": "outbound",
+        "threadId": "outbound-thread",
+        "labelIds": labels,
+        "payload": {"headers": [{"name": "From", "value": sender}]},
+        "raw": base64.urlsafe_b64encode(raw).decode(),
+        "rfc_id": "<outbound@example.com>",
+    }
+    mailbox.arrive()
+    if allowed:
+        assert invoke("run", "--once")["projected"] == 2
+        assert len(rows(state, "message_mappings")) == 2
+        assert len(mailbox.inserted_raw) == 2
+        assert invoke("run", "--once")["projected"] == 0
+    else:
+        invoke("run", "--once", error="attribution_unknown")
+        assert len(mailbox.inserted_raw) == 0 and rows(state, "insert_attempts") == []
+        with sqlite3.connect(state / "facet.db") as db:
+            assert db.execute("SELECT cursor FROM history_checkpoints").fetchone() == (
+                f"history-{mailbox.revision}",
+            )
+            assert db.execute("SELECT COUNT(*) FROM job_claims").fetchone() == (0,)
+        # Repair the external environment, not the DB; ordinary restart resumes.
+        mailbox.target.pop("outbound")
+        assert invoke("run", "--once")["projected"] == 2
+    assert all("outbound" not in row for row in rows(state, "message_mappings"))
+
+
+def test_continuous_cli_publishes_mid_cycle_progress_and_stops_then_restarts(wire):
+    invoke, mailbox, state = wire
+    bind_and_rule(invoke)
+    invoke("sync", "--once", "--yes")
+    mailbox.arrive()
+    mailbox.target_read_delay = 2.2
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    command = [
+        str(Path(sys.executable).parent / "facet"),
+        "--state-dir",
+        str(state),
+        "--json",
+        "run",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--interval",
+        "0.1",
+    ]
+    samples = []
+    for restart in range(2):
+        history_before = sum(path.endswith("/history") for _, path in mailbox.calls)
+        process = subprocess.Popen(
+            command,
+            cwd=invoke.cwd,
+            env=invoke.env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                try:
+                    with urlopen(
+                        f"http://127.0.0.1:{port}/api/v1/progress", timeout=2
+                    ) as response:
+                        document = json.load(response)
+                    samples.append(document)
+                    if (
+                        document["data"]["confirmed_messages"] == 2
+                        and sum(path.endswith("/history") for _, path in mailbox.calls)
+                        > history_before
+                    ):
+                        break
+                except (URLError, TimeoutError):
+                    assert process.poll() is None
+                time.sleep(0.1)
+            else:
+                raise AssertionError("continuous projection did not complete")
+        finally:
+            process.terminate()
+            stdout, stderr = process.communicate(timeout=10)
+        assert process.returncode == 0, stdout + stderr
+        logs = [json.loads(line) for line in stderr.splitlines()]
+        stages = {item.get("stage") for item in logs}
+        assert {"start", "stop", "history"} <= stages
+        if not restart:
+            assert "projection" in stages
+        assert json.loads(stdout)["data"]["stopped"]
+        for sentinel in (
+            "WIRE_BODY_SENTINEL",
+            "WIRE_HEADER_SENTINEL",
+            "sender@example.com",
+            "source@example.com",
+            "facet-synthetic",
+        ):
+            assert sentinel not in stdout + stderr + json.dumps(samples)
+        assert len(rows(state, "message_mappings")) == 2
+        assert len(mailbox.inserted_raw) == 2
+        if not restart:
+            assert any(item["data"]["confirmed_messages"] == 1 for item in samples)
 
 
 def test_cli_thread_label_message_aliases_learn_and_copy_once(wire):

@@ -697,10 +697,13 @@ def _run_foreground_service(
 ) -> tuple[dict, tuple[str, ...]]:
     """Own one sync loop and one read-only Dashboard in the current process."""
 
+    from time import monotonic
+
     from facet.gmail.service_factory import GoogleGmailServiceFactory
     from facet.runtime.dashboard import LiveSnapshotProvider
     from facet.runtime.foreground_runtime import run_foreground_once
     from facet.runtime.state_owner import StateOwner
+    from facet.status.logging import OperationStage, emit_operation
     from facet.web.server import DashboardServer
 
     if getattr(options, "fake", False):
@@ -736,6 +739,24 @@ def _run_foreground_service(
         previous_sigterm = signal.signal(signal.SIGTERM, lambda *_: stop.set())
         server_thread.start()
         started = True
+        last_progress = 0.0
+
+        def progress():
+            nonlocal last_progress
+            # Checked between provider pages/jobs, never during dispatched insert.
+            if stop.is_set():
+                raise KeyboardInterrupt
+            now = monotonic()
+            if now - last_progress < 2:
+                return
+            last_progress = now
+            try:
+                provider.publish_from_owner(owner, config, cycle_verified=False)
+            except Exception:
+                provider.invalidate()
+
+        emit_operation(OperationStage.START)
+        progress()
         while not stop.is_set():
             try:
                 ready, gate_error = _foreground_gate(owner)
@@ -756,11 +777,21 @@ def _run_foreground_service(
                 stop.wait(interval)
                 continue
             error_code = None
+            cycle_started = monotonic()
             try:
-                run_foreground_once(
+                receipt = run_foreground_once(
                     owner,
                     config,
                     GoogleGmailServiceFactory(),
+                    progress=progress,
+                    should_stop=stop.is_set,
+                )
+                if "target_missing" in receipt.warnings:
+                    error_code = ErrorCode.TARGET_MISSING
+                emit_operation(
+                    OperationStage.COMPLETE,
+                    count=receipt.projected.verified,
+                    elapsed_ms=int((monotonic() - cycle_started) * 1000),
                 )
             except KeyboardInterrupt:
                 break
@@ -768,6 +799,11 @@ def _run_foreground_service(
                 error_code = getattr(error, "code", ErrorCode.PERSISTENCE_FAILURE)
                 if type(error_code) is not ErrorCode:
                     error_code = ErrorCode.PERSISTENCE_FAILURE
+                emit_operation(
+                    OperationStage.COMPLETE,
+                    code=error_code,
+                    elapsed_ms=int((monotonic() - cycle_started) * 1000),
+                )
             try:
                 provider.publish_from_owner(
                     owner,
@@ -782,6 +818,7 @@ def _run_foreground_service(
         pass
     finally:
         stop.set()
+        emit_operation(OperationStage.STOP)
         if previous_sigterm is not None:
             signal.signal(signal.SIGTERM, previous_sigterm)
         if started and server is not None and server_thread is not None:

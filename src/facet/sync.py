@@ -115,11 +115,6 @@ class SourceCandidateAdmission:
         rules = self._policy.enabled_allow_rules
         if not rules:
             return None
-        if any(rule.normalized.kind is RuleKind.ALLOW_DOMAIN for rule in rules):
-            # Gmail's broad domain search semantics are not yet accepted as a
-            # complete parent/subdomain candidate superset. Never fall back to
-            # an unfiltered mailbox scan while that evidence gate is closed.
-            raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
         clauses = tuple(
             sorted(
                 {
@@ -129,7 +124,8 @@ class SourceCandidateAdmission:
                     )
                     + '"'
                     for rule in rules
-                    if rule.normalized.kind is RuleKind.ALLOW_SENDER
+                    if rule.normalized.kind
+                    in {RuleKind.ALLOW_SENDER, RuleKind.ALLOW_DOMAIN}
                 }
             )
         )
@@ -210,6 +206,7 @@ class SyncCycleReceipt:
                 not in {
                     "history_gap_scan_pending",
                     "expired_action_events_not_reconstructable",
+                    "target_missing",
                 }
                 for warning in self.warnings
             )
@@ -240,6 +237,8 @@ class ForegroundSync:
         admission_for_epoch=None,
         admission_for_history=None,
         max_raw_bytes: int = 35_000_000,
+        progress=None,
+        should_stop=None,
     ) -> None:
         if (
             not hasattr(owner, "session")
@@ -260,6 +259,8 @@ class ForegroundSync:
         self._source = source
         self._target = target
         self._max_raw_bytes = max_raw_bytes
+        self._progress = progress
+        self._should_stop = should_stop
         self._projection = owner.projection_id
         self._admission_for_epoch = admission_for_epoch
         self._admission_for_history = admission_for_history
@@ -271,10 +272,15 @@ class ForegroundSync:
             if isinstance(admission, PolicyAdmissionEvaluator)
             else admission
         )
-        self._backfill = BackfillProducer(source, self._admission)
-        self._history = HistoryProducer(source)
+        self._backfill = BackfillProducer(source, self._admission, progress=progress)
+        self._history = HistoryProducer(source, progress=progress)
         self._worker = ProjectionWorker(
-            owner, source, target, max_raw_bytes=max_raw_bytes
+            owner,
+            source,
+            target,
+            max_raw_bytes=max_raw_bytes,
+            progress=progress,
+            should_stop=should_stop,
         )
         self._action = action_consumer
 
@@ -290,6 +296,15 @@ class ForegroundSync:
         ):
             raise ValueError("invalid_input")
         self._require_ready()
+        from facet.projection.target_inventory import TargetInventory
+        from facet.status.logging import OperationStage, emit_operation
+
+        self._worker._inventory = self._worker._shared_inventory = TargetInventory(
+            self._owner,
+            self._target,
+            progress=self._progress,
+        )
+        emit_operation(OperationStage.RECOVERY)
         if verify_known_only:
             return SyncCycleReceipt(
                 projected=self._worker.verify_known(max_jobs=max_jobs)
@@ -301,9 +316,16 @@ class ForegroundSync:
         from facet.projection.recovery import UnknownInsertChecks
 
         UnknownInsertChecks(
-            self._owner, self._source, self._target, max_raw_bytes=self._max_raw_bytes
+            self._owner,
+            self._source,
+            self._target,
+            max_raw_bytes=self._max_raw_bytes,
+            progress=self._progress,
+            should_stop=self._should_stop,
         ).run(limit=min(max_jobs, 100))
         converged = self._converge_completed_events(max_events)
+        if self._progress:
+            self._progress()
         from facet.projection.gap_recovery import GapRecovery
 
         recovery = GapRecovery(
@@ -312,6 +334,7 @@ class ForegroundSync:
             self._worker,
             self._admission_for_epoch,
             self._history_admission,
+            progress=self._progress,
         )
         recovery_epoch = recovery.prepare()
         recovery_pages = 0
@@ -325,12 +348,17 @@ class ForegroundSync:
                     ),
                 )
             recovery_pages = recovery.catchup(recovery_epoch, self._history)
+        emit_operation(OperationStage.DISCOVERY)
         discovered = self._discover_backfill_epoch()
+        emit_operation(OperationStage.HISTORY)
         history_pages = (
             recovery_pages if recovery_epoch is not None else self._poll_history()
         )
         resolved, attention = self._resolve_events(max_events)
         resolved += converged
+        if self._progress:
+            self._progress()
+        emit_operation(OperationStage.PROJECTION)
         projected = self._worker.run(max_jobs=max_jobs)
         projected = WorkerReceipt(
             **{
@@ -359,7 +387,8 @@ class ForegroundSync:
             resolved,
             projected,
             attention,
-            recovery.warnings(),
+            recovery.warnings()
+            + (("target_missing",) if self._worker._inventory.missing else ()),
         )
 
     def _require_ready(self) -> None:
@@ -439,7 +468,9 @@ class ForegroundSync:
             if not isinstance(admission, PolicyAdmissionEvaluator):
                 raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
             backfill = BackfillProducer(
-                self._source, SourceCandidateAdmission(self._source, admission)
+                self._source,
+                SourceCandidateAdmission(self._source, admission),
+                progress=self._progress,
             )
         else:
             backfill = self._backfill
@@ -582,6 +613,10 @@ class ForegroundSync:
     def _resolve_events(self, limit: int) -> tuple[int, int]:
         resolved = attention = 0
         for job in self._pending_resolve_jobs()[:limit]:
+            if self._should_stop and self._should_stop():
+                break
+            if self._progress:
+                self._progress()
             key = job.subject.event_key
             if hasattr(key, "label_id"):
                 if self._action is None:

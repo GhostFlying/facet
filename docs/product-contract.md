@@ -98,6 +98,12 @@ Web 页面、API 和诊断只返回运行状态和汇总，不展示邮件标题
 
 ## 验收边界
 
+2026-10-09 用户允许必要的完整 source EML SHA-256 和版本化 semantic/MIME digest
+持久化、用于本地诊断日志或显式 private CLI 定位。只对现有内存字节计算，不保存
+EML，不为日志另行读取邮件或散列地址/标题。相同字节有相同 hash，不能独自区分
+两次投递，也不能用 source/target raw hash 相同作为保真要求。Web、HTTP/DOM/DTO
+和公开 CLI 输出继续禁止任何邮件 fingerprint/hash；本地日志不是公共 telemetry。
+
 Facet 负责规则、同步、保真、恢复、审计和 Gmail 可见性。完成条件是 target Gmail 可以通过 API 和 UI 回读内容、日期、会话和附件，并且未完成工作有持久、可解释的状态。
 
 AI connector 的索引、搜索、附件处理和回答准确性由各 AI 产品负责。兼容性和索引延迟不构成 Facet 的发布门槛或性能承诺。

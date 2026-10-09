@@ -65,6 +65,7 @@ class Mailbox:
         self.refresh_scopes = None
         self.insert_reason = "authError"
         self.expired_profile_roles = set()
+        self.target_read_delay = 0
 
     def arrive(self):
         self.revision += 1
@@ -362,6 +363,8 @@ class Mailbox:
                         else:
                             self.reply(mailbox.message(identifier, raw=raw))
                     else:
+                        if mailbox.target_read_delay:
+                            time.sleep(mailbox.target_read_delay)
                         if mailbox.readback_status:
                             self.reply(
                                 {

@@ -64,14 +64,19 @@ def current_cli(tmp_path):
                 timeout=30,
             )
             assert result.returncode == 0, result.stdout + result.stderr
-            assert not result.stderr
+            for line in result.stderr.splitlines():
+                assert json.loads(line)["kind"] in {
+                    "lifecycle",
+                    "work_summary",
+                    "boundary_failure",
+                }
             for sentinel in (
                 "HISTORY_BODY_SENTINEL",
                 "HISTORY_HEADER_SENTINEL",
                 "facet-synthetic-source-access",
                 "facet-synthetic-target-access",
             ):
-                assert sentinel not in result.stdout
+                assert sentinel not in result.stdout + result.stderr
             return json.loads(result.stdout)["data"]
 
         def change(**kwargs):

@@ -215,6 +215,8 @@ class ForegroundRuntime:
         max_jobs=1000,
         max_events=1000,
         verify_known_only=False,
+        progress=None,
+        should_stop=None,
     ):
         source_snapshot, target_snapshot = prepare_credentials(
             self.owner, self.config, self.factory
@@ -287,6 +289,8 @@ class ForegroundRuntime:
                     if admission is None
                     else None
                 ),
+                progress=progress,
+                should_stop=should_stop,
             ).run_once(
                 max_jobs=max_jobs,
                 max_events=max_events,
@@ -304,6 +308,8 @@ def run_foreground_once(
     max_jobs=1000,
     max_events=1000,
     verify_known_only=False,
+    progress=None,
+    should_stop=None,
 ) -> SyncCycleReceipt:
     """Run one complete foreground cycle through the production composition."""
     return ForegroundRuntime(owner, config, factory).run_once(
@@ -312,4 +318,6 @@ def run_foreground_once(
         max_jobs=max_jobs,
         max_events=max_events,
         verify_known_only=verify_known_only,
+        progress=progress,
+        should_stop=should_stop,
     )

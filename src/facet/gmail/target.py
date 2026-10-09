@@ -121,6 +121,66 @@ class TargetAdapter:
         except (KeyError, TypeError, ValueError):
             raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.TARGET) from None
 
+    def inventory_pages(self):
+        """All Mail IDs, including drafts/Spam/Trash; no content fetch."""
+        token, seen = None, set()
+        while True:
+            arguments = dict(userId="me", includeSpamTrash=True, maxResults=500)
+            if token is not None:
+                arguments["pageToken"] = token
+            value = execute(
+                self._service.users().messages().list(**arguments),
+                self.role,
+                provider_stage=ProviderStage.MESSAGE_LIST,
+            )
+            try:
+                messages = value.get("messages", [])
+                if type(messages) is not list:
+                    raise ValueError
+                ids = tuple(_id(item["id"]) for item in messages)
+                token = value.get("nextPageToken")
+                if token is not None:
+                    if type(token) is not str or not token or token in seen:
+                        raise ValueError
+                    seen.add(token)
+            except (KeyError, TypeError, ValueError, AttributeError):
+                raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
+            yield ids
+            if token is None:
+                break
+
+    def outbound_metadata(self, message_id):
+        """Private RAM-only From and labels for an otherwise unmanaged ID."""
+        value = execute(
+            self._service.users()
+            .messages()
+            .get(
+                userId="me",
+                id=message_id.value,
+                format="metadata",
+                metadataHeaders=["From"],
+            ),
+            self.role,
+            provider_stage=ProviderStage.MESSAGE_GET,
+        )
+        try:
+            if _id(value["id"]) != message_id:
+                raise ValueError
+            labels = value.get("labelIds", [])
+            headers = value.get("payload", {}).get("headers", [])
+            if type(labels) is not list or type(headers) is not list:
+                raise ValueError
+            if any(type(label) is not str or not label for label in labels):
+                raise ValueError
+            senders = tuple(
+                item["value"] for item in headers if item["name"].casefold() == "from"
+            )
+            if any(type(sender) is not str for sender in senders):
+                raise ValueError
+            return tuple(labels), senders
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
+
     def find_by_rfc_message_id(self, value: str):
         if type(value) is not RfcMessageId:
             raise ValueError("invalid_input")

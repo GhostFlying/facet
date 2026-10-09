@@ -369,6 +369,11 @@ raw、body、subject、per-message addresses/headers、attachment names 或 cred
 
 ## CLI output 隐私
 
+2026-10-09：必要的完整 source EML SHA-256 和 versioned semantic/MIME digest
+允许用于私密 DB、本地受控诊断日志和 `--private-metadata`。只复用内存中的邮件
+字节，不落盘 EML；hash 标识内容而非投递次数，不能从地址/标题散列出日志字段。
+公开 CLI 和 Dashboard/HTTP/DOM/DTO 继续禁止 fingerprint/hash。
+
 Local private metadata 可包含必要的 binding addresses、normalized rule values、
 source/target object IDs、generation/attempt/epoch、digests 和必要路径，按命令
 allowlist 与 `--private-metadata` 提供，用于人工定位/处理。它不是公共 telemetry，

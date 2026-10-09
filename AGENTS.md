@@ -336,6 +336,12 @@ rule and recovery invariants remain.
   attachments, credentials, or unfiltered provider exceptions/responses. DEBUG
   is not an exception. Keep typed metadata/error codes; arbitrary JSON/text
   payload columns must not become covert content stores.
+- Product decision (2026-10-09): necessary full-source EML SHA-256 and versioned
+  semantic/MIME digests may be stored in private DB state and validated local
+  diagnostic logs/private CLI. Compute from existing in-memory bytes, never write
+  `.eml` or hash addresses/subjects for logging. Byte hashes identify content, not
+  delivery occurrences; Gmail target transport headers can change raw hashes.
+  Public CLI/Dashboard/HTTP/DOM/DTO still exclude all fingerprints/digests.
 - Tokens/config/state/backups are owner-only, ignored, and outside artifacts.
   Token replacement is atomic. No credentials, private account identities,
   Gmail IDs, real-mail fixtures, or private spike evidence in Git, CI, images,

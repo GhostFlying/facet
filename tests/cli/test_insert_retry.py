@@ -60,13 +60,18 @@ def _exercise_cli(
                 text=True,
                 timeout=30,
             )
-            assert response.stderr == ""
+            for line in response.stderr.splitlines():
+                assert json.loads(line)["kind"] in {
+                    "lifecycle",
+                    "work_summary",
+                    "boundary_failure",
+                }
             for sentinel in (
                 "HISTORY_BODY_SENTINEL",
                 "HISTORY_HEADER_SENTINEL",
                 "facet-synthetic-",
             ):
-                assert sentinel not in response.stdout
+                assert sentinel not in response.stdout + response.stderr
             if crash is not None:
                 assert response.returncode == crash
                 return None

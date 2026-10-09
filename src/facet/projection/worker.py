@@ -71,7 +71,17 @@ class WorkerReceipt:
 class ProjectionWorker:
     """One owner executes at most ``max_jobs``; recovery jobs are not selected."""
 
-    def __init__(self, owner, source, target, *, max_raw_bytes=35_000_000):
+    def __init__(
+        self,
+        owner,
+        source,
+        target,
+        *,
+        max_raw_bytes=35_000_000,
+        inventory=None,
+        progress=None,
+        should_stop=None,
+    ):
         if type(max_raw_bytes) is not int or not 1 <= max_raw_bytes <= 35_000_000:
             raise ValueError("invalid_input")
         self._owner = owner
@@ -82,6 +92,12 @@ class ProjectionWorker:
         self._reactive_jobs = set()
         self._dependency_failure = None
         self._selected_job_id = None
+        from .target_inventory import TargetInventory
+
+        self._shared_inventory = inventory
+        self._inventory = inventory or TargetInventory(owner, target, progress=progress)
+        self._progress = progress
+        self._should_stop = should_stop
 
     def run(self, *, max_jobs=1):
         return self._run(max_jobs=max_jobs)
@@ -106,7 +122,15 @@ class ProjectionWorker:
         if type(max_jobs) is not int or not 1 <= max_jobs <= 10_000:
             raise ValueError("invalid_input")
         counts = {field: 0 for field in WorkerReceipt.__dataclass_fields__}
+        if self._shared_inventory is None:
+            from .target_inventory import TargetInventory
+
+            self._inventory = TargetInventory(
+                self._owner, self._target, progress=self._progress
+            )
         for _ in range(max_jobs):
+            if self._should_stop and self._should_stop():
+                break
             job = self._claim_next(expansion_epoch)
             if job is None:
                 break
@@ -142,6 +166,8 @@ class ProjectionWorker:
                     self._defer(job, error.code)
                     outcome = "deferred"
             counts[outcome] += 1
+            if self._progress:
+                self._progress()
             if self._dependency_failure is not None:
                 raise self._dependency_failure
         return WorkerReceipt(**counts)
@@ -180,6 +206,13 @@ class ProjectionWorker:
             if not rows:
                 return None
             job = _decode(uow, self._projection, "sync_jobs", rows[0])
+        # No target network calls or snapshots while SQLite is in a transaction.
+        # Failure leaves the job queued, not claimed/attention or dispatched.
+        if job.kind is JobKind.PROJECT_MESSAGE:
+            self._inventory.require()
+        if self._should_stop and self._should_stop():
+            return None
+        with self._owner.session.transaction() as uow:
             acquired = Claim(
                 _id(),
                 self._owner.owner_info.owner_run_id,
@@ -672,6 +705,10 @@ class ProjectionWorker:
             )
         verified = 0
         for attempt in attempts:
+            if self._should_stop and self._should_stop():
+                break
+            if self._progress:
+                self._progress()
             raw = self._source.raw(attempt.source_message_id)
             try:
                 if len(raw) > self._max_raw_bytes:
@@ -806,6 +843,12 @@ class ProjectionWorker:
             raise StorageFailure(ErrorCode.GENERATION_STALE)
 
     def _result(self, attempt, state, certainty, error, **facts):
+        if error in {ErrorCode.INSERT_RESULT_UNKNOWN, ErrorCode.FIDELITY_MISMATCH}:
+            from facet.status.logging import OperationStage, emit_operation
+
+            emit_operation(
+                OperationStage.PROJECTION, code=error, raw_digest=attempt.raw_digest
+            )
         now = _now()
         row = replace(
             attempt,

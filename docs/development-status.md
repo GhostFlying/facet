@@ -8,6 +8,38 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Observable continuous sync — implementation/offline acceptance in progress
+
+The user authorized the current test deployment's continuous-sync direction,
+not production migration or a new historical scope. Root is implementing the
+[short reviewed plan](implementation-plans/observable-continuous-sync.md).
+Independent Sol 6.1 xhigh plan review approved revision SHA-256
+`6f8cdcd6daa5a7660671e85143674c8772826220462b5a8d54a63208617215ec`.
+
+Implemented consumers: lazy cycle-shared target inventory before project-job
+claim, proven ownership before allowed source-From SENT/DRAFT classification,
+queued fail-closed writes while History stays durable; bounded domain search
+with strict local admission; closed operational stage/provider-reason logs;
+owner-thread progress during discovery/History/worker pagination and jobs;
+graceful between-request stop; Compose restart/log rotation. Necessary source EML
+hashes are permitted only in validated local logs/private DB/CLI, not public DTOs.
+
+Offline evidence so far: existing projection/runtime unit path passes; actual
+CLI continuous service publishes an intermediate confirmed mapping count,
+stops cleanly, and restarts without another insert. Four CLI outbound/unmanaged
+cases pass, including recovery by correcting only the external fake mailbox.
+Domain CLI sync/restart passes. Full checks, exact local-image acceptance,
+independent implementation review and PR CI remain pending. Real Gmail domain
+recall and this new running image are not verified. The real deployment remains
+stopped at the preceding qualified image; no live writes in this unit yet.
+
+Next: finish those acceptance gates, merge qualified engineering, then install
+the immutable image with a stopped/locked backup and exercise only the existing
+accounts/rules/window. Final maintenance/restore/browser/dogfood gates remain
+unfinished; this is not completed Phase 1.
+
+## Previous qualified delivery
+
 ### Automatic five-minute recovery merged; exact live recovery passed
 
 The user replaced the uncommitted per-item preview/grant/one-budget proposal.

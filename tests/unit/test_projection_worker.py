@@ -737,6 +737,9 @@ class _UnknownInsertTarget:
     def __init__(self, delegate):
         self.delegate = delegate
 
+    def inventory_pages(self):
+        return self.delegate.inventory_pages()
+
     def insert(self, raw, *, thread_id=None, date_header=True):
         self.delegate.insert(raw, thread_id=thread_id, date_header=date_header)
         raise ProviderFailure(ErrorCode.INVALID_INPUT, Role.TARGET)
@@ -746,6 +749,9 @@ class _StopAfterInsertTarget:
     def __init__(self, delegate, owner):
         self.delegate = delegate
         self.owner = owner
+
+    def inventory_pages(self):
+        return self.delegate.inventory_pages()
 
     def insert(self, raw, *, thread_id=None, date_header=True):
         result = self.delegate.insert(raw, thread_id=thread_id, date_header=date_header)
@@ -1250,6 +1256,9 @@ def test_worker_pre_http_credential_failure_has_no_unknown_or_retry_dispatch(
     gmail_controller.seed("source", "m-new", "thread-1", raw, payload=_payload(raw))
 
     class NotDispatched:
+        def inventory_pages(self):
+            yield ()
+
         def insert(self, *args, **kwargs):
             raise ProviderFailure(
                 code,

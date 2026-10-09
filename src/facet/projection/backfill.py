@@ -114,11 +114,12 @@ def _decode_query_token(token, digest: str) -> ProviderPageToken | None:
 class BackfillProducer:
     """Page source discovery and publish only durable expansion/message work."""
 
-    def __init__(self, source, admission: AdmissionEvaluator):
+    def __init__(self, source, admission: AdmissionEvaluator, *, progress=None):
         if not callable(getattr(admission, "evaluate", None)):
             raise ValueError("invalid_input")
         self._source = source
         self._admission = admission
+        self._progress = progress
 
     def preview(self, owner, projection_id, request):
         """Persist the guarded preview through PR33's operation journal."""
@@ -200,9 +201,11 @@ class BackfillProducer:
             )
             # Candidate metadata/authentication is provider work and must not
             # execute while the SQLite writer transaction is open.
-            decisions = tuple(
-                (item, self._admission.evaluate(item, epoch)) for item in response.items
-            )
+            decisions = []
+            for item in response.items:
+                decisions.append((item, self._admission.evaluate(item, epoch)))
+                if self._progress:
+                    self._progress()
             now = _now()
             jobs = []
             with owner.transaction() as uow:
@@ -426,6 +429,8 @@ class BackfillProducer:
                 )
             pages += 1
             observed += len(response.items)
+            if self._progress:
+                self._progress()
             if response.next_page_token is None:
                 break
             token = response.next_page_token

@@ -1,5 +1,11 @@
 # Phase 1 执行进度台账
 
+2026-10-09 当前执行覆盖：root 按用户后续指示直接承担 plan/工程/测试/文档/集成，
+subagent 仅独立评审。当前推进「可观察的持续同步」，短计划独审已通过，具体能力、
+验收和真实部署状态以 [development-status](development-status.md) 的 Current state
+为准。下文 2026-10-03 包表及 ownership 保留为历史记录，不应作为当前派工或产品
+完成度。最终 M1–M6、独审、CI、隐私和外部操作门槛没有缩减。
+
 日期：2026-10-03（PRC；历史 UTC receipts 保留原日期）
 
 本候选交付快照；最新 SHA/review/CI/集成结果记录在各 Issue/PR。此台账不把 plan、

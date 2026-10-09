@@ -106,7 +106,7 @@ def _refresh_provider_failure(
         if isinstance(raw_retry, str) and raw_retry.isdigit():
             retry_after = int(raw_retry)
     code = _refresh_error_code(error, role) if code is None else code
-    return ProviderFailure(
+    failure = ProviderFailure(
         code,
         role,
         status=status,
@@ -121,6 +121,10 @@ def _refresh_provider_failure(
             else getattr(error, "content", b"")
         ),
     )
+    from facet.status.logging import emit_provider_failure
+
+    emit_provider_failure(failure)
+    return failure
 
 
 class _BoundedRequest:

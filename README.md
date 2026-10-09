@@ -161,6 +161,9 @@ intent, not a way to bypass guards. Missing authorization requires the existing
 `setup` or `auth authorize` flow; no account or scope is silently selected.
 
 Use `facet run` for ordinary restart without selecting a new historical scope.
+
+See [continuous sync operations](docs/continuous-sync-operations.md) for progress,
+closed local diagnostics, target preconditions, log rotation and restart boundaries.
 Granular `backfill preview/start/status` remain available; standalone preview is
 zero-write. Docker/Compose still default to `run`, not automatic new backfill.
 This entry and its offline acceptance do not authorize a live scope or deployment.
