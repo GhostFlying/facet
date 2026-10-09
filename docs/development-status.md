@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Dashboard operational consumer — implemented and browser-tested
+### Dashboard operational consumer — merged and running in the current test deployment
 
 The [short plan](implementation-plans/dashboard-observability.md) and source
 `9ff469be8202efd235c9a36aaa7a2393937ae8f8` add a responsive consumer of the four
@@ -26,8 +26,21 @@ isolated non-root read-only candidate container; no real state or credentials
 were mounted. Endpoint/runtime/public-privacy checks passed. Review and final
 candidate checks belong to the [acceptance record](reviews/dashboard-observability.md)
 and linked engineering PR, not a claim that every Phase 1 gate is finished.
-The running real service still uses the qualified continuous-sync image below;
-page qualification does not by itself assert a new image deployment.
+PR [#112](https://github.com/GhostFlying/facet/pull/112) merged at
+`d7232ddcbaa390a4317f25b230d218c454fbd359` after independent acceptance, the complete
+local offline baseline and exact-head Python 3.12/3.13/image CI. Its official
+image is anonymously imported; all packaged source/static bytes match the
+qualified candidate. Both architectures' SPDX/SLSA payloads match their image
+subjects and source; this machine verifies amd64 runtime, not arm64 execution.
+
+The existing test Compose service now uses that full-commit image. Graceful stop
+exited zero; writer-locked SQLite/config/credential backups and ordinary profile
+verification passed with **4351 mappings**, unchanged checked business state and
+zero target writes during preflight. Restart completed zero-insert cycles with
+4351 mappings and no queued/blocked/attention jobs. Actual cached-page desktop/
+mobile viewport checks passed privacy, GET-only requests and no overflow.
+Underlying continuous-sync behavior below is unchanged; accounts/rules/window/
+volume are preserved. This is current-machine testing, not production migration.
 
 ### Observable continuous sync — merged and running in the current test deployment
 
