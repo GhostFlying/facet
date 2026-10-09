@@ -82,6 +82,19 @@ def test_static_page_is_aggregate_only(dashboard_server):
     assert "facet dashboard" in body
     for forbidden in ("subject", "attachment", "access_token", "refresh_token"):
         assert forbidden not in body
+    for family in ("status", "progress", "issues", "diagnostics"):
+        assert family in body
+    for feature in (
+        "binding verified",
+        "known candidate messages",
+        "mutually exclusive",
+        "not reported by the current snapshot collector",
+        "abortcontroller",
+    ):
+        assert feature in body
+    assert "innerhtml" not in body
+    assert "<script src=" not in body
+    assert "<link " not in body
 
 
 class SpyProvider(UnavailableSnapshotProvider):

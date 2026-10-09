@@ -5,45 +5,201 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Facet Dashboard</title>
     <style>
-      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-      body { margin: 0 auto; max-width: 56rem; padding: 1.5rem; }
-      section { border: 1px solid #8885; border-radius: .5rem; margin: 1rem 0; padding: 1rem; }
-      .value { font-size: 1.4rem; font-weight: 600; }
-      .muted { opacity: .7; }
+      :root { color-scheme: light dark; font: 15px/1.5 system-ui, sans-serif; --bg: #f3f6fb; --panel: #fff; --ink: #172438; --muted: #52647b; --line: #dce4ef; --accent: #216c59; }
+      * { box-sizing: border-box; }
+      body { margin: 0 auto; max-width: 78rem; padding: 2rem; background: var(--bg); color: var(--ink); }
+      header, .heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+      h1 { font-size: 1.8rem; letter-spacing: -.04em; margin: 0; }
+      h2 { font-size: 1rem; margin: 0 0 1rem; }
+      p { margin: .4rem 0; }
+      .muted, dt { color: var(--muted); }
+      .badge { border: 1px solid var(--line); border-radius: 2rem; padding: .25rem .75rem; font-size: .85rem; }
+      .healthy { color: var(--accent); }
+      button { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: .5rem; padding: .6rem 1rem; cursor: pointer; font: inherit; }
+      button:disabled { opacity: .6; cursor: wait; }
+      button:focus-visible { outline: 3px solid #80a9de; outline-offset: 3px; }
+      #freshness { margin: 1.25rem 0; padding: .8rem 1rem; border-left: 3px solid var(--line); }
+      .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+      .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+      section, .metric { border: 1px solid var(--line); border-radius: .8rem; padding: 1.25rem; background: var(--panel); min-width: 0; }
+      .metric strong { display: block; font-size: 2rem; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+      dl { margin: 0; }
+      .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 1rem; padding: .4rem 0; }
+      dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+      .wide { grid-column: 1 / -1; }
+      .queue { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem 1.5rem; }
+      .queue .row { display: flex; justify-content: space-between; }
+      .issue { border-top: 1px solid var(--line); padding: 1rem 0; overflow-wrap: anywhere; }
+      .issue h3 { font-size: 1rem; margin: 0; }
+      footer { margin-top: 1.5rem; color: var(--muted); font-size: .85rem; }
+      @media (max-width: 680px) { body { padding: 1rem; } header { flex-wrap: wrap; } .grid { grid-template-columns: 1fr; } .metrics { gap: .5rem; } .metric { padding: .8rem; } .metric strong { font-size: 1.4rem; } .queue { grid-template-columns: 1fr 1fr; } .row { gap: .5rem; } }
+      @media (prefers-color-scheme: dark) { :root { --bg: #111a27; --panel: #1a2638; --ink: #e3ebf7; --muted: #a7b7cc; --line: #33445c; --accent: #8bd4ba; } }
     </style>
   </head>
   <body>
-    <h1>Facet Dashboard</h1>
-    <p id="freshness" class="muted">Loading aggregate status…</p>
-    <section><h2>Sync</h2><p id="health" class="value">Unknown</p><p id="phase" class="muted">Phase unavailable</p></section>
-    <section><h2>Progress</h2><p id="progress" class="value">Counts unavailable</p></section>
-    <section><h2>Diagnostics</h2><p id="diagnostics" class="muted">Diagnostics unavailable</p></section>
+    <header><div><h1>Facet Dashboard</h1><p class="muted">Controlled projection · operational overview</p></div><div><span class="badge">Read only</span> <button id="refresh" type="button">Refresh</button></div></header>
+    <p id="freshness" role="status">Loading aggregate snapshots…</p>
+    <div class="metrics">
+      <div class="metric"><strong id="confirmed">Unknown</strong>Confirmed messages<p class="muted">Unique durable mappings</p></div>
+      <div class="metric"><strong id="queued">Unknown</strong>Queued jobs<p class="muted">Not yet claimed</p></div>
+      <div class="metric"><strong id="attention">Unknown</strong>Attention jobs<p class="muted">Not an issue-group total</p></div>
+    </div>
+    <main class="grid">
+      <section><div class="heading"><h2>Sync overview</h2><span id="health" class="badge">Unknown</span></div><dl>
+        <div class="row"><dt>Phase</dt><dd id="phase">Unknown</dd></div>
+        <div class="row"><dt>Last successful poll</dt><dd id="poll">Unknown</dd></div>
+        <div class="row"><dt>Last confirmed insert</dt><dd id="insert">Unknown</dd></div>
+        <div class="row"><dt>Heartbeat</dt><dd id="heartbeat">Unknown</dd></div>
+      </dl></section>
+      <section><h2>Account roles</h2><dl>
+        <div class="row"><dt>Source mode</dt><dd id="source-mode">Unknown</dd></div>
+        <div class="row"><dt>Source binding state</dt><dd id="source-binding">Unknown</dd></div>
+        <div class="row"><dt>Source binding verified</dt><dd id="source-time">Unknown</dd></div>
+        <div class="row"><dt>Source freshness</dt><dd id="source-fresh">Unknown</dd></div>
+        <div class="row"><dt>Target mode</dt><dd id="target-mode">Unknown</dd></div>
+        <div class="row"><dt>Target binding state</dt><dd id="target-binding">Unknown</dd></div>
+        <div class="row"><dt>Target binding verified</dt><dd id="target-time">Unknown</dd></div>
+        <div class="row"><dt>Target freshness</dt><dd id="target-fresh">Unknown</dd></div>
+      </dl><p class="muted">Binding verification is not the time of the latest provider request.</p></section>
+      <section class="wide"><h2>Queue · mutually exclusive job states</h2><dl class="queue">
+        <div class="row"><dt>Queued</dt><dd id="job-queued">Unknown</dd></div><div class="row"><dt>Claimed</dt><dd id="job-claimed">Unknown</dd></div>
+        <div class="row"><dt>Retry wait</dt><dd id="job-retry_wait">Unknown</dd></div><div class="row"><dt>Blocked</dt><dd id="job-blocked">Unknown</dd></div>
+        <div class="row"><dt>Needs attention</dt><dd id="job-needs_attention">Unknown</dd></div><div class="row"><dt>Completed</dt><dd id="job-completed">Unknown</dd></div>
+        <div class="row"><dt>Cancelled</dt><dd id="job-cancelled">Unknown</dd></div><div class="row"><dt>Source missing</dt><dd id="job-source_missing">Unknown</dd></div>
+        <div class="row"><dt>Failed</dt><dd id="job-failed">Unknown</dd></div>
+      </dl></section>
+      <section><h2>Current work scope · threads</h2><dl>
+        <div class="row"><dt>Epoch kind</dt><dd id="epoch-kind">Unknown</dd></div><div class="row"><dt>Epoch state</dt><dd id="epoch-state">Unknown</dd></div>
+        <div class="row"><dt>Started</dt><dd id="epoch-start">Unknown</dd></div><div class="row"><dt>Discovery</dt><dd id="discovery">Unknown</dd></div>
+        <div class="row"><dt>Scanned threads</dt><dd id="scanned">Unknown</dd></div><div class="row"><dt>Discovered threads</dt><dd id="discovered">Unknown</dd></div>
+        <div class="row"><dt>Completed threads</dt><dd id="completed">Unknown</dd></div><div class="row"><dt>Known candidate messages</dt><dd id="candidates">Unknown</dd></div>
+      </dl><p class="muted">Candidates are not a final copy total. Full thread history and later arrivals can exceed them. Global tracked-thread count is not reported.</p></section>
+      <section><h2>Incremental activity</h2><dl>
+        <div class="row"><dt>Oldest runnable job</dt><dd id="oldest">Unknown</dd></div><div class="row"><dt>Confirmed · last hour</dt><dd id="hour">Unknown</dd></div>
+        <div class="row"><dt>Confirmed · last day</dt><dd id="day">Unknown</dd></div><div class="row"><dt>Rate</dt><dd id="rate">Unknown</dd></div>
+        <div class="row"><dt>Latency p50 / p95</dt><dd id="latency">Unknown</dd></div>
+      </dl><p class="muted">No samples means Unknown, not zero. No sync latency or completion-time promise.</p></section>
+      <section class="wide"><h2>Exceptions · grouped operational issues</h2><div id="issues">Unknown</div></section>
+      <section><h2>Diagnostics</h2><dl>
+        <div class="row"><dt>App version</dt><dd id="version">Unknown</dd></div><div class="row"><dt>Schema version</dt><dd id="schema">Unknown</dd></div>
+        <div class="row"><dt>Sync owners</dt><dd id="owners">Unknown</dd></div><div class="row"><dt>DB readable / writable</dt><dd id="database">Unknown</dd></div>
+        <div class="row"><dt>Source / Target scopes</dt><dd id="scopes">Unknown</dd></div><div class="row"><dt>Memory / Disk pressure</dt><dd id="pressure">Unknown</dd></div>
+        <div class="row"><dt>Checked</dt><dd id="checked">Unknown</dd></div>
+      </dl></section>
+      <section><h2>Reconcile and audit</h2><p class="muted">Not reported by the current snapshot collector.</p><p>Use the maintenance CLI for available checks. This page does not run Gmail requests, audits, retries or configuration changes.</p></section>
+    </main>
+    <footer>Times are operational events in UTC, never message dates. Refresh reads four cached aggregate snapshots every ten seconds. Unknown and stale data are not evidence of healthy sync.</footer>
     <script>
-      const get = (id) => document.getElementById(id);
-      const load = async () => {
-        try {
-          const [statusResponse, progressResponse, diagnosticsResponse] = await Promise.all([
-            fetch('/api/v1/status', { cache: 'no-store' }),
-            fetch('/api/v1/progress', { cache: 'no-store' }),
-            fetch('/api/v1/diagnostics', { cache: 'no-store' })
-          ]);
-          const status = await statusResponse.json();
-          const progress = await progressResponse.json();
-          const diagnostics = await diagnosticsResponse.json();
-          get('freshness').textContent = `Snapshot: ${status.freshness}`;
-          get('health').textContent = status.data.health;
-          get('phase').textContent = status.data.phase || 'Phase unavailable';
-          const data = progress.data;
-          get('progress').textContent = data.confirmed_messages === null
-            ? 'Counts unavailable'
-            : `Confirmed messages: ${data.confirmed_messages}`;
-          get('diagnostics').textContent = `Database: ${diagnostics.data.db_readable}`;
-        } catch (_error) {
-          get('freshness').textContent = 'Snapshot unavailable';
-        }
-      };
-      load();
-      window.setInterval(load, 10000);
+      (() => {
+        const get = id => document.getElementById(id);
+        const put = (id, value) => { get(id).textContent = value ?? 'Unknown'; };
+        const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+        const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+        const metric = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+        const time = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?(?:Z|\+00:00)$/.test(value) && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString().replace('T', ' ').replace('Z', ' UTC') : null;
+        const label = (value, map) => Object.hasOwn(map, value) ? map[value] : 'Unknown';
+        const fresh = {fresh: 'Fresh', stale: 'Stale', unavailable: 'Unavailable'};
+        const health = {healthy: 'Healthy', degraded: 'Degraded', blocked: 'Blocked', unknown: 'Unknown'};
+        const phase = {uninitialized: 'Uninitialized', initializing: 'Initializing', backfill: 'Backfill', incremental: 'Incremental', recovering: 'Recovering', paused: 'Paused', maintenance: 'Maintenance'};
+        const modes = {source_readonly: 'Read only', source_convenience: 'Convenience', target_insert_readonly: 'Insert + read only', target_insert_readonly_labels: 'Insert + read only + labels'};
+        const bindings = {verification_pending: 'Verification pending', verified: 'Verified', mismatch: 'Mismatch', auth_required: 'Authorization required'};
+        const checks = {ok: 'OK', failed: 'Failed', unknown: 'Unknown', unavailable: 'Unavailable'};
+        const pressures = {normal: 'Normal', elevated: 'Elevated', critical: 'Critical', unknown: 'Unknown'};
+        const kinds = {initial_backfill: 'Initial backfill', historical_expansion: 'Historical expansion', history_gap: 'History gap', source_reconcile: 'Source reconcile', target_audit: 'Target audit'};
+        const states = {prepared: 'Prepared', scanning: 'Scanning', catching_up: 'Catching up', draining: 'Draining', paused: 'Paused', completed: 'Completed', completed_with_issues: 'Completed with issues', needs_attention: 'Needs attention'};
+        const advice = {correct_input: 'Correct CLI input.', inspect_request: 'Inspect the CLI request receipt.', repeat_same_request: 'Repeat the same CLI request key.', confirm_scope: 'Confirm scope in the CLI.', verify_binding: 'Verify account bindings in the CLI.', refresh_preview: 'Refresh the CLI preview.', inspect_owner: 'Inspect sync ownership.', wait_receipt: 'Wait for the request receipt.', authorize_source: 'Reauthorize Source on the deployment host.', authorize_target: 'Reauthorize Target on the deployment host.', wait_dependency: 'Wait for automatic dependency retry.', inspect_target_storage: 'Inspect Target storage.', inspect_recovery: 'Inspect insert recovery in the CLI.', inspect_work: 'Inspect work in the CLI.', inspect_maintenance: 'Inspect offline maintenance.'};
+        const codes = new Set('invalid_input unsupported_version request_conflict request_not_received request_outcome_unknown request_lineage_mismatch confirmation_required scope_required binding_mismatch binding_pending preview_invalid generation_stale owner_unavailable owner_busy maintenance_incomplete wait_timeout source_auth_required target_auth_required source_rate_limited target_rate_limited network_unavailable target_storage_full insert_result_unknown duplicate_candidates attribution_unknown fidelity_mismatch source_missing target_missing database_unavailable persistence_failure consistency_failure maintenance_required'.split(' '));
+        const jobStates = 'queued claimed retry_wait blocked needs_attention completed cancelled source_missing failed'.split(' ');
+        const valueIds = 'confirmed queued attention phase poll insert heartbeat source-mode source-binding source-time source-fresh target-mode target-binding target-time target-fresh epoch-kind epoch-state epoch-start discovery scanned discovered completed candidates oldest hour day rate latency version schema owners database scopes pressure checked'.split(' ').concat(jobStates.map(state => `job-${state}`));
+        const role = (data, name) => {
+          if (!object(data) || data.role !== name || !Object.hasOwn(fresh, data.freshness) || (data.auth_state !== null && !Object.hasOwn(bindings, data.auth_state))) throw new Error();
+          return {mode: label(data.mode, modes), binding: label(data.auth_state, bindings), verified: time(data.last_verified_at), freshness: label(data.freshness, fresh)};
+        };
+        // Select only bounded operational scalars. The fetched envelope is not retained.
+        const select = (family, envelope, requestedAt) => {
+          if (!object(envelope) || envelope.schema_version !== 1 || envelope.scope !== 'projection' || !Object.hasOwn(fresh, envelope.freshness) || !time(envelope.sampled_at) || !object(envelope.data)) throw new Error();
+          const data = envelope.data;
+          if (envelope.freshness !== 'unavailable' && metric(envelope.age_seconds) === null) throw new Error();
+          const result = {freshness: envelope.freshness === 'fresh' && envelope.age_seconds >= 30 ? 'Stale' : label(envelope.freshness, fresh), sampled: time(envelope.sampled_at), expires: requestedAt + Math.max(0, 30 - (metric(envelope.age_seconds) ?? 30)) * 1000};
+          if (family === 'status') {
+            if (!Object.hasOwn(health, data.health) || (data.phase !== null && !Object.hasOwn(phase, data.phase))) throw new Error();
+            const source = role(data.source, 'source'), target = role(data.target, 'target');
+            if (data.health === 'healthy' && (!data.phase || [source, target].some(value => value.freshness !== 'Fresh' || value.binding !== 'Verified'))) throw new Error();
+            Object.assign(result, {health: label(data.health, health), phase: label(data.phase, phase), source, target, poll: time(data.last_poll_at), insert: time(data.last_verified_insert_at), heartbeat: time(data.heartbeat_at)});
+          } else if (family === 'progress') {
+            if (!object(data.jobs) || typeof data.discovery_complete !== 'boolean') throw new Error();
+            Object.assign(result, {confirmed: count(data.confirmed_messages), jobs: Object.fromEntries(jobStates.map(state => [state, count(data.jobs[state])])), discovery: data.discovery_complete, scanned: count(data.scanned_threads), discovered: count(data.discovered_threads), completed: count(data.completed_threads), candidates: data.discovery_complete ? count(data.known_message_total) : null, oldest: metric(data.oldest_runnable_job_age_seconds), hour: count(data.verified_last_hour), day: count(data.verified_last_day)});
+            result.epoch = object(data.epoch) ? {kind: label(data.epoch.kind, kinds), state: label(data.epoch.state, states), started: time(data.epoch.started_at)} : null;
+            const r = object(data.rate) ? data.rate : {};
+            const l = object(data.latency) ? data.latency : {};
+            result.rate = r.unit === 'messages_per_second' && count(r.sample_count) > 0 && metric(r.value) !== null ? `${r.value} messages/s · ${count(r.sample_count)} samples · ${metric(r.window_seconds) ?? 'Unknown'} s window` : null;
+            result.latency = l.unit === 'milliseconds' && count(l.sample_count) > 0 && metric(l.p50) !== null && metric(l.p95) !== null ? `${l.p50} / ${l.p95} ms · ${count(l.sample_count)} samples · ${metric(l.window_seconds) ?? 'Unknown'} s window` : null;
+          } else if (family === 'issues') {
+            if (!Array.isArray(data.groups) || data.groups.length > 96) throw new Error();
+            result.groups = data.groups.map(group => {
+              if (!object(group) || !codes.has(group.code) || count(group.count) === null || group.count < 1 || typeof group.retryable !== 'boolean') throw new Error();
+              return {code: group.code, count: group.count, role: label(group.role, {source: 'Source', target: 'Target', null: 'Projection'}), first: time(group.first_at), last: time(group.last_at), retryable: group.retryable, next: time(group.next_retry_at), advice: label(group.suggestion, advice)};
+            });
+          } else {
+            Object.assign(result, {version: typeof data.app_version === 'string' && /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-zA-Z0-9.-]+)?$/.test(data.app_version) && data.app_version.length <= 64 ? data.app_version : null, schema: count(data.schema_version), owners: count(data.sync_owner_count), readable: label(data.db_readable, checks), writable: label(data.db_writable, checks), sourceScope: label(data.source_scope_ready, checks), targetScope: label(data.target_scope_ready, checks), memory: label(data.memory_pressure, pressures), disk: label(data.disk_pressure, pressures), checked: time(data.checked_at)});
+          }
+          return result;
+        };
+        const unavailable = note => {
+          valueIds.forEach(id => put(id, null));
+          put('health', 'Unknown'); get('health').className = 'badge';
+          put('issues', 'Unknown — no current exception snapshot.'); put('freshness', note);
+        };
+        const render = ([s, p, i, d]) => {
+          if ([s, p, i, d].some(data => data.freshness !== 'Fresh' || data.expires <= performance.now())) { unavailable('Stale or unavailable snapshot — current sync health and counts are unknown.'); return; }
+          put('freshness', `Fresh aggregate snapshots · sampled ${s.sampled}`);
+          put('health', s.health); get('health').className = s.health === 'Healthy' ? 'badge healthy' : 'badge';
+          ['phase', 'poll', 'insert', 'heartbeat'].forEach(id => put(id, s[id]));
+          ['source', 'target'].forEach(name => { put(`${name}-mode`, s[name].mode); put(`${name}-binding`, s[name].binding); put(`${name}-time`, s[name].verified); put(`${name}-fresh`, s[name].freshness); });
+          put('confirmed', p.confirmed); put('queued', p.jobs.queued); put('attention', p.jobs.needs_attention);
+          jobStates.forEach(state => put(`job-${state}`, p.jobs[state]));
+          put('epoch-kind', p.epoch?.kind); put('epoch-state', p.epoch?.state); put('epoch-start', p.epoch?.started);
+          put('discovery', p.discovery ? 'Complete · candidates known' : 'In progress · total unknown');
+          ['scanned', 'discovered', 'completed', 'candidates', 'hour', 'day', 'rate', 'latency'].forEach(id => put(id, p[id]));
+          put('oldest', p.oldest === null ? null : `${p.oldest} seconds`);
+          get('issues').replaceChildren();
+          if (!i.groups.length) put('issues', 'No reported exception groups in this fresh snapshot.');
+          i.groups.forEach(group => {
+            const card = document.createElement('div'); card.className = 'issue';
+            const title = document.createElement('h3'); title.textContent = `${group.code} · ${group.role} · ${group.count}`;
+            const times = document.createElement('p'); times.className = 'muted'; times.textContent = `First: ${group.first ?? 'Unknown'} · Last: ${group.last ?? 'Unknown'}`;
+            const retry = document.createElement('p'); retry.textContent = `Automatic retry eligible: ${group.retryable ? 'Yes' : 'No'} · Next: ${group.next ?? 'Not scheduled'}`;
+            const suggestion = document.createElement('p'); suggestion.textContent = group.advice;
+            card.append(title, times, retry, suggestion); get('issues').append(card);
+          });
+          ['version', 'schema', 'owners', 'checked'].forEach(id => put(id, d[id]));
+          put('database', `${d.readable} / ${d.writable}`); put('scopes', `${d.sourceScope} / ${d.targetScope}`); put('pressure', `${d.memory} / ${d.disk}`);
+        };
+        let busy = false, expiryTimer = null;
+        const load = async () => {
+          if (busy) return;
+          busy = true; get('refresh').disabled = true;
+          const controller = new AbortController();
+          const timeout = window.setTimeout(() => controller.abort(), 8000);
+          try {
+            const snapshots = await Promise.all(['status', 'progress', 'issues', 'diagnostics'].map(async family => {
+              const requestedAt = performance.now();
+              const response = await fetch(`/api/v1/${family}`, {cache: 'no-store', signal: controller.signal});
+              if (!response.ok) throw new Error();
+              return select(family, await response.json(), requestedAt);
+            }));
+            render(snapshots);
+            window.clearTimeout(expiryTimer);
+            const expires = Math.min(...snapshots.map(snapshot => snapshot.expires));
+            expiryTimer = window.setTimeout(() => unavailable('Snapshot refresh is stale — current sync health and counts are unknown.'), Math.max(0, expires - performance.now()));
+          } catch (_error) {
+            controller.abort(); window.clearTimeout(expiryTimer);
+            unavailable('Snapshot refresh failed — current sync health and counts are unknown.');
+          } finally { window.clearTimeout(timeout); busy = false; get('refresh').disabled = false; }
+        };
+        get('refresh').addEventListener('click', load);
+        load(); window.setInterval(load, 10000);
+      })();
     </script>
   </body>
 </html>
