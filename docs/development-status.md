@@ -695,6 +695,45 @@ are stated above.
 | M5 self-hosted delivery | Immutable image workflow integrated and first image published | Main `1a42938`; PR multi-arch no-publish build and main publish passed; public GHCR SHA tag, digest, anonymous pull, amd64/arm64 manifest and UID 10001 smoke verified; host deployment/Nginx remain open |
 | M6 real deployment and v0.1 | Not implemented | Backup/restore, live Gmail, selected host and 72-hour evidence |
 
+## Current product-first handoff (2026-10-09)
+
+The configured polling and Dashboard rules unit is merged in PR [#114](https://github.com/GhostFlying/facet/pull/114)
+at main `86091918f286de75507b898d1a9dbb2d720eab27`. Candidate `cdc09a7` passed
+independent implementation review, 2949/2949 offline tests, Ruff/format/safety,
+and exact-head Python 3.12/3.13 plus PR image CI. Main published the immutable
+image `ghcr.io/ghostflying/facet:86091918f286de75507b898d1a9dbb2d720eab27`;
+the verified amd64 manifest digest is
+`sha256:6c1a742e7c5990f206484d4a27a9e98c45146d6981974484dac19fd09c65728d`.
+
+The unit adds a 60-second default for new configurations, explicit interval
+validation for production and fake `run --once`, local-only aggregate heartbeat
+refresh during idle time, server-local operational timestamp formatting, and a
+read-only fifth Dashboard `rules` snapshot. The rules snapshot shows the current
+sender/domain values and action-label text only under the explicitly approved
+private Dashboard exception; it does not add message details, IDs, credentials,
+binding addresses, or rule values to other DTOs/logs/exports. Rules have a
+separate 2 MiB serialized bound sufficient for the 1024-entry/512-byte model
+limit; other public envelopes retain their existing limit. UTC instants remain
+the persistence and ordering representation.
+
+The current test deployment was stopped, backed up and refreshed with that
+immutable image. The locked preflight reported unchanged business state, 4364
+confirmed mappings and zero target writes. The resumed same account/rule/window
+reached 4365 confirmed mappings, zero nonterminal/failed jobs and no issue
+groups. A private Compose override supplied `--interval 60` while leaving the
+managed configuration's explicit 30-second value and artifact guard unchanged.
+Two idle-cycle observations began about 68.6 and 71.5 seconds apart, proving
+the configured idle wait plus cycle time; heartbeat timestamps advanced without
+changing `last_poll_at`. The test process uses `TZ=Asia/Shanghai`, and local plus
+direct Tailscale Serve checks show `+08:00` server-local times and the eight
+current rules. The ordinary HTTPS proxy returns 530 for the tailnet hostname;
+direct tailnet access works and the Serve mapping itself was not changed.
+
+This unit is merged and live-tested, not a claim that the complete Phase 1 or
+production migration is done. Browser Playwright acceptance was not rerun on
+this machine because a compatible Chromium/Playwright pair is unavailable;
+synthetic browser coverage and packaged static/HTTP checks remain in CI.
+
 Both `facet` and the isolated `facet_spike` are now packaged for Python 3.12+.
 Production imports/CLI never adopt spike cursors/tokens. The foundation tests cover
 closed types, strict YAML, no-follow private reads and real CLI subprocess
