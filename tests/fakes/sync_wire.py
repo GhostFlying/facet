@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 
-def install_route():
+def install_route(*, domain_capability=False):
     """Redirect only the final Requests socket destination to the test server."""
     import requests
 
@@ -33,6 +33,16 @@ def install_route():
         return original(self, method, local, **kwargs)
 
     requests.Session.request = request
+    if domain_capability:
+        from facet.gmail.source import SourceAdapter
+
+        original_init = SourceAdapter.__init__
+
+        def init_with_domain_capability(self, service, **kwargs):
+            original_init(self, service, **kwargs)
+            self.domain_query_capability = "gmail-from-domain-v1"
+
+        SourceAdapter.__init__ = init_with_domain_capability
 
 
 class Mailbox:

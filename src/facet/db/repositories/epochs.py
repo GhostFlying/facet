@@ -250,7 +250,11 @@ def historical_coverage_complete(uow, projection_id, epoch):
 def _backfill_decision(uow, projection_id, epoch):
     """Validate the journal-backed backfill fence before writing it."""
     from ..command_records import LocalCommandKind, _valid_backfill_window
-    from ..command_store import _backfill_digest, _find_backfill_by_id
+    from ..command_store import (
+        _backfill_digest,
+        _find_backfill_by_id,
+        _rule_scope_matches,
+    )
 
     decision = epoch.decision
     if not _query(
@@ -334,7 +338,18 @@ def _backfill_decision(uow, projection_id, epoch):
         projection is None
         or snapshot is None
         or not snapshot.sealed
-        or projection.ruleset_revision != payload.ruleset_revision
+        or (
+            projection.ruleset_revision != payload.ruleset_revision
+            and not _rule_scope_matches(
+                uow,
+                projection_id,
+                payload.ruleset_revision,
+                payload.scope_digest,
+                payload.window_start,
+                payload.window_end,
+                payload.discovery_cutoff,
+            )
+        )
         or len(runtime) != 1
         or len(invalidation) != 1
         or preview.expected_config_revision != projection.config_revision

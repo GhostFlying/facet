@@ -43,7 +43,7 @@ from facet.projection.admission import (
 )
 from facet.projection.backfill import DiscoveryDecision
 from facet.projection.rules import normalize_rule, normalize_sender
-from facet.sync import ForegroundSync, SourceCandidateAdmission
+from facet.sync import ForegroundSync, SourceCandidateAdmission, _rule_discovery_cutoff
 
 
 class _Admission:
@@ -252,7 +252,7 @@ def test_source_candidate_admission_rejects_ruleset_lineage_mismatch():
     assert error.value.code is ErrorCode.CONSISTENCY_FAILURE
 
 
-def test_source_candidate_admission_uses_bounded_domain_candidate_query():
+def test_source_candidate_admission_holds_domain_query_without_capability():
     source = type("CandidateSource", (), {"candidate": lambda self, item: None})()
     policy = AdmissionEvaluator(
         (
@@ -264,9 +264,46 @@ def test_source_candidate_admission_uses_bounded_domain_candidate_query():
         ),
         source_account=PrivateAddress("source@example.com"),
     )
-    query = SourceCandidateAdmission(source, policy).discovery_query()
-    assert query.clauses == ('from:"example.com"',)
-    assert query.render("after:1 before:2") == 'after:1 before:2 {from:"example.com"}'
+    with pytest.raises(StorageFailure) as error:
+        SourceCandidateAdmission(source, policy).discovery_query()
+    assert error.value.code is ErrorCode.MAINTENANCE_REQUIRED
+
+
+@pytest.mark.parametrize(
+    "end,expected",
+    [
+        (datetime(2026, 10, 15, 12, tzinfo=UTC), datetime(2026, 10, 1, tzinfo=UTC)),
+        (datetime(2026, 11, 1, tzinfo=UTC), datetime(2026, 10, 1, tzinfo=UTC)),
+    ],
+)
+def test_rule_discovery_cutoff_is_strictly_before_end_fence(end, expected):
+    cutoff = _rule_discovery_cutoff(Timestamp(end))
+    assert cutoff.value == expected
+    assert cutoff.value < end
+
+
+def test_source_candidate_admission_uses_domain_query_only_with_capability():
+    source = type(
+        "CandidateSource",
+        (),
+        {
+            "candidate": lambda self, item: None,
+            "domain_query_capability": "gmail-from-domain-v1",
+        },
+    )()
+    policy = AdmissionEvaluator(
+        (
+            AdmissionRule(
+                RuleRef(LocalId("00000000000040008000000000000004"), Revision(1)),
+                normalize_rule(RuleKind.ALLOW_DOMAIN, "example.com"),
+                Timestamp(datetime(2026, 1, 1, tzinfo=UTC)),
+            ),
+        ),
+        source_account=PrivateAddress("source@example.com"),
+    )
+    assert SourceCandidateAdmission(source, policy).discovery_query().clauses == (
+        "from:(@example.com)",
+    )
 
 
 @pytest.fixture

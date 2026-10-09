@@ -136,7 +136,7 @@ Preview/start 的范围校验、稳定 request key、epoch/H0 写入和 command 
 
 范围：`src/facet/projection/gap_recovery.py`、`reconcile.py`、`audit.py`、`src/facet/status/`、`src/facet/web/`，以及 gap/reconcile/doctor 的只读汇总接线。
 
-验收：History 404 不静默丢事件；恢复窗口和 generation 受控；按扫描时规则恢复整个已知停机窗口，不保证规则变更与邮件到达的严格时序，effective_at 留作审计；source/target 缺失和重复有明确报告；Dashboard 只返回聚合状态，不含邮件细节；新增规则不触发任意历史回扫。
+验收：History 404 不静默丢事件；恢复窗口和 generation 受控；按扫描时规则恢复整个已知停机窗口，不保证规则变更与邮件到达的严格时序，effective_at 留作审计；source/target 缺失和重复有明确报告；Dashboard 只返回聚合状态，不含邮件细节；新增 sender/domain rule 在下一次同步处理时仅为该规则从固定六个月 anchor 创建可恢复的历史 epoch，不回扫其他规则或无过滤 mailbox。
 
 Dashboard 验收：显示状态、已完成数量、历史进度、积压、异常分类和诊断，数据过期有提示；Discovery 未完成不虚构总量；重试不重复计数；所有 API 和页面都不包含邮件细节或原始异常。Web 请求不改变同步状态、不调用 Gmail，桌面与手机均可查看关键状态。
 

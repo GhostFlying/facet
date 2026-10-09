@@ -7,7 +7,16 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from facet.config import Config
-from facet.contracts import LocalId, Revision, Role, RuleKind, RuleRef, SourceMode
+from facet.contracts import (
+    LocalId,
+    Revision,
+    Role,
+    RuleKind,
+    RuleRef,
+    Sha256Hex,
+    SourceMode,
+    Timestamp,
+)
 from facet.db.codecs import PrivateAddress
 from facet.gmail.credential_models import (
     AccountAddress,
@@ -53,12 +62,18 @@ class _ProfileProbe(ProfileReader):
         )
 
 
-def load_persisted_admission(owner, config, ruleset_revision=None):
+def load_persisted_admission(
+    owner,
+    config,
+    ruleset_revision=None,
+    scope: tuple[Sha256Hex, Timestamp, Timestamp, Timestamp] | None = None,
+):
     """Load one sealed ruleset revision into the policy evaluator."""
 
     from facet.db.repositories.base import _get, _query
     from facet.db.repositories.serialization import COLUMNS
     from facet.projection.admission import AdmissionEvaluator, AdmissionRule
+    from facet.projection.backfill import rule_scope_digest
     from facet.projection.rules import normalize_rule
 
     with owner.session.transaction() as uow:
@@ -85,7 +100,9 @@ def load_persisted_admission(owner, config, ruleset_revision=None):
             ),
         )
         rules = []
+        policy_versions = {}
         current_blacklists = []
+        current_allows = {}
         for row in rows:
             member = _get(
                 uow,
@@ -109,12 +126,55 @@ def load_persisted_admission(owner, config, ruleset_revision=None):
             )
             if row[1] == selected_revision.value:
                 rules.append(rule)
+                policy_versions[(rule.ref.rule_id, rule.ref.revision)] = (
+                    revision.policy_version
+                )
             if (
                 row[1] == projection.ruleset_revision.value
                 and rule.enabled
                 and rule.normalized.kind is RuleKind.BLACKLIST_SENDER
             ):
                 current_blacklists.append(rule)
+            if (
+                row[1] == projection.ruleset_revision.value
+                and rule.enabled
+                and rule.normalized.kind
+                in {RuleKind.ALLOW_SENDER, RuleKind.ALLOW_DOMAIN}
+            ):
+                current_allows[rule.ref.rule_id] = rule
+        if scope is not None:
+            scope_digest, window_start, window_end, discovery_cutoff = scope
+            scoped = tuple(
+                rule
+                for rule in rules
+                if rule_scope_digest(
+                    owner.projection_id,
+                    rule.ref.rule_id,
+                    rule.normalized.kind,
+                    rule.normalized.value.value,
+                    rule.ref.revision,
+                    rule.effective_at,
+                    policy_versions[(rule.ref.rule_id, rule.ref.revision)],
+                    window_start,
+                    window_end,
+                    discovery_cutoff,
+                )
+                == scope_digest
+            )
+            if len(scoped) != 1:
+                raise ValueError("consistency_failure")
+            selected = scoped[0]
+            current = current_allows.get(selected.ref.rule_id)
+            if (
+                current is None
+                or current.ref.revision != selected.ref.revision
+                or current.normalized != selected.normalized
+            ):
+                # Removal or revision of the allow rule stops new admission for
+                # this sealed scan; existing tracked threads remain active.
+                rules = []
+            else:
+                rules = [selected]
         return AdmissionEvaluator(
             tuple(rules),
             source_account=PrivateAddress(config.projection.source_email),
@@ -264,10 +324,39 @@ class ForegroundRuntime:
             )
 
             def admission_for_epoch(epoch):
+                scope = None
+                if epoch.decision.tag == "backfill_start":
+                    from facet.db.command_store import (
+                        _find_backfill_by_id,
+                        _rule_scope_matches,
+                    )
+
+                    with self.owner.session.transaction() as uow:
+                        _, payload = _find_backfill_by_id(
+                            uow,
+                            self.owner.projection_id,
+                            epoch.decision.operation_id,
+                        )
+                        if payload is not None and _rule_scope_matches(
+                            uow,
+                            self.owner.projection_id,
+                            payload.ruleset_revision,
+                            payload.scope_digest,
+                            payload.window_start,
+                            payload.window_end,
+                            payload.discovery_cutoff,
+                        ):
+                            scope = (
+                                payload.scope_digest,
+                                payload.window_start,
+                                payload.window_end,
+                                payload.discovery_cutoff,
+                            )
                 return load_persisted_admission(
                     self.owner,
                     self.config,
                     epoch.decision.ruleset_revision,
+                    scope,
                 )
 
             epoch_loader = admission_for_epoch if admission is None else None

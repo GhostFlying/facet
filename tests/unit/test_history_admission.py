@@ -56,6 +56,8 @@ DATE = Timestamp(datetime(2026, 10, 6, tzinfo=UTC))
 
 
 class HistorySource(_Source):
+    domain_query_capability = "gmail-from-domain-v1"
+
     def __init__(
         self,
         owner,
@@ -418,6 +420,33 @@ def test_current_domain_rule_after_initial_epoch(monkeypatch, sender, admitted):
             result = _runner(owner, source, target).run_once()
             assert result.attention == 0
             assert target.inserted == int(admitted)
+        finally:
+            owner.close()
+
+
+def test_rule_backfill_uses_processing_time_for_older_messages(monkeypatch):
+    with TemporaryDirectory(prefix="facet-history-", dir=_trusted_parent()) as root:
+        owner = _ready_owner(
+            Path(root), object(), monkeypatch, seed=False, with_rule=False
+        )
+        source = HistorySource(
+            owner,
+            date=Timestamp(DATE.value - timedelta(days=2)),
+        )
+        source.arrivals = False
+        target = _Target(source.raw_bytes)
+        try:
+            _runner(owner, source, target).run_once()
+            _add_rule(
+                owner,
+                RuleKind.ALLOW_SENDER,
+                "synthetic@example.com",
+                Timestamp(DATE.value - timedelta(days=1)),
+            )
+            source.arrivals = True
+            result = _runner(owner, source, target).run_once()
+            assert result.attention == 0
+            assert target.inserted == 1
         finally:
             owner.close()
 

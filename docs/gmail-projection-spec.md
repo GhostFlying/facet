@@ -134,7 +134,7 @@ Action、规则变更、thread active 状态和对应 jobs 尽可能在同一 SQ
 
 先解析唯一有效的 From address，规范化 domain 和 IDNA，再做 exact sender 与带点边界的 domain 匹配。`hyatt.com` 可匹配 `mail.hyatt.com`，不能匹配 `evil-hyatt.com` 或 `hyatt.com.attacker.example`。PSL 用于学习 registrable domain 和拒绝公共后缀；其版本可审计，更新不隐式改写已有 rule。
 
-新 thread 的自动决策顺序为 mailbox eligibility、blacklist、allow sender 或 domain，再决定 admission 或 review。没有匹配为忽略；格式歧义、账号不匹配或 provider 故障不放行。初始 backfill 的规则可在六个月窗口内应用。动态规则保存 effective_at 作审计，不保证规则变更与邮件到达的严格时序；History/gap 按处理或扫描时选定的生效规则判断。新增规则不触发任意历史回扫，gap 仅覆盖已知停机窗口。
+新 thread 的自动决策顺序为 mailbox eligibility、blacklist、allow sender 或 domain，再决定 admission 或 review。没有匹配为忽略；格式歧义、账号不匹配或 provider 故障不放行。初始 backfill 的规则可在六个月窗口内应用。新增 enabled sender/domain rule 在下一次同步处理时自动创建一个 rule-scoped historical expansion，从项目固定六个月 anchor 到固定 end fence；它只查询该规则的有界 Gmail superset，并在本地再次精确复核，不改写已有 sealed epoch，也不触发无过滤 mailbox 扫描。Domain superset 只有在 provider adapter 提供版本化 recall 证据时启用；否则该规则进入 typed hold，不退回全邮箱扫描。动态规则保存 effective_at 作审计，不保证规则变更与邮件到达的严格时序；History/gap 按处理或扫描时选定的生效规则判断。gap 仍仅覆盖已知停机窗口。
 
 用户于 2026-10-05 正式删除 source-path attestation 和 sender authentication gate。Gmail 负责 SMTP 认证与邮件分类；Facet 只读取 metadata 并执行披露规则，不调用 DNS/DKIM、不为 admission 获取 raw、不使用 `Authentication-Results` 决策，也不声明发件人真实或内容安全。旧配置中的 `rules.authenticity: require_trusted_auth` 仅兼容读取、无行为效果，新配置不再写出该字段。持久化的 `auth-v1` 保持为兼容的规则策略 token，不再表示认证证明，无 DB migration。
 
@@ -223,9 +223,11 @@ preview、init/setup、普通 run/容器重启不自动扩大历史，preview �
 
 Page token 仅为短期扫描提示；过期或进程重启后可重新扫描同一个固定时间窗口，依赖唯一键去重。`backfill stop` 暂停领取历史 jobs，不取消实时跟踪；resume 延续原 epoch，不重算不断移动的六个月 cutoff。
 
-新增规则只处理当前明确选择的 thread 和未来事件。历史扩张通过新有意完整同步
-调用内部启动的 epoch，或细分 backfill 的显式 start，并记录规则与固定窗口。
-连续运行中的规则/标签更新、普通重启和每天校对不隐式变成全历史 admission。
+新增规则在下一次同步处理时由同一套 backfill 操作内部启动一个独立、可恢复的
+rule-scoped epoch，并记录规则 digest、固定 anchor/end fence、H0 和 operation
+keys；它不需要用户先 preview/start。细分 backfill 仍可显式维护其他范围，独立
+preview 仍零写入。连续运行中的规则/标签更新、普通重启和每天校对不会扩大到
+任意历史或其他规则；规则删除也不会取消已经持久化的 scope。
 
 ## History 和过期恢复
 

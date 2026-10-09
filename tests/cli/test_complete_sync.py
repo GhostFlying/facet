@@ -44,7 +44,8 @@ def wire(tmp_path):
         hook = tmp_path / "hook"
         hook.mkdir()
         (hook / "sitecustomize.py").write_text(
-            "from fakes.sync_wire import install_route\ninstall_route()\n"
+            "from fakes.sync_wire import install_route\n"
+            "install_route(domain_capability=True)\n"
         )
         env = os.environ.copy()
         env["FACET_TEST_WIRE_ORIGIN"] = mailbox.origin
@@ -192,7 +193,7 @@ def test_domain_rule_complete_cli_uses_provider_filter_and_restart(wire):
     mailbox.historical = True
     assert invoke("sync", "--once", "--yes")["cycle"]["projected"] == 4
     assert all(
-        'from:"example.com"' in item["q"][0] for item in mailbox.discovery_queries
+        "from:(@example.com)" in item["q"][0] for item in mailbox.discovery_queries
     )
     assert len(rows(state, "message_mappings")) == 4
     assert invoke("run", "--once")["projected"] == 0
@@ -375,7 +376,9 @@ def test_explicit_request_replays_saved_scope_after_new_rules(wire):
         uuid4().hex,
     )
     invoke("sync", "--once", "--yes", "--request-id", key)
-    assert len(rows(state, "epochs")) == original_epochs
+    # Replaying the explicit request keeps its original saved scope. The newly
+    # added rule is an independent automatic scope in the same cycle.
+    assert len(rows(state, "epochs")) == original_epochs + 1
     assert len(mailbox.inserted_raw) == 4
 
 

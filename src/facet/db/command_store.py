@@ -639,6 +639,129 @@ def _backfill_guards(owner, projection_id):
     return projection, Revision(binding_guard), ruleset, Revision(invalidation[0][0])
 
 
+def _rule_scope_matches(
+    owner,
+    projection_id,
+    ruleset_revision,
+    scope_digest,
+    window_start,
+    window_end,
+    discovery_cutoff,
+):
+    """Recognize the v1 rule-scoped marker without changing the v3 schema."""
+
+    from ..projection.backfill import rule_scope_digest
+    from .repositories.base import _get, _query
+
+    if type(scope_digest) is not Sha256Hex:
+        return False
+    members = _query(
+        owner,
+        "SELECT rule_id,rule_revision FROM ruleset_members "
+        "WHERE projection_id=? AND ruleset_revision=?",
+        (projection_id.value, ruleset_revision.value),
+    )
+    for rule_id_value, revision_value in members:
+        rule_id = LocalId(rule_id_value)
+        identity = _get(owner, projection_id, "rules", (("rule_id", rule_id),))
+        revision = _get(
+            owner,
+            projection_id,
+            "rule_revisions",
+            (("rule_id", rule_id), ("revision", Revision(revision_value))),
+        )
+        if (
+            identity is None
+            or revision is None
+            or identity.kind.value not in {"allow_sender", "allow_domain"}
+            or not revision.enabled
+        ):
+            continue
+        if (
+            rule_scope_digest(
+                projection_id,
+                rule_id,
+                identity.kind,
+                identity.normalized_value.value,
+                revision.revision,
+                revision.effective_at,
+                revision.policy_version,
+                window_start,
+                window_end,
+                discovery_cutoff,
+            ).value
+            == scope_digest.value
+        ):
+            return True
+    return False
+
+
+def _validate_backfill_window_and_scope(owner, projection_id, request, projection):
+    """Keep ordinary six-month previews strict; allow only marked rule scopes."""
+
+    from .command_records import _six_calendar_month_start
+
+    if request.window_start.value == _six_calendar_month_start(
+        request.window_end.value
+    ):
+        return
+    if not _rule_scope_matches(
+        owner,
+        projection_id,
+        projection.ruleset_revision,
+        request.scope_digest,
+        request.window_start,
+        request.window_end,
+        request.discovery_cutoff,
+    ):
+        _fail(ErrorCode.PREVIEW_INVALID)
+
+
+def _matching_rule_backfill(owner, projection_id, identity, revision, now):
+    """Find an existing automatic scope by payload, not by a moving clock."""
+
+    from ..projection.backfill import rule_scope_digest
+    from .repositories.base import _get, _query
+
+    rows = _query(
+        owner,
+        f"SELECT {_BACKFILL_COLUMNS} FROM operation_backfill "
+        "WHERE projection_id=? ORDER BY operation_id",
+        (projection_id.value,),
+        maximum=1000,
+    )
+    preview_match = None
+    for values in rows:
+        payload = _payload_from_row(values)
+        expected = rule_scope_digest(
+            projection_id,
+            identity.rule_id,
+            identity.kind,
+            identity.normalized_value.value,
+            revision.revision,
+            revision.effective_at,
+            revision.policy_version,
+            payload.window_start,
+            payload.window_end,
+            payload.discovery_cutoff,
+        )
+        if expected == payload.scope_digest:
+            if payload.preview_operation_id is not None:
+                # A committed start payload is authoritative only together with
+                # its durable epoch. It must win over an older preview row.
+                epoch = _get(
+                    owner,
+                    projection_id,
+                    "epochs",
+                    (("operation_id", payload.operation_id),),
+                )
+                if epoch is not None:
+                    return payload
+            elif preview_match is None:
+                preview_match = payload
+    return preview_match
+
+
 def _existing_backfill_request(owner, projection_id, request_nonce):
     """Find a request-keyed row before evaluating mutable current guards."""
     from .action_labels import check_request_conflict
@@ -686,6 +809,7 @@ def preview_backfill(owner, projection_id, request):
     projection, binding_revision, _, invalidation_revision = _backfill_guards(
         owner, projection_id
     )
+    _validate_backfill_window_and_scope(owner, projection_id, request, projection)
     if request.invalidating_revision != invalidation_revision:
         _fail(ErrorCode.PREVIEW_INVALID)
     operation = OperationRow(
@@ -763,13 +887,27 @@ def preflight_backfill_start(owner, projection_id, preview_id, accepted_at):
         or preview_payload is None
         or preview.expected_binding_revision != binding_revision
         or preview.expected_config_revision != projection.config_revision
-        or preview_payload.ruleset_revision != projection.ruleset_revision
+        or (
+            preview_payload.ruleset_revision != projection.ruleset_revision
+            and not _rule_scope_matches(
+                owner,
+                projection_id,
+                preview_payload.ruleset_revision,
+                preview_payload.scope_digest,
+                preview_payload.window_start,
+                preview_payload.window_end,
+                preview_payload.discovery_cutoff,
+            )
+        )
         or preview_payload.invalidating_revision != invalidation_revision
         or accepted_at.value < preview.accepted_at.value
         or preview_payload.expires_at.value < observed_at.value
         or preview_payload.expires_at.value < accepted_at.value
     ):
         _fail(ErrorCode.PREVIEW_INVALID)
+    _validate_backfill_window_and_scope(
+        owner, projection_id, preview_payload, projection
+    )
     if _owner_fetchall(
         owner,
         "SELECT 1 FROM operations WHERE projection_id=? "
