@@ -116,11 +116,11 @@
           return {mode: label(data.mode, modes), binding: label(data.auth_state, bindings), verified: time(data.last_verified_at), freshness: label(data.freshness, fresh)};
         };
         // Select only bounded operational scalars. The fetched envelope is not retained.
-        const select = (family, envelope) => {
+        const select = (family, envelope, requestedAt) => {
           if (!object(envelope) || envelope.schema_version !== 1 || envelope.scope !== 'projection' || !Object.hasOwn(fresh, envelope.freshness) || !time(envelope.sampled_at) || !object(envelope.data)) throw new Error();
           const data = envelope.data;
           if (envelope.freshness !== 'unavailable' && metric(envelope.age_seconds) === null) throw new Error();
-          const result = {freshness: envelope.freshness === 'fresh' && envelope.age_seconds >= 30 ? 'Stale' : label(envelope.freshness, fresh), sampled: time(envelope.sampled_at)};
+          const result = {freshness: envelope.freshness === 'fresh' && envelope.age_seconds >= 30 ? 'Stale' : label(envelope.freshness, fresh), sampled: time(envelope.sampled_at), expires: requestedAt + Math.max(0, 30 - (metric(envelope.age_seconds) ?? 30)) * 1000};
           if (family === 'status') {
             if (!Object.hasOwn(health, data.health) || (data.phase !== null && !Object.hasOwn(phase, data.phase))) throw new Error();
             const source = role(data.source, 'source'), target = role(data.target, 'target');
@@ -151,7 +151,7 @@
           put('issues', 'Unknown — no current exception snapshot.'); put('freshness', note);
         };
         const render = ([s, p, i, d]) => {
-          if ([s, p, i, d].some(data => data.freshness !== 'Fresh')) { unavailable('Stale or unavailable snapshot — current sync health and counts are unknown.'); return; }
+          if ([s, p, i, d].some(data => data.freshness !== 'Fresh' || data.expires <= performance.now())) { unavailable('Stale or unavailable snapshot — current sync health and counts are unknown.'); return; }
           put('freshness', `Fresh aggregate snapshots · sampled ${s.sampled}`);
           put('health', s.health); get('health').className = s.health === 'Healthy' ? 'badge healthy' : 'badge';
           ['phase', 'poll', 'insert', 'heartbeat'].forEach(id => put(id, s[id]));
@@ -175,7 +175,7 @@
           ['version', 'schema', 'owners', 'checked'].forEach(id => put(id, d[id]));
           put('database', `${d.readable} / ${d.writable}`); put('scopes', `${d.sourceScope} / ${d.targetScope}`); put('pressure', `${d.memory} / ${d.disk}`);
         };
-        let busy = false, lastSuccess = null;
+        let busy = false, expiryTimer = null;
         const load = async () => {
           if (busy) return;
           busy = true; get('refresh').disabled = true;
@@ -183,19 +183,22 @@
           const timeout = window.setTimeout(() => controller.abort(), 8000);
           try {
             const snapshots = await Promise.all(['status', 'progress', 'issues', 'diagnostics'].map(async family => {
+              const requestedAt = performance.now();
               const response = await fetch(`/api/v1/${family}`, {cache: 'no-store', signal: controller.signal});
               if (!response.ok) throw new Error();
-              return select(family, await response.json());
+              return select(family, await response.json(), requestedAt);
             }));
-            render(snapshots); lastSuccess = performance.now();
+            render(snapshots);
+            window.clearTimeout(expiryTimer);
+            const expires = Math.min(...snapshots.map(snapshot => snapshot.expires));
+            expiryTimer = window.setTimeout(() => unavailable('Snapshot refresh is stale — current sync health and counts are unknown.'), Math.max(0, expires - performance.now()));
           } catch (_error) {
-            controller.abort(); lastSuccess = null;
+            controller.abort(); window.clearTimeout(expiryTimer);
             unavailable('Snapshot refresh failed — current sync health and counts are unknown.');
           } finally { window.clearTimeout(timeout); busy = false; get('refresh').disabled = false; }
         };
         get('refresh').addEventListener('click', load);
         load(); window.setInterval(load, 10000);
-        window.setInterval(() => { if (lastSuccess !== null && performance.now() - lastSuccess > 30000) unavailable('Snapshot refresh is stale — current sync health and counts are unknown.'); }, 1000);
       })();
     </script>
   </body>

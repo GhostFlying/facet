@@ -136,8 +136,16 @@ const fixture = () => {
       failure = null;
       await refresh(); await expectText('health', 'Healthy');
 
-      // Real browser timers: an absent successful refresh ages out prior Healthy.
+      // A response already aged 29 seconds has only one second left, not 30.
       await page.clock.install();
+      snapshots = fixture(); snapshots.issues.age_seconds = 29;
+      await refresh(); await expectText('health', 'Healthy');
+      await page.clock.runFor(2100);
+      await expectUnknown();
+      snapshots = fixture();
+      await refresh(); await expectText('health', 'Healthy');
+
+      // Real browser timers: an absent successful refresh ages out prior Healthy.
       failure = 'timeout';
       await page.clock.runFor(31001);
       await expectUnknown();
