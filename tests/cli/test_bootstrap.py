@@ -398,7 +398,13 @@ def test_fake_cli_sync_closure_survives_restart_without_duplicate_insert(tmp_pat
             timeout=20,
         )
         assert result.returncode == 0, result.stderr + result.stdout
-        assert result.stderr == ""
+        for line in result.stderr.splitlines():
+            assert json.loads(line)["kind"] in {
+                "lifecycle",
+                "work_summary",
+                "boundary_failure",
+            }
+        assert not any(s in result.stdout + result.stderr for s in PRIVATE + FORBIDDEN)
         document = json.loads(result.stdout)
         assert document["status"] == "completed"
         return document
@@ -695,7 +701,13 @@ def test_fake_cli_unsigned_raw_is_projected_by_matching_rule(tmp_path, monkeypat
             timeout=20,
         )
         assert result.returncode == 0, result.stderr + result.stdout
-        assert result.stderr == ""
+        for line in result.stderr.splitlines():
+            assert json.loads(line)["kind"] in {
+                "lifecycle",
+                "work_summary",
+                "boundary_failure",
+            }
+        assert not any(s in result.stdout + result.stderr for s in PRIVATE + FORBIDDEN)
         return json.loads(result.stdout)
 
     invoke(
@@ -965,7 +977,13 @@ def test_domain_rule_cli_publishes_and_replays_existing_ruleset_path(tmp_path):
     def invoke(*arguments):
         result = run(tmp_path, env, "--state-dir", str(state), *arguments, "--json")
         assert result.returncode == 0, result.stderr + result.stdout
-        assert result.stderr == ""
+        for line in result.stderr.splitlines():
+            assert json.loads(line)["kind"] in {
+                "lifecycle",
+                "work_summary",
+                "boundary_failure",
+            }
+        assert not any(s in result.stdout + result.stderr for s in PRIVATE + FORBIDDEN)
         return json.loads(result.stdout)
 
     invoke(

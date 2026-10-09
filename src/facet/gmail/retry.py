@@ -305,4 +305,8 @@ def execute(request, role: Role, *, provider_stage: ProviderStage | None = None)
     except BaseException as error:
         if isinstance(error, KeyboardInterrupt | SystemExit):
             raise
-        raise provider_failure(error, role, provider_stage=provider_stage) from None
+        failure = provider_failure(error, role, provider_stage=provider_stage)
+        from facet.status.logging import emit_provider_failure
+
+        emit_provider_failure(failure)
+        raise failure from None

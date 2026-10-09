@@ -8,6 +8,44 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Observable continuous sync — implemented, local-image acceptance passed
+
+The user authorized the current test deployment's continuous-sync direction,
+not production migration or a new historical scope. Root is implementing the
+[short reviewed plan](implementation-plans/observable-continuous-sync.md).
+Independent Sol 6.1 xhigh plan review approved revision SHA-256
+`6f8cdcd6daa5a7660671e85143674c8772826220462b5a8d54a63208617215ec`.
+
+Implemented consumers: lazy cycle-shared target inventory before project-job
+claim, proven ownership before allowed source-From SENT/DRAFT classification,
+queued fail-closed writes while History stays durable; bounded domain search
+with strict local admission; closed operational stage/provider-reason logs;
+owner-thread progress during discovery/History/worker pagination and jobs;
+graceful between-request stop; Compose restart/log rotation. Necessary source EML
+hashes are permitted only in validated local logs/private DB/CLI, not public DTOs.
+
+Source candidate `b0bce4d745c2a049064be323e7871456fa93b59d` has independent
+implementation/acceptance APPROVE. Its exact-source non-root, read-only local
+image passed ten CLI domain/outbound/continuous/restart/refresh/recovery scenarios.
+The actual continuous CLI publishes intermediate confirmed counts, stops cleanly,
+and issues a new History request after restart without another insert. Four
+outbound/unmanaged cases include correcting only the external fake mailbox.
+Final full baseline and exact PR CI remain pending; see the concise
+[acceptance record](reviews/observable-continuous-sync.md).
+
+The source-only live query probe stopped at an expired access snapshot, before
+target calls/writes. Normal writer-owned refresh after backup is the next check;
+interactive reauthorization is not yet established. Real Gmail domain recall
+and this new running image are not verified. The real deployment remains stopped
+at the preceding qualified image; no live writes in this unit yet.
+
+Next: finish those acceptance gates, merge qualified engineering, then install
+the immutable image with a stopped/locked backup and exercise only the existing
+accounts/rules/window. Final maintenance/restore/browser/dogfood gates remain
+unfinished; this is not completed Phase 1.
+
+## Previous qualified delivery
+
 ### Automatic five-minute recovery merged; exact live recovery passed
 
 The user replaced the uncommitted per-item preview/grant/one-budget proposal.

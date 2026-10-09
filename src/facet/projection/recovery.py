@@ -120,11 +120,21 @@ def check_unknown(
 
 
 class UnknownInsertChecks:
-    def __init__(self, owner, source, target, *, max_raw_bytes=35_000_000):
+    def __init__(
+        self,
+        owner,
+        source,
+        target,
+        *,
+        max_raw_bytes=35_000_000,
+        progress=None,
+        should_stop=None,
+    ):
         if type(max_raw_bytes) is not int or not 1 <= max_raw_bytes <= 35_000_000:
             raise ValueError("invalid_input")
         self.owner, self.source, self.target = owner, source, target
         self.max_raw_bytes = max_raw_bytes
+        self.progress, self.should_stop = progress, should_stop
 
     def run(self, *, limit=100):
         if type(limit) is not int or not 1 <= limit <= 100:
@@ -161,6 +171,8 @@ class UnknownInsertChecks:
             selected = tuple(_decode(uow, projection, "sync_jobs", row) for row in rows)
         checked = 0
         for job in selected:
+            if self.should_stop and self.should_stop():
+                break
             now = Timestamp(datetime.now(UTC))
             with self.owner.session.transaction() as uow:
                 attempt = reads.get_attempt(uow, projection, job.subject.attempt_id)
@@ -249,6 +261,8 @@ class UnknownInsertChecks:
                     assume_absent=assume_absent,
                 )
             checked += 1
+            if self.progress:
+                self.progress()
             if failure is not None and blocks_sync(failure):
                 raise failure
         return checked

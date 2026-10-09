@@ -58,10 +58,13 @@ def _now():
 class GapRecovery:
     """Reuse durable recovery scope, source expansion and History repositories."""
 
-    def __init__(self, owner, source, worker, admission_loader, admission):
+    def __init__(
+        self, owner, source, worker, admission_loader, admission, *, progress=None
+    ):
         self.owner, self.source, self.worker = owner, source, worker
         self.projection = owner.projection_id
         self.loader, self.admission = admission_loader, admission
+        self.progress = progress
 
     def _partition(self, epoch_id, ref):
         return EpochPartitionRow(
@@ -262,7 +265,9 @@ class GapRecovery:
         if selected is None:
             raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
         BackfillProducer(
-            self.source, SourceCandidateAdmission(self.source, selected)
+            self.source,
+            SourceCandidateAdmission(self.source, selected),
+            progress=self.progress,
         ).discover(self.owner.session, self.projection, epoch.epoch_id)
         self._active_partitions(epoch)
         self._scan_threads(epoch, max_jobs)

@@ -68,7 +68,13 @@ def run_cli_wire(
                 assert json.loads(result.stdout)["code"] == error
                 return
             assert result.returncode == 0, result.stderr + result.stdout
-            assert result.stderr == ""
+            for line in result.stderr.splitlines():
+                assert json.loads(line)["kind"] in {
+                    "lifecycle",
+                    "work_summary",
+                    "boundary_failure",
+                    "dependency_state",
+                }
             for sentinel in (
                 "WIRE_BODY_SENTINEL",
                 "WIRE_HEADER_SENTINEL",
@@ -76,7 +82,7 @@ def run_cli_wire(
                 "facet-synthetic-source-access",
                 "facet-synthetic-target-access",
             ):
-                assert sentinel not in result.stdout
+                assert sentinel not in result.stdout + result.stderr
             value = json.loads(result.stdout)
             assert value["status"] == "completed"
             return value["data"]
@@ -272,6 +278,32 @@ def run_cli_wire(
                         (expansion["epoch_id"],),
                     ).fetchone() == (1,)
                 mailbox.discovery_failure = False
+            if lost_response:
+                # The old effect is present but has no independently proven
+                # ownership. Source scan/History are durable; new writes fail
+                # closed rather than treating matching content as ours.
+                invoke("run", "--once", error="attribution_unknown")
+                assert len(mailbox.inserted_raw) == inserts
+                with sqlite3.connect(state / "facet.db") as db:
+                    assert (
+                        db.execute("SELECT * FROM message_mappings").fetchall()
+                        == old_maps
+                    )
+                    assert db.execute("SELECT COUNT(*) FROM job_claims").fetchone() == (
+                        0,
+                    )
+                    assert (
+                        db.execute(
+                            "SELECT COUNT(*) FROM sync_jobs WHERE state='queued'"
+                        ).fetchone()[0]
+                        > 0
+                    )
+                    assert db.execute(
+                        "SELECT COUNT(*) FROM insert_attempts"
+                    ).fetchone()[0] == len(attempts)
+                invoke("run", "--once", error="attribution_unknown")
+                assert len(mailbox.inserted_raw) == inserts
+                return
             result = invoke("run", "--once")
             assert result["projected"] == (2 if expansion_fault else 4)
             new_inserts = 3 if expansion_fault else 4
@@ -357,6 +389,27 @@ def run_cli_wire(
                         "SELECT cursor FROM history_checkpoints"
                     ).fetchone() == (cursor,)
                 mailbox.gap_page_failure = mailbox.catchup_page_failure = False
+            if lost_response:
+                invoke("run", "--once", error="attribution_unknown")
+                assert len(mailbox.inserted_raw) == inserts
+                with sqlite3.connect(state / "facet.db") as db:
+                    assert db.execute(
+                        "SELECT cursor FROM history_checkpoints"
+                    ).fetchone() == (f"history-{mailbox.revision}",)
+                    assert db.execute("SELECT COUNT(*) FROM job_claims").fetchone() == (
+                        0,
+                    )
+                    assert db.execute(
+                        "SELECT COUNT(*) FROM insert_attempts"
+                    ).fetchone()[0] == len(old_attempts)
+                    assert all(
+                        attempt
+                        in db.execute("SELECT * FROM insert_attempts").fetchall()
+                        for attempt in old_attempts
+                    )
+                invoke("run", "--once", error="attribution_unknown")
+                assert len(mailbox.inserted_raw) == inserts
+                return
             result = invoke("run", "--once")
             assert result["projected"] == (7 if not fault else 6)
             assert len(mailbox.inserted_raw) == inserts + (7 if not fault else 6)

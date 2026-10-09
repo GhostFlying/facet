@@ -153,6 +153,9 @@ class _Target:
         self.raw_bytes = raw
         self.inserted = 0
 
+    def inventory_pages(self):
+        yield () if not self.inserted else (ProviderId("tm-1"),)
+
     def insert(self, raw, *, thread_id=None, date_header=True):
         self.inserted += 1
         return TargetInsertResult(ProviderId("tm-1"), ProviderId("tt-1"), None)
@@ -249,7 +252,7 @@ def test_source_candidate_admission_rejects_ruleset_lineage_mismatch():
     assert error.value.code is ErrorCode.CONSISTENCY_FAILURE
 
 
-def test_source_candidate_admission_holds_domain_query_until_recall_evidence():
+def test_source_candidate_admission_uses_bounded_domain_candidate_query():
     source = type("CandidateSource", (), {"candidate": lambda self, item: None})()
     policy = AdmissionEvaluator(
         (
@@ -261,9 +264,9 @@ def test_source_candidate_admission_holds_domain_query_until_recall_evidence():
         ),
         source_account=PrivateAddress("source@example.com"),
     )
-    with pytest.raises(StorageFailure) as error:
-        SourceCandidateAdmission(source, policy).discovery_query()
-    assert error.value.code is ErrorCode.MAINTENANCE_REQUIRED
+    query = SourceCandidateAdmission(source, policy).discovery_query()
+    assert query.clauses == ('from:"example.com"',)
+    assert query.render("after:1 before:2") == 'after:1 before:2 {from:"example.com"}'
 
 
 @pytest.fixture

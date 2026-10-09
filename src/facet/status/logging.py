@@ -14,10 +14,12 @@ import threading
 import warnings
 import weakref
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from types import ModuleType
 
-from facet.contracts import ErrorCode, Role, Timestamp
+from facet.contracts import ErrorCode, Role, Sha256Hex, Timestamp
+from facet.gmail.retry import ProviderReason, ProviderStage
 
 from .errors import OutputBoundaryError, catalog_entry
 from .models import Component, PublicCount, _count, _exact, _require, _timestamp
@@ -38,6 +40,17 @@ class SafeLogLevel(StrEnum):
     ERROR = "error"
 
 
+class OperationStage(StrEnum):
+    START = "start"
+    RECOVERY = "recovery"
+    DISCOVERY = "discovery"
+    HISTORY = "history"
+    PROJECTION = "projection"
+    TARGET_INVENTORY = "target_inventory"
+    COMPLETE = "complete"
+    STOP = "stop"
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class SafeLogEvent:
     kind: LogEventKind
@@ -47,6 +60,13 @@ class SafeLogEvent:
     role: Role | None
     code: ErrorCode | None
     count: PublicCount | None
+    stage: OperationStage | None = None
+    provider_stage: ProviderStage | None = None
+    reason: ProviderReason | None = None
+    http_status: int | None = None
+    retry_after_seconds: int | None = None
+    elapsed_ms: int | None = None
+    raw_digest: Sha256Hex | None = None
 
     def __post_init__(self):
         _exact(self, SafeLogEvent)
@@ -57,6 +77,18 @@ class SafeLogEvent:
         _exact(self.role, Role, nullable=True)
         _exact(self.code, ErrorCode, nullable=True)
         _count(self.count, nullable=True)
+        _exact(self.stage, OperationStage, nullable=True)
+        _exact(self.provider_stage, ProviderStage, nullable=True)
+        _exact(self.reason, ProviderReason, nullable=True)
+        _exact(self.raw_digest, Sha256Hex, nullable=True)
+        for value in (self.retry_after_seconds, self.elapsed_ms):
+            _count(value, nullable=True)
+        _require(
+            self.http_status is None
+            or (type(self.http_status) is int and 100 <= self.http_status <= 599)
+        )
+        if self.raw_digest is not None:
+            Sha256Hex.__post_init__(self.raw_digest)
         required_role = {
             Component.SOURCE: Role.SOURCE,
             Component.TARGET: Role.TARGET,
@@ -112,12 +144,64 @@ def emit_safe(event: SafeLogEvent) -> None:
             "count": event.count,
             "error_class": None if entry is None else entry.error_class.value,
         }
+        # Optional operational fields are local logs, never public DTO fields.
+        for name in (
+            "stage",
+            "provider_stage",
+            "reason",
+            "http_status",
+            "retry_after_seconds",
+            "elapsed_ms",
+            "raw_digest",
+        ):
+            value = getattr(event, name)
+            if value is not None:
+                result[name] = value.value if hasattr(value, "value") else value
         payload = (_encode(result) + "\n").encode("ascii")
         _require(len(payload) <= 4096)
-    except (OutputBoundaryError, AttributeError):
+    except (OutputBoundaryError, AttributeError, ValueError, TypeError):
         _write(_FIXED_FAILURE)
         return
     _write(payload)
+
+
+def emit_operation(stage, *, code=None, count=None, elapsed_ms=None, raw_digest=None):
+    emit_safe(
+        SafeLogEvent(
+            LogEventKind.BOUNDARY_FAILURE
+            if code
+            else LogEventKind.WORK_SUMMARY
+            if count is not None
+            else LogEventKind.LIFECYCLE,
+            SafeLogLevel.WARNING if code else SafeLogLevel.INFO,
+            Timestamp(datetime.now(UTC)),
+            Component.RUNTIME,
+            None,
+            code,
+            count,
+            stage=stage,
+            elapsed_ms=elapsed_ms,
+            raw_digest=raw_digest,
+        )
+    )
+
+
+def emit_provider_failure(error):
+    emit_safe(
+        SafeLogEvent(
+            LogEventKind.BOUNDARY_FAILURE,
+            SafeLogLevel.WARNING,
+            Timestamp(datetime.now(UTC)),
+            Component.SOURCE if error.role is Role.SOURCE else Component.TARGET,
+            error.role,
+            error.code,
+            None,
+            provider_stage=error.provider_stage,
+            reason=error.reason,
+            http_status=error.status,
+            retry_after_seconds=error.retry_after_seconds,
+        )
+    )
 
 
 def _warning(message, category, filename, lineno, file=None, line=None):

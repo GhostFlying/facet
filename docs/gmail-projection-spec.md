@@ -148,6 +148,10 @@ Source `SPAM`、`TRASH`、草稿默认不触发新 admission。Tracked thread �
 
 Source raw SHA 用于本地完整性。跨邮箱 fingerprint 包括稳定的 From、To、Cc、Subject、Date、Message-ID、References、In-Reply-To，以及 MIME multipart 层级、按原顺序的 leaf 类型与参数、disposition、文件名、Content-ID 和 decoded payload hashes；版本化规范化规则，不把 Gmail 新增的 transport headers 算入等值比较。原始 transport headers 的保留在保真测试中单独核对。
 
+2026-10-09：必要的完整 source EML SHA-256/semantic/MIME digest 可进入私密 DB、
+受控本地诊断日志或 private CLI；EML 仍只在内存。Hash 标识字节而非投递次数，
+不散列地址/标题充当日志标识，公共 Dashboard/HTTP/DOM/CLI 继续不输出 digest。
+
 按 source internalDate 排序，同日期用 source message ID 稳定排序。首封建立 target anchor；后续带 anchor thread ID 和原始 reply headers。Gmail thread 合并依赖指定 thread ID、References、In-Reply-To 和 subject 条件，不能只依赖 thread ID。[Gmail thread requirements](https://developers.google.com/workspace/gmail/api/guides/threads)
 
 确认是 threading mismatch 的错误才可 fallback 不带 thread ID；不对任何 400 一律 fallback。记录实际返回的 target thread，不覆盖或丢失原 anchor；正常误合并或分裂均在 audit 中显示。

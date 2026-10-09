@@ -196,8 +196,9 @@ def _typed_events(
 class HistoryProducer:
     """Consume a pre-authorized normal poll using the shipping repositories."""
 
-    def __init__(self, source) -> None:
+    def __init__(self, source, *, progress=None) -> None:
         self._source = source
+        self._progress = progress
 
     def consume(self, owner, projection_id, poll: HistoryPollRow) -> ProviderId:
         with owner.transaction() as uow:
@@ -326,6 +327,8 @@ class HistoryProducer:
                 )
                 revision = finished.revision
             final_history_id = page.history_id
+            if self._progress:
+                self._progress()
             if page.next_page_token is None:
                 break
             token = page.next_page_token

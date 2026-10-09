@@ -52,9 +52,15 @@ def test_cli_new_rule_after_empty_epoch_admits_full_thread_and_restarts(tmp_path
                 timeout=20,
             )
             assert result.returncode == 0, result.stderr + result.stdout
-            assert result.stderr == ""
-            assert "HISTORY_BODY_SENTINEL" not in result.stdout
-            assert "HISTORY_HEADER_SENTINEL" not in result.stdout
+            for line in result.stderr.splitlines():
+                assert json.loads(line)["kind"] in {
+                    "lifecycle",
+                    "work_summary",
+                    "boundary_failure",
+                    "dependency_state",
+                }
+            assert "HISTORY_BODY_SENTINEL" not in result.stdout + result.stderr
+            assert "HISTORY_HEADER_SENTINEL" not in result.stdout + result.stderr
             document = json.loads(result.stdout)
             assert document["status"] == "completed"
             return document["data"]
