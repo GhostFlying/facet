@@ -374,10 +374,13 @@ rule and recovery invariants remain.
   Show aggregate sync state, progress, unique success counts, queue health,
   categorized exceptions, diagnostics, snapshot freshness, and explicit units.
 - Construct independent ALLOWLIST response models. No email details in HTTP,
-  DOM, frontend state, URLs, or exports: no addresses (even masked), subjects,
-  body, attachment names, mail links, rule values, custom label text, Gmail/RFC
-  IDs, fingerprints, tokens/auth links, raw errors/stack traces, SQL, hostnames,
-  or full local paths. Frontend hiding is not an output privacy control.
+  DOM, frontend state, URLs, or exports: no binding addresses (even masked),
+  subjects, body, attachment names, mail links, Gmail/RFC IDs, fingerprints,
+  tokens/auth links, raw errors/stack traces, SQL, hostnames, or full local
+  paths. The explicitly approved Dashboard rules view may show current
+  sender/domain rule values and action-label text; these remain private
+  Dashboard configuration and are not added to other public DTOs, logs, or
+  exports. Frontend hiding is not an output privacy control.
 - HTTP reads cached/aggregated snapshots; GET cannot call Gmail, run sync/audit,
   alter rules, or enqueue work. No per-message/thread API, content routes,
   config/log/DB download, OAuth UI, or write controls in Phase 1.

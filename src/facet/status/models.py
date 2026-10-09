@@ -2,6 +2,7 @@
 
 import math
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
@@ -360,6 +361,52 @@ class Issues:
             previous = key
 
 
+_PUBLIC_RULE_KINDS = frozenset(
+    {
+        "allow_sender",
+        "allow_domain",
+        "blacklist_sender",
+        "action_label_add_sender",
+        "action_label_add_domain",
+        "action_label_blacklist",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class RuleSummary:
+    kind: str
+    value: str
+    enabled: bool
+
+    def __post_init__(self):
+        _exact(self, RuleSummary)
+        _exact(self.kind, str)
+        _require(self.kind in _PUBLIC_RULE_KINDS)
+        _exact(self.value, str)
+        _require(1 <= len(self.value.encode("utf-8")) <= 512)
+        _require(
+            not any(unicodedata.category(char).startswith("C") for char in self.value)
+        )
+        _exact(self.enabled, bool)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class Rules:
+    entries: tuple[RuleSummary, ...]
+
+    def __post_init__(self):
+        _exact(self, Rules)
+        _exact(self.entries, tuple)
+        _require(len(self.entries) <= 1024)
+        previous = None
+        for entry in self.entries:
+            _record(entry, RuleSummary)
+            key = (entry.kind, entry.value)
+            _require(previous is None or previous < key)
+            previous = key
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class Diagnostics:
     app_version: BuildVersion
@@ -403,7 +450,7 @@ class Diagnostics:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class PublicEnvelope:
-    data: Status | Progress | Issues | Diagnostics
+    data: Status | Progress | Issues | Rules | Diagnostics
     schema_version: Literal[1]
     sampled_at: Timestamp
     freshness: Freshness
@@ -415,7 +462,7 @@ class PublicEnvelope:
         _require(
             any(
                 type(self.data) is cls
-                for cls in (Status, Progress, Issues, Diagnostics)
+                for cls in (Status, Progress, Issues, Rules, Diagnostics)
             )
         )
         _record(self.data, type(self.data))

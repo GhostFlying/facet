@@ -17,6 +17,7 @@ from .models import (
     Progress,
     PublicEnvelope,
     RoleStatus,
+    Rules,
     Status,
     _exact,
     _record,
@@ -25,9 +26,14 @@ from .models import (
     _timestamp,
 )
 
+_MAX_PUBLIC_JSON_BYTES = 262144
+_MAX_RULES_JSON_BYTES = 2097152
+
 
 def _time(value):
-    return value.value.isoformat(timespec="microseconds").replace("+00:00", "Z")
+    # Persisted instants remain UTC; public operational timestamps use the
+    # sync server's local offset so all Dashboard viewers see the same clock.
+    return value.value.astimezone().isoformat(timespec="microseconds")
 
 
 def _RoleStatus(value):
@@ -141,6 +147,18 @@ def _Issues(value):
     }
 
 
+def _RuleSummary(value):
+    return {
+        "kind": value.kind,
+        "value": value.value,
+        "enabled": value.enabled,
+    }
+
+
+def _Rules(value):
+    return {"entries": [_RuleSummary(entry) for entry in value.entries]}
+
+
 def _Diagnostics(value):
     return {
         "app_version": value.app_version,
@@ -164,6 +182,7 @@ _SERIALIZERS = {
     Status: _Status,
     Progress: _Progress,
     Issues: _Issues,
+    Rules: _Rules,
     Diagnostics: _Diagnostics,
 }
 
@@ -178,11 +197,18 @@ def serialize_public(envelope: PublicEnvelope) -> dict:
         "age_seconds": envelope.age_seconds,
         "scope": envelope.scope,
     }
-    _encode(result)
+    _encode(
+        result,
+        maximum=(
+            _MAX_RULES_JSON_BYTES
+            if type(envelope.data) is Rules
+            else _MAX_PUBLIC_JSON_BYTES
+        ),
+    )
     return result
 
 
-def _encode(result):
+def _encode(result, *, maximum=_MAX_PUBLIC_JSON_BYTES):
     try:
         encoded = json.dumps(
             result,
@@ -193,13 +219,21 @@ def _encode(result):
         )
     except (ValueError, TypeError, OverflowError):
         raise OutputBoundaryError() from None
-    if len(encoded.encode("ascii")) > 262144:
+    if len(encoded.encode("ascii")) > maximum:
         raise OutputBoundaryError()
     return encoded
 
 
 def public_json(envelope: PublicEnvelope) -> str:
-    return _encode(serialize_public(envelope))
+    value = serialize_public(envelope)
+    return _encode(
+        value,
+        maximum=(
+            _MAX_RULES_JSON_BYTES
+            if type(envelope.data) is Rules
+            else _MAX_PUBLIC_JSON_BYTES
+        ),
+    )
 
 
 def _private_text(value, maximum):

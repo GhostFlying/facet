@@ -26,7 +26,7 @@ from .status import (
 def _time(value: Timestamp | None) -> str | None:
     if value is None:
         return None
-    return value.value.isoformat(timespec="microseconds").replace("+00:00", "Z")
+    return value.value.astimezone().isoformat(timespec="microseconds")
 
 
 def _file_stamp(path: Path) -> tuple[int, int, int, int, int]:

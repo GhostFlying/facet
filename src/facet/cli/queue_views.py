@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC
-
 from facet.config import ConfigError
 from facet.contracts import ErrorCode, JobKind, JobState, LocalId, Priority
 from facet.db.codecs import StorageFailure, timestamp_from_sql
@@ -16,7 +14,7 @@ def _time(value: int | None) -> str | None:
         return None
     return (
         timestamp_from_sql(value)
-        .value.astimezone(UTC)
+        .value.astimezone()
         .isoformat(timespec="microseconds")
         .replace("+00:00", "Z")
     )

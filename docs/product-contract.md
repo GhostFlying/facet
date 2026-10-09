@@ -90,9 +90,9 @@ Source 已删除且尚未取得内容的邮件无法恢复，应显示 `source_m
 
 ## Dashboard 和内容存储
 
-第一期提供只读 Dashboard，展示同步状态、进度、完成数量、异常和诊断。HTTPS 与 Web 用户认证由前置 Nginx 负责，Facet 提供 HTTP。Gmail OAuth 仍负责服务访问邮箱的授权，不由 Nginx 代替。
+第一期提供只读 Dashboard，展示同步状态、进度、完成数量、异常和诊断。HTTPS 与 Web 用户认证由前置 Nginx 负责，Facet 提供 HTTP。Gmail OAuth 仍负责服务访问邮箱的授权，不由 Nginx 代替。Dashboard 的运营时间按同步服务器本地时区显示；持久化和排序仍使用 UTC。
 
-Web 页面、API 和诊断只返回运行状态和汇总，不展示邮件标题、地址、正文、附件、邮件 IDs、规则值或原始错误。内部 metadata 不直接序列化到浏览器，DEBUG 不扩大公开输出范围。
+Web 页面、API 和诊断只返回运行状态和汇总，不展示邮件标题、正文、附件、邮件 IDs 或原始错误。按 2026-10-09 用户明确要求，Dashboard 规则区域可以显示当前 sender/domain 规则值和 action-label 文本；这些私密配置只进入受保护 Dashboard，不进入其他公共 DTO、日志或导出。内部 metadata 不直接序列化到浏览器，DEBUG 不扩大公开输出范围。
 
 数据库存必要的映射、IDs、规则、时间、hash、队列、checkpoint 和受控错误码，不存邮件完整内容、正文、snippet、HTML、附件或完整 headers。默认 raw 只在处理中驻留内存，不建立磁盘 spool；重启后重新读取 source。若 source 此时已删除，优先核对是否已经投影到 target，无法恢复时明确记录缺失。
 

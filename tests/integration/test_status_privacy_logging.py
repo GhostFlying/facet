@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import textwrap
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -229,7 +230,9 @@ emit_safe(Unsafe())
     assert output == {
         "kind": "work_summary",
         "level": "debug",
-        "at": "2026-10-02T00:00:00.000000Z",
+        "at": datetime(2026, 10, 2, tzinfo=UTC)
+        .astimezone()
+        .isoformat(timespec="microseconds"),
         "component": "runtime",
         "role": None,
         "code": None,

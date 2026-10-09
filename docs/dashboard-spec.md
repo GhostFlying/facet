@@ -6,7 +6,7 @@
 
 Dashboard 展示同步是否正常、历史复制进度、成功数量、异常和可操作的诊断信息。页面和 HTTP API 只提供运行状态与汇总统计，不提供任何邮件细节。HTTPS、用户认证和外部访问控制由前置 Nginx 负责，Facet 仅提供 HTTP 服务。
 
-本规格是 [项目计划](project-plan.md) 与 [产品契约](product-contract.md) 的补充。生产 runtime 已提供四类只读汇总快照与静态页面；页面消费现有字段，未实现的采集指标须明确显示未知或未提供，不得据此宣称最终 M4/M6 验收完成。
+本规格是 [项目计划](project-plan.md) 与 [产品契约](product-contract.md) 的补充。生产 runtime 已提供五类只读汇总快照（状态、进度、异常、当前规则、诊断）与静态页面；页面消费现有字段，未实现的采集指标须明确显示未知或未提供，不得据此宣称最终 M4/M6 验收完成。
 
 ## 页面内容
 
@@ -22,9 +22,11 @@ Dashboard 展示同步是否正常、历史复制进度、成功数量、异常�
 | 异常汇总 | 按错误类别和 source/target 角色分组的数量、首次与最近发生时间、是否自动恢复、下一次重试时间、固定处理建议 |
 | 诊断 | OAuth 健康状态和权限模式、DB 可读写与迁移状态、运行版本、调度 heartbeat、磁盘与内存压力、诊断快照时间 |
 
-仅用 Source 和 Target 标识账号角色，不显示完整或遮掩后的邮箱地址。规则和 action commands 显示数量及处理结果，不显示 sender、domain rule 值或用户自定义标签文本。
+仅用 Source 和 Target 标识账号角色，不显示完整或遮掩后的绑定账号地址。按 2026-10-09 用户明确要求，规则区域可显示当前 sender/domain 值和 action-label 文本；这些是私密部署配置，不进入其他公共 DTO、日志或导出。邮件标题、正文、附件、邮件 IDs 和原始错误仍禁止。
 
 页面默认每十秒刷新，允许手动重新获取状态。浏览器刷新只读快照，不触发 Gmail 请求、reconcile、重试、规则变更或暂停操作。OAuth setup、规则编辑、手动 admission 和服务控制在第一期仍由 CLI 完成。
+
+运营时间由同步服务器按其本地时区格式化；数据库和内部排序仍使用 UTC 瞬时值，浏览器本地时区不参与显示转换。
 
 ## 数量和进度定义
 
@@ -38,7 +40,7 @@ Discovery 完成后的 `known_message_total` 是搜索候选消息数，不是�
 
 各 job 状态汇总采用互斥分类，同一个 job 不同时算作 pending、retry 和 failed。新消息导致已知总量增加时更新说明，避免把进度变化误报为回退。
 
-日期仅展示运行事件的时间，不展示任何单封邮件的原始 Date。角色 `auth_state` 为持久化账号绑定状态；`last_verified_at` 标为绑定验证时间，不是最近 profile 请求、凭据刷新时间或 token 健康保证。聚合延迟没有样本时返回不可用与样本数，不能用零代替未知。当前未采集的全局 tracked thread、reconcile/audit、速率/延迟及资源压力不得伪造；四类快照任一过期、不可用或刷新失败时，页面清除健康、零积压和零异常的当前结论。刷新有界、不重叠，失败后恢复正常快照才恢复显示。
+日期仅展示运行事件的时间，不展示任何单封邮件的原始 Date；运营时间由服务器按本地时区格式化，内部仍以 UTC 瞬时值排序。角色 `auth_state` 为持久化账号绑定状态；`last_verified_at` 标为绑定验证时间，不是最近 profile 请求、凭据刷新时间或 token 健康保证。聚合延迟没有样本时返回不可用与样本数，不能用零代替未知。当前未采集的全局 tracked thread、reconcile/audit、速率/延迟及资源压力不得伪造；五类快照任一过期、不可用或刷新失败时，页面清除健康、零积压和零异常的当前结论。刷新有界、不重叠，失败后恢复正常快照才恢复显示。
 
 ## HTTP 接口
 
@@ -50,6 +52,7 @@ Discovery 完成后的 `known_message_total` 是搜索候选消息数，不是�
 | `GET /api/v1/status` | 同步阶段、健康状态、角色状态和 operational timestamps |
 | `GET /api/v1/progress` | 当前 epoch、message 与 thread 汇总、队列和速率 |
 | `GET /api/v1/issues` | 按错误类别分组的汇总与固定处理建议 |
+| `GET /api/v1/rules` | 当前 sender/domain 规则和 action-label 文本、启用状态；仅限私有部署 Dashboard |
 | `GET /api/v1/diagnostics` | 已脱敏的组件检查、版本与资源状态 |
 | `GET /healthz` | Web 进程存活状态 |
 | `GET /readyz` | Dashboard 状态数据是否可读 |
@@ -63,7 +66,7 @@ Discovery 完成后的 `known_message_total` 是搜索候选消息数，不是�
 页面、API、DOM、前端状态、URL 和诊断导出均不得包含以下内容：
 
 - 邮件标题、正文、snippet、HTML、raw MIME 和完整 headers。
-- 发件人、收件人、Cc、邮箱地址、规则中的地址或域名值。
+- 发件人、收件人、Cc、邮箱地址；规则快照是唯一例外，仅显示当前配置的 sender/domain 值和 action-label 文本。
 - 附件名称、内容、Content-ID、邮件链接。
 - Gmail message/thread/history IDs、RFC Message-ID 和用于内容恢复的 fingerprint。
 - OAuth client secret、access/refresh token、授权链接和授权响应。
@@ -79,7 +82,7 @@ Dashboard 诊断与 CLI doctor 共享检查逻辑，但使用单独的公开输�
 
 SQLite 保存同步所需的 IDs、source 到 target 映射、RFC Message-ID、时间、hash、规则、checkpoint、job 状态、重试计划、标准化 error code 和汇总运行指标。
 
-不保存邮件完整内容，也不保存正文、HTML、snippet、附件 bytes、完整 header dump、每封邮件的 Subject 或 From/To/Cc 副本。Rules 中的明确 sender/domain 和账号 binding 是必要的私密配置，保存在内部 DB 或配置中，不能进入 Dashboard。
+不保存邮件完整内容，也不保存正文、HTML、snippet、附件 bytes、完整 header dump、每封邮件的 Subject 或 From/To/Cc 副本。Rules 中的明确 sender/domain 和账号 binding 是必要的私密配置，保存在内部 DB 或配置中；当前规则快照按明确批准的私有 Dashboard 例外只读展示 sender/domain 值和 action-label 文本，不进入其他公共 DTO、日志或导出。
 
 `source_events` 和 jobs 的 payload 仅包含必要的类型、IDs、label ID 与调度信息；`last_error` 使用受控字段，不能成为任意 provider response 的存储容器。审计记录保存操作和状态变化，不复制邮件字段。
 

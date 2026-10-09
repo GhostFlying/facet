@@ -12,6 +12,7 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event, Thread
+from time import monotonic
 from uuid import UUID, uuid4
 
 from facet import __version__
@@ -181,7 +182,7 @@ def build_parser() -> _Parser:
     run.add_argument("--fake", action="store_true", help="use offline synthetic Gmail")
     run.add_argument("--host", default="127.0.0.1")
     run.add_argument("--port", type=int, default=8080)
-    run.add_argument("--interval", type=float, default=5.0)
+    run.add_argument("--interval", type=float, default=None)
     sync = commands.add_parser(
         "sync",
         add_help=False,
@@ -199,7 +200,7 @@ def build_parser() -> _Parser:
     sync.add_argument("--once", action="store_true")
     sync.add_argument("--host", default="127.0.0.1")
     sync.add_argument("--port", type=int, default=8080)
-    sync.add_argument("--interval", type=float, default=5.0)
+    sync.add_argument("--interval", type=float, default=None)
     status = commands.add_parser(
         "status",
         add_help=False,
@@ -611,6 +612,9 @@ def _run_preflight(options: object) -> tuple[dict, tuple[str, ...]]:
         raise ConfigError(ErrorCode.INVALID_INPUT)
     raw = read_managed_config(paths)
     config = load_config(raw)
+    # ``--once`` does not sleep, but it still rejects an explicitly supplied
+    # interval using the same guarded input path as the foreground service.
+    _resolved_poll_interval(options, config)
     if (
         getattr(options, "projection", None) is not None
         and ProjectionId(options.projection) != config.projection.id
@@ -692,12 +696,45 @@ def _foreground_gate(owner) -> tuple[bool, ErrorCode | None]:
     return True, None
 
 
+def _resolved_poll_interval(options: object, config) -> float:
+    """Resolve an explicit CLI override or the managed sync configuration."""
+
+    value = getattr(options, "interval", None)
+    if value is None:
+        value = config.sync.poll_interval_seconds
+    try:
+        interval = float(value)
+    except (TypeError, ValueError):
+        raise ConfigError(ErrorCode.INVALID_INPUT) from None
+    if not math.isfinite(interval) or interval <= 0 or interval > 86400:
+        raise ConfigError(ErrorCode.INVALID_INPUT)
+    return interval
+
+
+def _wait_with_local_heartbeat(stop, duration: float, refresh) -> bool:
+    """Wait for the configured idle interval while refreshing local snapshots.
+
+    ``refresh`` must only read local owner state.  A false return means a stop
+    request interrupted the wait; no heartbeat is emitted after that point.
+    """
+
+    deadline = monotonic() + duration
+    while not stop.is_set():
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return True
+        if stop.wait(min(10.0, remaining)):
+            return False
+        if stop.is_set():
+            return False
+        refresh()
+    return False
+
+
 def _run_foreground_service(
     options: object, *, owner=None, config=None
 ) -> tuple[dict, tuple[str, ...]]:
     """Own one sync loop and one read-only Dashboard in the current process."""
-
-    from time import monotonic
 
     from facet.gmail.service_factory import GoogleGmailServiceFactory
     from facet.runtime.dashboard import LiveSnapshotProvider
@@ -708,12 +745,6 @@ def _run_foreground_service(
 
     if getattr(options, "fake", False):
         raise ConfigError(ErrorCode.INVALID_INPUT)
-    try:
-        interval = float(options.interval)
-    except (TypeError, ValueError):
-        raise ConfigError(ErrorCode.INVALID_INPUT) from None
-    if not math.isfinite(interval) or interval <= 0 or interval > 86400:
-        raise ConfigError(ErrorCode.INVALID_INPUT)
     if not 1 <= options.port <= 65535 or not isinstance(options.host, str):
         raise ConfigError(ErrorCode.INVALID_INPUT)
     paths = select_paths(
@@ -723,8 +754,10 @@ def _run_foreground_service(
         raise ConfigError(ErrorCode.INVALID_INPUT)
     raw = read_managed_config(paths)
     close_owner = owner is None
-    if close_owner:
+    if config is None:
         config = load_config(raw)
+    interval = _resolved_poll_interval(options, config)
+    if close_owner:
         owner = StateOwner.open(paths.root, config)
     provider = LiveSnapshotProvider()
     stop = Event()
@@ -757,12 +790,28 @@ def _run_foreground_service(
 
         emit_operation(OperationStage.START)
         progress()
+        last_error_code = None
+        last_cycle_verified = False
+
+        def refresh_local_snapshot():
+            try:
+                provider.publish_from_owner(
+                    owner,
+                    config,
+                    error_code=last_error_code,
+                    cycle_verified=last_cycle_verified,
+                )
+            except Exception:
+                provider.invalidate()
+
         while not stop.is_set():
             try:
                 ready, gate_error = _foreground_gate(owner)
             except Exception:
                 provider.invalidate()
-                stop.wait(interval)
+                last_error_code = ErrorCode.PERSISTENCE_FAILURE
+                last_cycle_verified = False
+                _wait_with_local_heartbeat(stop, interval, refresh_local_snapshot)
                 continue
             if not ready:
                 try:
@@ -774,7 +823,9 @@ def _run_foreground_service(
                     )
                 except Exception:
                     provider.invalidate()
-                stop.wait(interval)
+                last_error_code = gate_error
+                last_cycle_verified = False
+                _wait_with_local_heartbeat(stop, interval, refresh_local_snapshot)
                 continue
             error_code = None
             cycle_started = monotonic()
@@ -804,6 +855,8 @@ def _run_foreground_service(
                     code=error_code,
                     elapsed_ms=int((monotonic() - cycle_started) * 1000),
                 )
+            last_error_code = error_code
+            last_cycle_verified = error_code is None
             try:
                 provider.publish_from_owner(
                     owner,
@@ -813,7 +866,7 @@ def _run_foreground_service(
                 )
             except Exception:
                 provider.invalidate()
-            stop.wait(interval)
+            _wait_with_local_heartbeat(stop, interval, refresh_local_snapshot)
     except KeyboardInterrupt:
         pass
     finally:
@@ -844,6 +897,9 @@ def _run_once_fake(options: object) -> tuple[dict, tuple[str, ...]]:
         raise ConfigError(ErrorCode.INVALID_INPUT)
     raw = read_managed_config(paths)
     config = load_config(raw)
+    # Even the synthetic provider path must reject an invalid explicit
+    # interval before opening the owner or touching state.
+    _resolved_poll_interval(options, config)
     owner = StateOwner.open(paths.root, config)
     try:
         owner.verify_config_artifact(raw)

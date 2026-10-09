@@ -33,6 +33,8 @@ from facet.status.models import (
     QueueCounts,
     RateMetric,
     RoleStatus,
+    Rules,
+    RuleSummary,
     Status,
     count_from_core,
 )
@@ -130,13 +132,28 @@ def test_all_families_explicit_keys_pure_and_no_missing_source_success(
         "scope",
     }
     assert set(result["data"]) == {f.name for f in fields(data)}
-    assert result["sampled_at"] == "2026-10-02T12:00:00.123456Z"
+    assert result["sampled_at"] == NOW.value.astimezone().isoformat(
+        timespec="microseconds"
+    )
     assert result["freshness"] == "unavailable"
     assert result["age_seconds"] is None
     assert json.loads(public_json(value)) == result
     assert public_json(value) == public_json(value)
     result["data"]["injected"] = "PRIVATE_SENTINEL"
     assert "PRIVATE_SENTINEL" not in public_json(value)
+
+
+def test_rules_snapshot_supports_the_configured_rule_limit():
+    value = envelope(
+        Rules(
+            tuple(
+                RuleSummary("allow_sender", f"{index:04d}" + "é" * 254, True)
+                for index in range(1024)
+            )
+        )
+    )
+    encoded = public_json(value)
+    assert len(encoded.encode("ascii")) < 2097152
 
 
 @pytest.mark.parametrize(

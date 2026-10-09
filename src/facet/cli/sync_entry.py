@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import math
 import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -79,19 +78,14 @@ def synchronize(options):
     from facet.cli.bootstrap import (
         _backfill_preview,
         _backfill_start,
+        _resolved_poll_interval,
         _run_foreground_service,
         _run_once_production,
     )
 
     if getattr(options, "config_path", None) is not None:
         raise ConfigError(ErrorCode.INVALID_INPUT)
-    interval = float(options.interval)
-    if (
-        not math.isfinite(interval)
-        or not 0 < interval <= 86400
-        or not 1 <= options.port <= 65535
-        or not isinstance(options.host, str)
-    ):
+    if not 1 <= options.port <= 65535 or not isinstance(options.host, str):
         raise ConfigError(ErrorCode.INVALID_INPUT)
     caller_id = getattr(options, "request_id", None)
     if caller_id is not None:
@@ -100,6 +94,7 @@ def synchronize(options):
     paths = select_paths(getattr(options, "state_dir", None), None)
     raw = read_managed_config(paths)
     config = load_config(raw)
+    _resolved_poll_interval(options, config)
     if (
         getattr(options, "projection", None) is not None
         and ProjectionId(options.projection) != config.projection.id

@@ -40,6 +40,7 @@ def test_default_routes_are_explicitly_unavailable(dashboard_server):
         "/api/v1/status",
         "/api/v1/progress",
         "/api/v1/issues",
+        "/api/v1/rules",
         "/api/v1/diagnostics",
     ):
         status, body = get_json(dashboard_server, path)
@@ -82,7 +83,7 @@ def test_static_page_is_aggregate_only(dashboard_server):
     assert "facet dashboard" in body
     for forbidden in ("subject", "attachment", "access_token", "refresh_token"):
         assert forbidden not in body
-    for family in ("status", "progress", "issues", "diagnostics"):
+    for family in ("status", "progress", "issues", "rules", "diagnostics"):
         assert family in body
     for feature in (
         "binding verified",

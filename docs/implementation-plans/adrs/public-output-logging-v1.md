@@ -60,8 +60,9 @@ core values; field validation still requires exact built-in types as below.
 
 PublicCount's JSON-safe bound prevents browser rounding of large exact counts.
 Overflow is consistency_failure, never a fabricated lesser count. Core storage
-retains its wider integer contract. Times are actual Timestamp values encoded
-UTC RFC3339 `Z` with six fractional digits; no arbitrary string timestamps.
+retains its wider integer contract. Times are actual Timestamp values persisted
+as UTC instants and encoded with the sync server's local offset (six fractional
+digits) at public and structured-log boundaries; no arbitrary string timestamps.
 Non-finite/coerced metric values, bool-as-number and unsupported enum values
 refuse before output. Counts can be null only where listed as unavailable.
 

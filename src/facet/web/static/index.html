@@ -61,6 +61,7 @@
         <div class="row"><dt>Target binding verified</dt><dd id="target-time">Unknown</dd></div>
         <div class="row"><dt>Target freshness</dt><dd id="target-fresh">Unknown</dd></div>
       </dl><p class="muted">Binding verification is not the time of the latest provider request.</p></section>
+      <section class="wide"><h2>Current rules</h2><div id="rules">Unknown</div><p class="muted">These values are private deployment configuration. This page is read-only and does not edit rules.</p></section>
       <section class="wide"><h2>Queue · mutually exclusive job states</h2><dl class="queue">
         <div class="row"><dt>Queued</dt><dd id="job-queued">Unknown</dd></div><div class="row"><dt>Claimed</dt><dd id="job-claimed">Unknown</dd></div>
         <div class="row"><dt>Retry wait</dt><dd id="job-retry_wait">Unknown</dd></div><div class="row"><dt>Blocked</dt><dd id="job-blocked">Unknown</dd></div>
@@ -88,7 +89,7 @@
       </dl></section>
       <section><h2>Reconcile and audit</h2><p class="muted">Not reported by the current snapshot collector.</p><p>Use the maintenance CLI for available checks. This page does not run Gmail requests, audits, retries or configuration changes.</p></section>
     </main>
-    <footer>Times are operational events in UTC, never message dates. Refresh reads four cached aggregate snapshots every ten seconds. Unknown and stale data are not evidence of healthy sync.</footer>
+    <footer>Times are operational events in the sync server's local timezone, never message dates. Refresh reads five cached aggregate snapshots every ten seconds. Unknown and stale data are not evidence of healthy sync.</footer>
     <script>
       (() => {
         const get = id => document.getElementById(id);
@@ -96,7 +97,7 @@
         const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
         const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
         const metric = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
-        const time = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?(?:Z|\+00:00)$/.test(value) && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString().replace('T', ' ').replace('Z', ' UTC') : null;
+        const time = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?(?:Z|[+-]\d\d:\d\d)$/.test(value) ? value.replace('T', ' ') : null;
         const label = (value, map) => Object.hasOwn(map, value) ? map[value] : 'Unknown';
         const fresh = {fresh: 'Fresh', stale: 'Stale', unavailable: 'Unavailable'};
         const health = {healthy: 'Healthy', degraded: 'Degraded', blocked: 'Blocked', unknown: 'Unknown'};
@@ -110,7 +111,7 @@
         const advice = {correct_input: 'Correct CLI input.', inspect_request: 'Inspect the CLI request receipt.', repeat_same_request: 'Repeat the same CLI request key.', confirm_scope: 'Confirm scope in the CLI.', verify_binding: 'Verify account bindings in the CLI.', refresh_preview: 'Refresh the CLI preview.', inspect_owner: 'Inspect sync ownership.', wait_receipt: 'Wait for the request receipt.', authorize_source: 'Reauthorize Source on the deployment host.', authorize_target: 'Reauthorize Target on the deployment host.', wait_dependency: 'Wait for automatic dependency retry.', inspect_target_storage: 'Inspect Target storage.', inspect_recovery: 'Inspect insert recovery in the CLI.', inspect_work: 'Inspect work in the CLI.', inspect_maintenance: 'Inspect offline maintenance.'};
         const codes = new Set('invalid_input unsupported_version request_conflict request_not_received request_outcome_unknown request_lineage_mismatch confirmation_required scope_required binding_mismatch binding_pending preview_invalid generation_stale owner_unavailable owner_busy maintenance_incomplete wait_timeout source_auth_required target_auth_required source_rate_limited target_rate_limited network_unavailable target_storage_full insert_result_unknown duplicate_candidates attribution_unknown fidelity_mismatch source_missing target_missing database_unavailable persistence_failure consistency_failure maintenance_required'.split(' '));
         const jobStates = 'queued claimed retry_wait blocked needs_attention completed cancelled source_missing failed'.split(' ');
-        const valueIds = 'confirmed queued attention phase poll insert heartbeat source-mode source-binding source-time source-fresh target-mode target-binding target-time target-fresh epoch-kind epoch-state epoch-start discovery scanned discovered completed candidates oldest hour day rate latency version schema owners database scopes pressure checked'.split(' ').concat(jobStates.map(state => `job-${state}`));
+        const valueIds = 'confirmed queued attention phase poll insert heartbeat source-mode source-binding source-time source-fresh target-mode target-binding target-time target-fresh epoch-kind epoch-state epoch-start discovery scanned discovered completed candidates oldest hour day rate latency version schema owners database scopes pressure checked rules'.split(' ').concat(jobStates.map(state => `job-${state}`));
         const role = (data, name) => {
           if (!object(data) || data.role !== name || !Object.hasOwn(fresh, data.freshness) || (data.auth_state !== null && !Object.hasOwn(bindings, data.auth_state))) throw new Error();
           return {mode: label(data.mode, modes), binding: label(data.auth_state, bindings), verified: time(data.last_verified_at), freshness: label(data.freshness, fresh)};
@@ -140,6 +141,13 @@
               if (!object(group) || !codes.has(group.code) || count(group.count) === null || group.count < 1 || typeof group.retryable !== 'boolean') throw new Error();
               return {code: group.code, count: group.count, role: label(group.role, {source: 'Source', target: 'Target', null: 'Projection'}), first: time(group.first_at), last: time(group.last_at), retryable: group.retryable, next: time(group.next_retry_at), advice: label(group.suggestion, advice)};
             });
+          } else if (family === 'rules') {
+            if (!Array.isArray(data.entries) || data.entries.length > 1024) throw new Error();
+            const kinds = new Set(['allow_sender', 'allow_domain', 'blacklist_sender', 'action_label_add_sender', 'action_label_add_domain', 'action_label_blacklist']);
+            result.entries = data.entries.map(entry => {
+              if (!object(entry) || !kinds.has(entry.kind) || typeof entry.value !== 'string' || !entry.value || entry.value.length > 512 || typeof entry.enabled !== 'boolean' || /[\u0000-\u001f\u007f]/.test(entry.value)) throw new Error();
+              return {kind: entry.kind, value: entry.value, enabled: entry.enabled};
+            });
           } else {
             Object.assign(result, {version: typeof data.app_version === 'string' && /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-zA-Z0-9.-]+)?$/.test(data.app_version) && data.app_version.length <= 64 ? data.app_version : null, schema: count(data.schema_version), owners: count(data.sync_owner_count), readable: label(data.db_readable, checks), writable: label(data.db_writable, checks), sourceScope: label(data.source_scope_ready, checks), targetScope: label(data.target_scope_ready, checks), memory: label(data.memory_pressure, pressures), disk: label(data.disk_pressure, pressures), checked: time(data.checked_at)});
           }
@@ -150,8 +158,8 @@
           put('health', 'Unknown'); get('health').className = 'badge';
           put('issues', 'Unknown — no current exception snapshot.'); put('freshness', note);
         };
-        const render = ([s, p, i, d]) => {
-          if ([s, p, i, d].some(data => data.freshness !== 'Fresh' || data.expires <= performance.now())) { unavailable('Stale or unavailable snapshot — current sync health and counts are unknown.'); return; }
+        const render = ([s, p, i, r, d]) => {
+          if ([s, p, i, r, d].some(data => data.freshness !== 'Fresh' || data.expires <= performance.now())) { unavailable('Stale or unavailable snapshot — current sync health and counts are unknown.'); return; }
           put('freshness', `Fresh aggregate snapshots · sampled ${s.sampled}`);
           put('health', s.health); get('health').className = s.health === 'Healthy' ? 'badge healthy' : 'badge';
           ['phase', 'poll', 'insert', 'heartbeat'].forEach(id => put(id, s[id]));
@@ -162,6 +170,14 @@
           put('discovery', p.discovery ? 'Complete · candidates known' : 'In progress · total unknown');
           ['scanned', 'discovered', 'completed', 'candidates', 'hour', 'day', 'rate', 'latency'].forEach(id => put(id, p[id]));
           put('oldest', p.oldest === null ? null : `${p.oldest} seconds`);
+          get('rules').replaceChildren();
+          if (!r.entries.length) put('rules', 'No configured rules or action labels.');
+          r.entries.forEach(entry => {
+            const row = document.createElement('div'); row.className = 'row';
+            const kind = document.createElement('dt'); kind.textContent = entry.kind;
+            const value = document.createElement('dd'); value.textContent = `${entry.value} · ${entry.enabled ? 'Enabled' : 'Disabled'}`;
+            row.append(kind, value); get('rules').append(row);
+          });
           get('issues').replaceChildren();
           if (!i.groups.length) put('issues', 'No reported exception groups in this fresh snapshot.');
           i.groups.forEach(group => {
@@ -182,7 +198,7 @@
           const controller = new AbortController();
           const timeout = window.setTimeout(() => controller.abort(), 8000);
           try {
-            const snapshots = await Promise.all(['status', 'progress', 'issues', 'diagnostics'].map(async family => {
+            const snapshots = await Promise.all(['status', 'progress', 'issues', 'rules', 'diagnostics'].map(async family => {
               const requestedAt = performance.now();
               const response = await fetch(`/api/v1/${family}`, {cache: 'no-store', signal: controller.signal});
               if (!response.ok) throw new Error();

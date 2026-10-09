@@ -44,6 +44,8 @@ from facet.status.models import (
     QueueCounts,
     RateMetric,
     RoleStatus,
+    Rules,
+    RuleSummary,
     Status,
 )
 from facet.status.serialization import serialize_public
@@ -211,7 +213,7 @@ def _health(projection, bindings, epoch, counts, issues) -> PublicHealth:
 def snapshot_from_owner(
     owner, config, *, error_code: ErrorCode | None = None, cycle_verified=False
 ):
-    """Build all four public envelopes from one short private DB snapshot."""
+    """Build all five public envelopes from one short private DB snapshot."""
 
     sampled_at = _now()
     with owner.session.transaction() as uow:
@@ -230,6 +232,33 @@ def snapshot_from_owner(
             else (None, None)
         )
         issues = _issues(uow, owner.projection_id, sampled_at, error_code)
+        rule_rows = uow._execute(
+            "SELECT r.kind,r.normalized_value,rr.enabled FROM rules r "
+            "JOIN rule_revisions rr ON rr.projection_id=r.projection_id "
+            "AND rr.rule_id=r.rule_id AND rr.revision=r.current_revision "
+            "WHERE r.projection_id=? ORDER BY r.kind,r.normalized_value",
+            (owner.projection_id.value,),
+        ).fetchall()
+        schema_version = int(uow._execute("PRAGMA user_version").fetchone()[0])
+        label_rows = (
+            uow._execute(
+                "SELECT action_kind,label_name FROM action_label_mappings "
+                "WHERE projection_id=? AND label_name IS NOT NULL ORDER BY action_kind",
+                (owner.projection_id.value,),
+            ).fetchall()
+            if schema_version >= 3
+            else ()
+        )
+        rule_entries = [
+            RuleSummary(str(kind), str(value), bool(enabled))
+            for kind, value, enabled in rule_rows
+        ]
+        rule_entries.extend(
+            RuleSummary(f"action_label_{kind}", str(name), True)
+            for kind, name in label_rows
+        )
+        rule_entries.sort(key=lambda entry: (entry.kind, entry.value))
+        rules = Rules(tuple(rule_entries))
         unresolved_gap = epochs._latest_unresolved_gap(uow, owner.projection_id)
         last_poll = uow._execute(
             "SELECT MAX(finished_at) FROM history_polls WHERE projection_id=? "
@@ -323,6 +352,7 @@ def snapshot_from_owner(
         "status": _envelope(status, sampled_at),
         "progress": _envelope(progress, sampled_at),
         "issues": _envelope(issues, sampled_at),
+        "rules": _envelope(rules, sampled_at),
         "diagnostics": _envelope(diagnostics, sampled_at),
     }
 

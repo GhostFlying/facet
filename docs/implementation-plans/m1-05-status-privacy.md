@@ -1,5 +1,11 @@
 # M1-05 public status models, controlled errors and logging
 
+2026-10-09 override: the approved private Dashboard Rules snapshot is a fifth
+closed family. Current sender/domain values and action-label text are allowed
+only there, not in status/doctor, logs, or exports. Historical four-family and
+rule-value exclusion wording below describes the original baseline and is
+superseded only by this bounded exception.
+
 Date: 2026-10-02. Revision: r1, plan-only candidate.
 
 Status: drafted for independent plan review. Only this plan and bounded Issue
@@ -104,8 +110,10 @@ pressure, units/windows, suggestions and issue-group bounds; reuse actual core e
 where defined rather than duplicate them. New status-local enums have a finite
 reviewed inventory and no free-text escape. Only trusted build source produces an
 app version; an arbitrary config/provider string cannot be relabelled as version.
-Times are operational aware-UTC values; units/ranges are validated, bool is not a
-count, non-finite values and coerced/unknown enums are refused with fixed errors.
+Times are persisted as aware UTC instants and formatted with the sync server's
+local offset at the Dashboard, aggregate CLI, and structured operational-log
+boundaries; units/ranges are validated, bool is not a count, non-finite values
+and coerced/unknown enums are refused with fixed errors.
 
 Unique success counts current verified source mappings, not insert attempts,
 receipts, mapping-history rows or target mailbox size. Repeated History events,

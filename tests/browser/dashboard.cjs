@@ -5,8 +5,8 @@ const {chromium} = require('playwright-core');
 const base = new URL(process.env.FACET_DASHBOARD_TEST_URL || 'http://127.0.0.1:18084/');
 assert.equal(base.hostname, '127.0.0.1', 'Use an isolated loopback test server.');
 assert.equal(base.pathname, '/');
-const timestamp = '2026-10-09T03:00:00.000000Z';
-const families = ['status', 'progress', 'issues', 'diagnostics'];
+const timestamp = '2026-10-09T11:00:00.000000+08:00';
+const families = ['status', 'progress', 'issues', 'rules', 'diagnostics'];
 const apiPaths = families.map(name => `/api/v1/${name}`);
 const fixture = () => {
   const role = (name, mode) => ({role: name, mode, auth_state: 'verified', last_verified_at: timestamp, freshness: 'fresh'});
@@ -14,6 +14,7 @@ const fixture = () => {
     status: {phase: 'incremental', health: 'healthy', source: role('source', 'source_readonly'), target: role('target', 'target_insert_readonly'), last_poll_at: timestamp, last_verified_insert_at: timestamp, heartbeat_at: timestamp},
     progress: {epoch: {kind: 'initial_backfill', state: 'completed', started_at: timestamp}, discovery_complete: true, scanned_threads: 777, discovered_threads: 777, completed_threads: 777, known_message_total: 4234, confirmed_messages: 4340, jobs: {queued: 0, claimed: 0, retry_wait: 0, blocked: 0, needs_attention: 0, completed: 9010, cancelled: 3, source_missing: 0, failed: 0}, oldest_runnable_job_age_seconds: null, verified_last_hour: null, verified_last_day: null, rate: {value: null, unit: 'messages_per_second', window_seconds: 60, sample_count: 0}, latency: {p50: null, p95: null, unit: 'milliseconds', window_seconds: 60, sample_count: 0}},
     issues: {groups: []},
+    rules: {entries: [{kind: 'allow_sender', value: 'sender@example.test', enabled: true}, {kind: 'action_label_add_sender', value: 'Facet/AddSender', enabled: true}]},
     diagnostics: {app_version: '0.1.0', schema_version: 5, sync_owner_count: 1, db_readable: 'ok', db_writable: 'ok', source_mode: 'readonly', source_scope_ready: 'ok', target_scope_ready: 'ok', memory_pressure: 'unknown', disk_pressure: 'unknown', heartbeat_at: timestamp, checked_at: timestamp}
   };
   return Object.fromEntries(families.map(name => [name, {data: values[name], schema_version: 1, sampled_at: timestamp, freshness: 'fresh', age_seconds: 0, scope: 'projection'}]));
@@ -151,7 +152,7 @@ const fixture = () => {
       await expectUnknown();
       assert.equal(errors.length, 0);
       const dom = await page.locator('body').innerText();
-      assert.doesNotMatch(dom, /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|\b[a-f0-9]{64}\b/i);
+      assert.doesNotMatch(dom, /subject|attachment|body|raw|\b[a-f0-9]{64}\b/i);
       for (const request of requests) {
         const url = new URL(request.url);
         assert.equal(url.origin, base.origin);

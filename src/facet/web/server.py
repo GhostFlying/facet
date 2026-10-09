@@ -28,6 +28,7 @@ from facet.status.models import (
     QueueCounts,
     RateMetric,
     RoleStatus,
+    Rules,
     Status,
 )
 from facet.status.serialization import serialize_public
@@ -36,6 +37,7 @@ _ROUTES = {
     "/api/v1/status": "status",
     "/api/v1/progress": "progress",
     "/api/v1/issues": "issues",
+    "/api/v1/rules": "rules",
     "/api/v1/diagnostics": "diagnostics",
 }
 _STATIC_ROOT = Path(__file__).with_name("static")
@@ -104,6 +106,9 @@ def _unavailable_envelopes() -> dict[str, PublicEnvelope]:
         ),
         "issues": PublicEnvelope(
             Issues(()), 1, now, Freshness.UNAVAILABLE, None, "projection"
+        ),
+        "rules": PublicEnvelope(
+            Rules(()), 1, now, Freshness.UNAVAILABLE, None, "projection"
         ),
         "diagnostics": PublicEnvelope(
             diagnostics, 1, now, Freshness.UNAVAILABLE, None, "projection"
