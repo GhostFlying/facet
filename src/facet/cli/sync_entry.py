@@ -44,17 +44,16 @@ def _keys(owner, config, caller_id):
         identity = ("explicit", namespace, LocalId(caller_id).value)
     else:
         with owner.session.transaction() as uow:
-            projection, binding, _, _ = _backfill_guards(uow, config.projection.id)
-        # Admissions advance the preview's generation-sum guard. They must not
-        # alter this intentional-operation identity during restart continuation.
+            projection, _, _, _ = _backfill_guards(uow, config.projection.id)
+        # Credential/binding refreshes and rule changes must not alter this
+        # complete-sync request identity. Rule changes are represented by their
+        # own automatic scopes; the saved complete-sync scope remains replayable.
         now = datetime.now(UTC)
         identity = (
             "default",
             namespace,
             config.projection.id.value,
-            binding.value,
             projection.config_revision.value,
-            projection.ruleset_revision.value,
             now.year,
             now.month,
         )

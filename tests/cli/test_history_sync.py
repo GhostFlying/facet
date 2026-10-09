@@ -108,6 +108,17 @@ def test_cli_new_rule_after_empty_epoch_admits_full_thread_and_restarts(tmp_path
         assert first["projected"] == 2  # prior history + arriving mail; no draft
         assert json.loads(mailbox.read_text())["insert_calls"] == 2
         with sqlite3.connect(state / "facet.db") as db:
+            rule_epoch_operation = db.execute(
+                "SELECT operation_id FROM epochs WHERE kind='historical_expansion'"
+            ).fetchone()[0]
+            assert db.execute(
+                "SELECT COUNT(*) FROM operation_backfill "
+                "WHERE operation_id=? AND scope_digest IS NOT NULL",
+                (rule_epoch_operation,),
+            ).fetchone() == (1,)
+            assert db.execute(
+                "SELECT COUNT(*) FROM epochs WHERE kind='historical_expansion'"
+            ).fetchone() == (1,)
             assert db.execute(
                 "SELECT source_message_id FROM message_mappings ORDER BY 1"
             ).fetchall() == [("future-new",), ("future-old",)]

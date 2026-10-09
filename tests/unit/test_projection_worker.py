@@ -674,6 +674,107 @@ def test_resumed_sealed_scan_obeys_current_blacklist_without_widening_allow(
             reopened.close()
 
 
+def test_discovery_rechecks_blacklist_after_provider_read(monkeypatch):
+    from test_m2_foundation_consumers import lid
+
+    from facet.contracts import Visibility
+    from facet.db.repositories import policy
+    from facet.gmail.source import CandidateResult, DiscoveryItem, DiscoveryPage
+    from facet.projection.admission import DiscoveryCandidate
+    from facet.projection.rules import normalize_sender
+
+    class RaceSource(_SourceDiscovery):
+        def __init__(self, owner):
+            super().__init__()
+            self.owner = owner
+            self.mutated = False
+
+        def discover(self, *, window_start, window_end, page_token=None, query=None):
+            if not self.mutated:
+                self.mutated = True
+                projection = self.owner.projection_id
+                blacklist = RuleRow(
+                    projection,
+                    lid(901),
+                    RuleKind.BLACKLIST_SENDER,
+                    RuleValue("synthetic@example.com"),
+                    Revision(1),
+                )
+                with self.owner.session.transaction() as uow:
+                    policy.publish_rules(
+                        uow,
+                        projection,
+                        (blacklist,),
+                        (
+                            RuleRevisionRow(
+                                projection,
+                                blacklist.rule_id,
+                                Revision(1),
+                                True,
+                                NOW,
+                                RuleOrigin.CLI,
+                                PolicyVersion("auth-v1"),
+                            ),
+                        ),
+                        RulesetRow(projection, Revision(2), NOW, True),
+                        (
+                            RulesetMemberRow(
+                                projection, Revision(2), lid(900), Revision(1)
+                            ),
+                            RulesetMemberRow(
+                                projection, Revision(2), lid(901), Revision(1)
+                            ),
+                        ),
+                        RevisionGuard(Revision(1)),
+                    )
+            return DiscoveryPage(
+                (DiscoveryItem(ProviderId("m-race"), ProviderId("thread-race")),),
+                None,
+                1,
+            )
+
+        def candidate(self, item):
+            return CandidateResult(
+                candidate=DiscoveryCandidate(
+                    item.message_id,
+                    item.thread_id,
+                    normalize_sender("synthetic@example.com"),
+                    PrivateAddress("source@example.invalid"),
+                    Visibility.NORMAL,
+                    False,
+                    NOW,
+                )
+            )
+
+    with TemporaryDirectory(
+        prefix="facet-blacklist-race-", dir=_trusted_parent()
+    ) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=False)
+        try:
+            source = RaceSource(owner)
+            producer = BackfillProducer(
+                source,
+                SourceCandidateAdmission(
+                    source,
+                    load_persisted_admission(owner, owner.config, Revision(1)),
+                ),
+            )
+            epoch_id = LocalId(
+                owner._connection.execute(
+                    "SELECT epoch_id FROM epochs WHERE kind='initial_backfill'"
+                ).fetchone()[0]
+            )
+            producer.discover(owner.session, owner.projection_id, epoch_id)
+            assert owner._connection.execute(
+                "SELECT COUNT(*) FROM tracked_threads"
+            ).fetchone() == (0,)
+            assert owner._connection.execute(
+                "SELECT state FROM epoch_partitions"
+            ).fetchone() == ("complete",)
+        finally:
+            owner.close()
+
+
 def test_fidelity_ignores_transport_headers_and_keeps_raw_only_in_memory():
     raw = _raw("message", "PRIVATE_SENTINEL")
     changed = raw.replace(b"Date:", b"Received: private-hop\r\nDate:")

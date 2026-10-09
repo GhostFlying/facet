@@ -1,6 +1,6 @@
 # Facet development status
 
-Updated: 2026-10-09 (PRC; historical UTC receipts retain their original dates)
+Updated: 2026-10-10 (PRC; historical UTC receipts retain their original dates)
 
 This is the durable handoff for autonomous development. Update it with evidence
 at the end of each coherent implementation unit. Do not store account addresses,
@@ -106,6 +106,35 @@ IDs, credentials, or binding addresses. This explicit user-approved exception is
 private Dashboard configuration; it is not a write API and is not added to other
 public DTOs, logs, or exports. Targeted config/runtime/HTTP/privacy tests passed;
 candidate merge, image upgrade and live 60-second observation remain pending.
+
+### Rule-scoped automatic backfill — reviewed local candidate
+
+The current candidate detects newly enabled sender/domain rules during the next
+sync cycle and schedules one deterministic, rule-scoped historical epoch from the
+project fixed six-month anchor to a fenced processing snapshot. It reuses the
+existing preview/start journal, H0/History ordering, discovery, projection worker,
+mapping and recovery paths; it does not scan an unfiltered mailbox or widen an
+already sealed scope. Rule removal blocks new admission but does not revoke
+tracked-thread authorization. No live Gmail write has been performed for this
+change.
+
+The implementation plan is [rule-scoped backfill on add](implementation-plans/rule-scoped-backfill-on-add.md).
+The real CLI history, wire, and complete-sync subprocess suites assert rule
+addition followed by `run --once` creates the scoped operation/epoch and durable
+mappings, with restart deduplication. The complete-sync request key is stable
+across credential refreshes and rule changes: its saved scope replays unchanged,
+while a newly added rule gets an independent automatic scope. The durable
+discovery transaction rechecks current BlackList policy after provider metadata
+reads; a focused race test covers a blacklist added in that interval. Rules
+effective no later than the initial epoch creation are treated as covered by the
+initial scope. The full offline suite is 2954 passed, the affected focused suite
+is 130 passed, and Ruff/format/diff/repository-safety checks pass. Independent
+implementation review approved exact candidate `7c59c77`; PR #116's prior CI
+failure was these three stale complete-sync assertions, now fixed locally and
+awaiting CI rerun. Sender rule backfill is locally executable; domain rules
+remain fail-closed unless a provider adapter supplies the versioned domain-recall
+evidence gate. Real Gmail rule backfill and deployment remain separately
+authorized gates.
 
 ## Previous qualified delivery
 

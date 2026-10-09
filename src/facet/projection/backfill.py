@@ -19,10 +19,14 @@ from facet.contracts import (
     LocalId,
     PartitionProgress,
     PartitionState,
+    PolicyVersion,
     Priority,
+    ProjectionId,
     ProviderPageToken,
     Revision,
+    RuleKind,
     RuleRef,
+    Sha256Hex,
     Timestamp,
 )
 from facet.contracts.records import (
@@ -43,8 +47,9 @@ from facet.db.models import (
     TrackedThreadRow,
 )
 from facet.db.repositories import epochs, policy
-from facet.db.repositories.base import _get
+from facet.db.repositories.base import _get, _query
 from facet.gmail.source import discovery_window
+from facet.projection.rules import CanonicalSender
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +59,7 @@ class DiscoveryDecision:
     admit: bool
     rule: RuleRef | None = None
     attention: ErrorCode | None = None
+    sender: CanonicalSender | None = None
 
     def __post_init__(self):
         if (
@@ -62,6 +68,8 @@ class DiscoveryDecision:
             or (not self.admit and self.rule is not None)
             or (self.admit and self.attention is not None)
             or (self.attention is not None and type(self.attention) is not ErrorCode)
+            or type(self.sender) not in {CanonicalSender, type(None)}
+            or (not self.admit and self.sender is not None)
         ):
             raise ValueError("invalid_input")
 
@@ -78,6 +86,95 @@ def _local_id() -> LocalId:
 
 def _now() -> Timestamp:
     return Timestamp(datetime.now(UTC))
+
+
+def six_calendar_month_start(value: datetime) -> Timestamp:
+    """Return the UTC first-of-month boundary six calendar months before value."""
+
+    if type(value) is not datetime or value.tzinfo is None:
+        raise ValueError("invalid_input")
+    value = value.astimezone(UTC)
+    month = value.year * 12 + value.month - 1 - 6
+    year, month_index = divmod(month, 12)
+    return Timestamp(
+        value.replace(
+            year=year,
+            month=month_index + 1,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+    )
+
+
+def _scope_bytes(*values: object) -> bytes:
+    encoded = []
+    for value in values:
+        if isinstance(value, datetime):
+            raw = value.astimezone(UTC).isoformat().encode("utf-8")
+        else:
+            raw = str(value).encode("utf-8")
+        encoded.append(len(raw).to_bytes(4, "big") + raw)
+    return b"".join(encoded)
+
+
+def rule_scope_digest(
+    projection_id: ProjectionId,
+    rule_id: LocalId,
+    kind: RuleKind,
+    normalized_value: str,
+    revision: Revision,
+    effective_at: Timestamp,
+    policy_version: PolicyVersion,
+    window_start: Timestamp,
+    window_end: Timestamp,
+    discovery_cutoff: Timestamp,
+) -> Sha256Hex:
+    """Identify one rule revision and its immutable historical scan scope."""
+
+    if (
+        type(projection_id) is not ProjectionId
+        or type(rule_id) is not LocalId
+        or type(kind) is not RuleKind
+        or type(normalized_value) is not str
+        or type(revision) is not Revision
+        or type(effective_at) is not Timestamp
+        or type(policy_version) is not PolicyVersion
+        or type(window_start) is not Timestamp
+        or type(window_end) is not Timestamp
+        or type(discovery_cutoff) is not Timestamp
+    ):
+        raise ValueError("invalid_input")
+    return Sha256Hex(
+        sha256(
+            _scope_bytes(
+                "facet-rule-backfill-v1",
+                projection_id.value,
+                rule_id.value,
+                kind.value,
+                normalized_value,
+                revision.value,
+                effective_at.value,
+                policy_version.value,
+                window_start.value,
+                window_end.value,
+                discovery_cutoff.value,
+            )
+        ).hexdigest()
+    )
+
+
+def derived_rule_operation_id(scope: Sha256Hex, purpose: str) -> LocalId:
+    """Derive a stable UUID-v4-shaped local key from one rule scope."""
+
+    if type(scope) is not Sha256Hex or type(purpose) is not str or not purpose:
+        raise ValueError("invalid_input")
+    raw = list(sha256(_scope_bytes(scope.value, purpose)).hexdigest()[:32])
+    raw[12] = "4"
+    raw[16] = "8"
+    return LocalId("".join(raw))
 
 
 def _query_digest(query, epoch) -> str:
@@ -109,6 +206,44 @@ def _decode_query_token(token, digest: str) -> ProviderPageToken | None:
     if not raw:
         raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
     return ProviderPageToken(raw)
+
+
+def _current_blacklist_matches(uow, projection_id, projection, sender, now) -> bool:
+    """Recheck current blacklist policy against one provider candidate."""
+
+    rows = _query(
+        uow,
+        "SELECT rule_id,rule_revision FROM ruleset_members "
+        "WHERE projection_id=? AND ruleset_revision=?",
+        (projection_id.value, projection.ruleset_revision.value),
+        maximum=1000,
+    )
+    for rule_id_value, revision_value in rows:
+        identity = _get(
+            uow,
+            projection_id,
+            "rules",
+            (("rule_id", LocalId(rule_id_value)),),
+        )
+        revision = _get(
+            uow,
+            projection_id,
+            "rule_revisions",
+            (
+                ("rule_id", LocalId(rule_id_value)),
+                ("revision", Revision(revision_value)),
+            ),
+        )
+        if identity is None or revision is None:
+            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+        if (
+            identity.kind is RuleKind.BLACKLIST_SENDER
+            and revision.enabled
+            and revision.effective_at.value <= now.value
+            and identity.normalized_value.value == sender.value
+        ):
+            return True
+    return False
 
 
 class BackfillProducer:
@@ -274,8 +409,27 @@ class BackfillProducer:
                     # thread still matches the discovery window.
                     if existing is not None:
                         continue
-                    if epoch.kind is EpochKind.HISTORY_GAP:
+                    if epoch.kind in {
+                        EpochKind.INITIAL_BACKFILL,
+                        EpochKind.HISTORICAL_EXPANSION,
+                        EpochKind.HISTORY_GAP,
+                    }:
+                        selected_rule_revision = _get(
+                            uow,
+                            projection_id,
+                            "rule_revisions",
+                            (
+                                ("rule_id", decision.rule.rule_id),
+                                ("revision", decision.rule.revision),
+                            ),
+                        )
+                        if selected_rule_revision is None:
+                            raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
                         projection = _get(uow, projection_id, "projections", ())
+                        if decision.sender is not None and _current_blacklist_matches(
+                            uow, projection_id, projection, decision.sender, now
+                        ):
+                            continue
                         member = _get(
                             uow,
                             projection_id,

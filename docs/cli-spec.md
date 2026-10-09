@@ -181,8 +181,10 @@ binding 和 scopes，缺授权时引导既有 OAuth 交互，不默选账号、�
 
 完整入口调用细分命令背后的同一业务操作，不另造同步引擎、shell 子命令链或 IPC。
 已有规则/窗口工作继续、mapping 去重；新增历史范围创建独立 epoch，不清空旧
-discovery/cursor/intents。容器重启/普通 run 续跑已有范围；连续运行中的新规则和
-action 学习不触发任意历史回扫，不把重启、每日 reconcile 当作新的历史披露意图；
+discovery/cursor/intents。容器重启/普通 run 续跑已有范围；连续运行中的新
+sender/domain rule 在下一次同步处理时自动启动该规则自己的固定六个月历史补齐，
+不回扫其他规则或无过滤 mailbox。action 学习、重启和每日 reconcile 不触发任意
+超出规则 scope 的历史披露意图；
 按 D11，History/gap 使用处理/扫描时规则，已知 gap 覆盖整个停机窗口。
 单独 init/setup/preview/status 保持原有无复制行为，维修/恢复许可不随 sync 扩张。
 
@@ -393,7 +395,7 @@ spool 或内容缓存。Backup 私密 credential 文件是成套备份的一部�
 | --- | --- | --- |
 | CLI-01 / G1 | 新环境 init/config validate、绑定拒绝、auth-status/offline doctor、schema inspect；已有状态不覆盖，JSON/退出码与非 TTY guards 可测；spike 独立 | M1-01/03/04/05/06 |
 | CLI-02 / G2 | 完整同步入口复用细分操作自动完成当前规则的非空历史 discovery/backfill 和 History/action ingestion；细分 preview/start 也可独立完成；真实 CLI subprocess、insert/readback/映射、unknown recovery 和重启去重，不直接填 DB 绕命令；source_missing 可解释 | M2 |
-| CLI-03 / G3 | 规则按处理时生效状态，effective_at 作审计，不保证邮件/规则严格时序；规则新增后新的有意 sync/细分 start 可通过新 epoch 补齐指定历史；普通 run/restart/action/reconcile 不回扫任意历史，已知 gap 可覆盖整个停机窗口；pause/resume/History gap range guards、无 scope/过期 preview 拒绝、init/setup/独立 preview 零 insert | M3 |
+| CLI-03 / G3 | 规则按处理时生效状态，effective_at 作审计，不保证邮件/规则严格时序；新 sender/domain rule 在下一次同步处理时仅按该规则从固定六个月 anchor 自动创建历史 epoch，且与已有 scope 隔离；普通 run/restart/action/reconcile 不扩大到其他规则或无过滤历史，已知 gap 可覆盖整个停机窗口；pause/resume/History gap range guards、无 scope/过期 preview 拒绝、init/setup/独立 preview 零 insert | M3 |
 | CLI-04 / G4 | 前台 sync/one-off 命令共享唯一 writer lock，status offline/Gmail down；reconcile/audit 可续、bounded repair；pause ingestion 和 mutation 边界正确 | M1-03、M3/M4 |
 | CLI-05 / G5 | mode/实际 scope 检查、legacy report、readonly 零 source mutation、blacklist/stop generation、cleanup 重放；resume 不复活 stopped | M4 |
 | CLI-06 / G6 | 全套 CLI 可从 Compose image 执行；stop/one-off DB+credential 协调锁；backup/restore 与 auth/refresh 并发不跨版本；verify/migrate/check offline，invalid_grant 时仍能看 pending；无 host Python | M6-01/02/03/06 |

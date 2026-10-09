@@ -34,7 +34,7 @@ OAuth 前由操作者声明 target 的专用用途及获准的 agent 发信/草�
 
 自动 admission 基于 Gmail source mailbox metadata 和配置的精确 sender/domain 规则。Gmail 负责 SMTP 认证与邮件分类，Facet 不重新验证 DKIM/SPF/DMARC，也不把认证 headers 作为 admission gate。Gmail 接收邮件不等于发件人真实或内容安全；规则匹配的正常非草稿邮件可以触发 thread 披露。格式歧义、账号不匹配和 provider 故障仍不放行。此边界由用户于 2026-10-05 明确确认，取代此前 source-path attestation 要求。
 
-新增 sender 或 domain rule 不自动回扫相同域名的所有旧 thread；通过 action label 学习时，当前 thread 立即纳入。按 2026-10-07 用户确认，规则变更与邮件到达不保证严格时序一致：正常 History 处理和 gap 恢复按处理/扫描时选定的生效规则判断，不还原邮件到达时的规则版本，`effective_at` 保留为审计记录。已知 gap 恢复可纳入停机窗口内早于规则创建的邮件；扫描范围仍固定为整个已知停机窗口，不因此扩成六个月或全邮箱。恢复扫描使用开始时选定的当前规则范围以稳定分页，期间移除规则阻止新的 admission，不保证并发规则变更的精确切换点。其他历史范围扩展仍由新的有意完整同步调用或细分 backfill 显式启动；普通重启、标签学习和 reconcile 不触发任意历史回扫。
+新增 sender 或 domain rule 在下一次同步处理时自动创建一个仅针对该规则的历史 backfill，范围从项目固定的六个月 anchor（初始 epoch 的 `window_start`；没有初始 epoch 时为项目创建时间向前六个日历月的 UTC 月初）到本次处理的固定 end fence。它不会回扫其他规则、扩大到无过滤的 mailbox，也不会改写已经 sealed 的 epoch；仍按唯一 rule-scope digest 去重并复用 H0、History、insert/readback/map 和 recovery。通过 action label 学习时，当前 thread 仍可立即纳入；新增规则的历史补齐与邮件到达不保证严格时序一致，`effective_at` 仅作审计记录。已知 gap 恢复仍只覆盖整个停机窗口，普通重启、reconcile 和规则删除不扩大既有 scope；删除后阻止新的 admission，但已跟踪 thread 保持授权。
 
 Agent 发信后的回复进入 source，由既有规则、tracked-thread 授权和 History 正常处理；未跟踪 thread 不因为是 agent 发信的回复就自动纳入。未来可考虑从 agent 发信的收件人发现候选规则，但 Phase 1 不实现，不从 target 的 SENT/草稿生成规则或授权，不新增 per-message To/Cc 存储。未来 sender/domain 选择、自动生效及历史范围需另行确定。
 

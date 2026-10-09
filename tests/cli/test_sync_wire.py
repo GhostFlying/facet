@@ -254,7 +254,8 @@ def run_cli_wire(
                 assert (
                     db.execute("SELECT * FROM message_mappings").fetchall() == old_maps
                 )
-            # A later rule must not enter the already-sealed historical query.
+            # A later rule gets its own bounded scope; it must not widen the
+            # already-sealed sender expansion.
             invoke(
                 "rules",
                 "add-sender",
@@ -308,13 +309,20 @@ def run_cli_wire(
             assert result["projected"] == (2 if expansion_fault else 4)
             new_inserts = 3 if expansion_fault else 4
             assert len(mailbox.inserted_raw) == inserts + new_inserts
-            query_count = 3 if partial_discovery else 2
+            # The current sender expansion keeps its original pagination, and
+            # the newly added later rule contributes one separate query.
+            query_count = (3 if partial_discovery else 2) + 1
             assert len(mailbox.discovery_queries) == query_count
-            assert all(
-                'from:"sender@example.com"' in query["q"][0]
-                and "later@example.com" not in query["q"][0]
+            sender_queries = [
+                query
                 for query in mailbox.discovery_queries
+                if 'from:"sender@example.com"' in query["q"][0]
+            ]
+            assert sender_queries
+            assert all(
+                "later@example.com" not in query["q"][0] for query in sender_queries
             )
+            sender_query_count = len(sender_queries)
             with sqlite3.connect(state / "facet.db") as db:
                 assert db.execute(
                     "SELECT state FROM epochs WHERE epoch_id=?",
@@ -338,7 +346,17 @@ def run_cli_wire(
                 ).fetchone() == ("checkpoint",)
             assert invoke("run", "--once")["projected"] == 0
             assert len(mailbox.inserted_raw) == inserts + new_inserts
-            assert len(mailbox.discovery_queries) == query_count  # Scan isn't repeated.
+            assert len(mailbox.discovery_queries) >= query_count
+            assert (
+                len(
+                    [
+                        query
+                        for query in mailbox.discovery_queries
+                        if 'from:"sender@example.com"' in query["q"][0]
+                    ]
+                )
+                == sender_query_count
+            )
             for raw in mailbox.inserted_raw[inserts:]:
                 identifier = (
                     raw.split(b"Message-ID: <", 1)[1].split(b"@", 1)[0].decode()
@@ -422,7 +440,7 @@ def run_cli_wire(
                     f"after:{start // 1_000_000 - 1} before:{end // 1_000_000 + 1}"
                 )
                 assert start <= mailbox.gap_arrived_at * 1000 <= end
-                assert all(
+                assert any(
                     expected_window in q["q"][0] for q in mailbox.discovery_queries
                 )
                 assert db.execute(

@@ -8,7 +8,7 @@ foreground container; it is not a daemon or an IPC service.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -40,12 +40,22 @@ from facet.contracts.records import (
     SourceEventKeyMessageDeleted,
     ThreadGenerationGuardUntracked,
 )
+from facet.db import command_store
 from facet.db.codecs import (
     EventProcessing,
     PollOrigin,
     PollState,
     StorageFailure,
     timestamp_to_sql,
+)
+from facet.db.command_records import BackfillPreviewRequest, BackfillStartRequest
+from facet.db.command_store import (
+    _backfill_guards,
+    _find_backfill,
+    _find_backfill_by_id,
+    _matching_rule_backfill,
+    preview_backfill,
+    start_backfill,
 )
 from facet.db.keys import event_key, job_key
 from facet.db.models import (
@@ -67,7 +77,11 @@ from facet.projection.admission import (
 from facet.projection.admission import (
     AdmissionEvaluator as PolicyAdmissionEvaluator,
 )
-from facet.projection.backfill import BackfillProducer
+from facet.projection.backfill import (
+    BackfillProducer,
+    derived_rule_operation_id,
+    rule_scope_digest,
+)
 from facet.projection.history import HistoryProducer
 from facet.projection.worker import ProjectionWorker, WorkerReceipt
 
@@ -78,6 +92,16 @@ def _now() -> Timestamp:
 
 def _id() -> LocalId:
     return LocalId(uuid4().hex)
+
+
+def _rule_discovery_cutoff(window_end: Timestamp) -> Timestamp:
+    """Return the latest UTC month boundary strictly before the end fence."""
+
+    cutoff = window_end.value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if cutoff >= window_end.value:
+        previous = cutoff - timedelta(days=1)
+        cutoff = previous.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return Timestamp(cutoff)
 
 
 _RETRY_DELAY = timedelta(seconds=1)
@@ -115,14 +139,24 @@ class SourceCandidateAdmission:
         rules = self._policy.enabled_allow_rules
         if not rules:
             return None
+        domain_capability = getattr(self._source, "domain_query_capability", None)
+        if (
+            any(rule.normalized.kind is RuleKind.ALLOW_DOMAIN for rule in rules)
+            and domain_capability != "gmail-from-domain-v1"
+        ):
+            raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
         clauses = tuple(
             sorted(
                 {
-                    'from:"'
-                    + rule.normalized.value.value.replace("\\", "\\\\").replace(
-                        '"', '\\"'
+                    (
+                        'from:"'
+                        + rule.normalized.value.value.replace("\\", "\\\\").replace(
+                            '"', '\\"'
+                        )
+                        + '"'
+                        if rule.normalized.kind is RuleKind.ALLOW_SENDER
+                        else "from:(@" + rule.normalized.value.value + ")"
                     )
-                    + '"'
                     for rule in rules
                     if rule.normalized.kind
                     in {RuleKind.ALLOW_SENDER, RuleKind.ALLOW_DOMAIN}
@@ -134,7 +168,8 @@ class SourceCandidateAdmission:
     def evaluate(self, item, epoch):
         from facet.projection.backfill import DiscoveryDecision
 
-        recovering = getattr(epoch, "kind", None) is EpochKind.HISTORY_GAP
+        epoch_kind = getattr(epoch, "kind", None)
+        recovering = epoch_kind is EpochKind.HISTORY_GAP
         try:
             result = (
                 self._source.history_candidate(item)
@@ -170,10 +205,14 @@ class SourceCandidateAdmission:
         ):
             return DiscoveryDecision(False)
         decision = self._policy.evaluate(
-            result.candidate, _now(), prospective=recovering
+            result.candidate,
+            _now(),
+            prospective=recovering or epoch_kind is EpochKind.HISTORICAL_EXPANSION,
         )
         if decision.admit:
-            return DiscoveryDecision(True, decision.rule)
+            return DiscoveryDecision(
+                True, decision.rule, sender=result.candidate.sender
+            )
         return DiscoveryDecision(False)
 
 
@@ -349,6 +388,7 @@ class ForegroundSync:
                 )
             recovery_pages = recovery.catchup(recovery_epoch, self._history)
         emit_operation(OperationStage.DISCOVERY)
+        self._schedule_rule_backfills()
         discovered = self._discover_backfill_epoch()
         emit_operation(OperationStage.HISTORY)
         history_pages = (
@@ -390,6 +430,217 @@ class ForegroundSync:
             recovery.warnings()
             + (("target_missing",) if self._worker._inventory.missing else ()),
         )
+
+    def _schedule_rule_backfills(self) -> int:
+        """Start one bounded historical expansion for each post-initial rule."""
+
+        from facet.db.repositories.serialization import COLUMNS
+
+        now = command_store._owner_now()
+        with self._owner.session.transaction() as uow:
+            projection = reads.get_projection(uow, self._projection)
+            checkpoint = reads.get_checkpoint(uow, self._projection)
+            initial_rows = _query(
+                uow,
+                "SELECT epoch_id FROM epochs WHERE projection_id=? "
+                "AND kind='initial_backfill' ORDER BY created_at,epoch_id LIMIT 1",
+                (self._projection.value,),
+                maximum=1,
+            )
+            if (
+                projection is None
+                or checkpoint is None
+                or checkpoint.cursor is None
+                or checkpoint.reliable_coverage_at is None
+                or not initial_rows
+                or epochs._latest_unresolved_gap(uow, self._projection) is not None
+            ):
+                return 0
+            initial = _get(
+                uow,
+                self._projection,
+                "epochs",
+                (("epoch_id", LocalId(initial_rows[0][0])),),
+            )
+            if initial is None or initial.window_start is None:
+                raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
+            initial_ruleset = initial.decision.ruleset_revision
+            rows = _query(
+                uow,
+                "SELECT "
+                + ",".join(COLUMNS["rules"])
+                + " FROM rules WHERE projection_id=?",
+                (self._projection.value,),
+                maximum=1000,
+            )
+            candidates = []
+            for values in rows:
+                identity = _decode(uow, self._projection, "rules", values)
+                if identity.kind not in {
+                    RuleKind.ALLOW_SENDER,
+                    RuleKind.ALLOW_DOMAIN,
+                }:
+                    continue
+                member = _query(
+                    uow,
+                    "SELECT rule_revision FROM ruleset_members WHERE projection_id=? "
+                    "AND ruleset_revision=? AND rule_id=? LIMIT 2",
+                    (
+                        self._projection.value,
+                        initial_ruleset.value,
+                        identity.rule_id.value,
+                    ),
+                    maximum=1,
+                )
+                if member and member[0][0] == identity.current_revision.value:
+                    continue
+                revision = _get(
+                    uow,
+                    self._projection,
+                    "rule_revisions",
+                    (
+                        ("rule_id", identity.rule_id),
+                        ("revision", identity.current_revision),
+                    ),
+                )
+                if revision is None or not revision.enabled:
+                    continue
+                # Rules effective before the initial epoch was created are
+                # already covered by that epoch's sealed scope. This temporal
+                # fence also makes startup robust if an older ruleset-membership
+                # row is incomplete or stale.
+                if revision.effective_at.value <= initial.created_at.value:
+                    continue
+                candidates.append((identity, revision, initial.window_start))
+        scheduled = 0
+        for identity, revision, anchor in candidates:
+            if self._start_rule_backfill(identity, revision, anchor, now):
+                scheduled += 1
+        return scheduled
+
+    def _start_rule_backfill(self, identity, revision, anchor, observed):
+        """Create/replay one typed preview/start pair under the owner lock."""
+
+        window_end = observed
+        discovery_cutoff = _rule_discovery_cutoff(window_end)
+        scope = rule_scope_digest(
+            self._projection,
+            identity.rule_id,
+            identity.kind,
+            identity.normalized_value.value,
+            revision.revision,
+            revision.effective_at,
+            revision.policy_version,
+            anchor,
+            window_end,
+            discovery_cutoff,
+        )
+        preview_nonce = derived_rule_operation_id(scope, "preview-request")
+        preview_operation_id = derived_rule_operation_id(scope, "preview-operation")
+        start_nonce = derived_rule_operation_id(scope, "start-request")
+        start_operation_id = derived_rule_operation_id(scope, "start-operation")
+        epoch_id = derived_rule_operation_id(scope, "epoch")
+        with self._owner.session.transaction() as uow:
+            existing_payload = _matching_rule_backfill(
+                uow, self._projection, identity, revision, observed
+            )
+            if existing_payload is not None and (
+                existing_payload.preview_operation_id is not None
+                or existing_payload.expires_at.value >= observed.value
+            ):
+                return False
+        profile = self._source.profile()
+        accepted_at = command_store._owner_now()
+        # The profile fence is acquired before either operation/epoch is
+        # published. All timestamps below are that one UTC processing snapshot.
+        window_end = accepted_at
+        discovery_cutoff = _rule_discovery_cutoff(window_end)
+        with self._owner.session.transaction() as uow:
+            existing_payload = _matching_rule_backfill(
+                uow, self._projection, identity, revision, accepted_at
+            )
+        if (
+            existing_payload is not None
+            and existing_payload.preview_operation_id is not None
+        ):
+            return False
+        if (
+            existing_payload is not None
+            and existing_payload.expires_at.value < accepted_at.value
+        ):
+            existing_payload = None
+        if (
+            existing_payload is not None
+            and existing_payload.preview_operation_id is None
+            and existing_payload.expires_at.value >= accepted_at.value
+        ):
+            scope = existing_payload.scope_digest
+            preview_operation_id = existing_payload.operation_id
+            window_end = existing_payload.window_end
+            discovery_cutoff = existing_payload.discovery_cutoff
+        else:
+            scope = rule_scope_digest(
+                self._projection,
+                identity.rule_id,
+                identity.kind,
+                identity.normalized_value.value,
+                revision.revision,
+                revision.effective_at,
+                revision.policy_version,
+                anchor,
+                window_end,
+                discovery_cutoff,
+            )
+            preview_operation_id = derived_rule_operation_id(scope, "preview-operation")
+        preview_nonce = derived_rule_operation_id(scope, "preview-request")
+        start_nonce = derived_rule_operation_id(scope, "start-request")
+        start_operation_id = derived_rule_operation_id(scope, "start-operation")
+        epoch_id = derived_rule_operation_id(scope, "epoch")
+        request = BackfillPreviewRequest(
+            preview_operation_id,
+            preview_nonce,
+            anchor,
+            window_end,
+            discovery_cutoff,
+            scope,
+            Timestamp(window_end.value + timedelta(minutes=10)),
+            Revision(0),
+            window_end,
+        )
+        start = BackfillStartRequest(
+            start_operation_id,
+            start_nonce,
+            preview_operation_id,
+            epoch_id,
+            profile.history_id,
+            accepted_at,
+            accepted_at,
+        )
+        with self._owner.session.transaction() as uow:
+            projection, _, _, invalidation = _backfill_guards(uow, self._projection)
+            request = replace(
+                request,
+                invalidating_revision=invalidation,
+            )
+            existing_start, existing_payload = _find_backfill(
+                uow,
+                self._projection,
+                self._owner.owner_info.request_namespace,
+                start_nonce,
+            )
+            if existing_start is not None:
+                if existing_start.expected_preview_id != preview_operation_id:
+                    raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
+                return False
+            preview = (
+                _find_backfill_by_id(uow, self._projection, preview_operation_id)[0]
+                if existing_payload is not None
+                else preview_backfill(uow, self._projection, request)
+            )
+            if preview is None:
+                raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
+            start_backfill(uow, self._projection, start)
+        return True
 
     def _require_ready(self) -> None:
         """Reject a cycle before it can read Gmail or mutate queue state."""

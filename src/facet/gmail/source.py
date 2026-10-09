@@ -263,6 +263,12 @@ class SourceAdapter:
     ) -> None:
         self._service = service
         self._source_account = source_account
+        # Domain-superset search is not inferred from Gmail's generic `from:`
+        # operator. A provider adapter must explicitly advertise the versioned
+        # recall evidence before the admission layer can issue that query.
+        self.domain_query_capability = getattr(
+            service, "facet_domain_query_capability", None
+        )
 
     def profile(self) -> SourceProfile:
         value = execute(

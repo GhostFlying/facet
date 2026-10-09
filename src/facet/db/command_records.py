@@ -50,7 +50,7 @@ def _six_calendar_month_start(value):
 
 
 def _valid_backfill_window(window_start, window_end, accepted_at):
-    return window_end.value == accepted_at.value and window_start.value == (
+    return window_end.value == accepted_at.value and window_start.value <= (
         _six_calendar_month_start(window_end.value)
     )
 
