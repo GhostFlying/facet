@@ -8,6 +8,26 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Dashboard operational consumer — implemented and browser-tested
+
+The [short plan](implementation-plans/dashboard-observability.md) and source
+`ae950076530909eb8fa86ecb3efd4c47cc192fa6` add a responsive consumer of the four
+existing cached public families: unique confirmed messages, exclusive queue
+states, current-scope thread discovery, fixed exception suggestions, binding
+state/times and DB/scope diagnostics. No new backend collector, Gmail access,
+write control or public field. Unknown metrics and unreported reconcile/audit
+remain explicit. Search candidates are not a final copy denominator.
+
+Actual Chromium desktop/mobile viewports passed synthetic backlog, auth, gap,
+partial completion, mixed-family freshness, request failure, malformed-response,
+timeout and recovery checks on the bundled page. The same checks passed in an
+isolated non-root read-only candidate container; no real state or credentials
+were mounted. Endpoint/runtime/public-privacy checks passed. Review and final
+candidate checks belong to the [acceptance record](reviews/dashboard-observability.md)
+and linked engineering PR, not a claim that every Phase 1 gate is finished.
+The running real service still uses the qualified continuous-sync image below;
+page qualification does not by itself assert a new image deployment.
+
 ### Observable continuous sync — merged and running in the current test deployment
 
 The user authorized current-machine continuous testing, not production migration
