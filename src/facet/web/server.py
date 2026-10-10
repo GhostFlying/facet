@@ -41,6 +41,7 @@ _ROUTES = {
     "/api/v1/rules": "rules",
     "/api/v1/activity": "activity",
     "/api/v1/diagnostics": "diagnostics",
+    "/api/v1/reconcile": "reconcile",
 }
 _STATIC_ROOT = Path(__file__).with_name("static")
 
@@ -53,6 +54,9 @@ class SnapshotProvider(Protocol):
 
     def ready(self) -> bool:
         """Return whether a readable aggregate snapshot is available."""
+
+    def reconcile_snapshot(self) -> dict:
+        """Return aggregate source-reconcile facts without mailbox details."""
 
 
 def _timestamp() -> Timestamp:
@@ -133,6 +137,9 @@ class UnavailableSnapshotProvider:
 
     def ready(self) -> bool:
         return False
+
+    def reconcile_snapshot(self) -> dict:
+        return {"state": "unavailable"}
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -220,6 +227,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
             return
         try:
+            if family == "reconcile":
+                self._write_json(HTTPStatus.OK, self.provider.reconcile_snapshot())
+                return
             payload = serialize_public(self.provider.snapshot(family))
         except Exception:
             self._write_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "unavailable"})

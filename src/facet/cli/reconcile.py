@@ -8,10 +8,14 @@ from facet.config import load_config
 from facet.contracts import (
     BindingState,
     Count,
+    EpochKind,
+    EpochState,
     Generation,
     JobKind,
     JobState,
     LocalId,
+    PartitionProgress,
+    PartitionState,
     Priority,
     ProviderId,
     Revision,
@@ -20,13 +24,21 @@ from facet.contracts import (
 )
 from facet.contracts.records import (
     AdmissionRefFutureRule,
+    EpochDecisionRefRequestedReconcile,
     JobSubjectExpandThread,
     JobSubjectProjectMessage,
+    PartitionRefSourceWindow,
     ThreadGenerationGuardUntracked,
 )
-from facet.db.codecs import PrivateAddress
-from facet.db.keys import job_key
-from facet.db.models import SyncJobRow, ThreadAdmissionRow, TrackedThreadRow
+from facet.db.codecs import PrivateAddress, timestamp_from_sql
+from facet.db.keys import job_key, partition_key
+from facet.db.models import (
+    EpochPartitionRow,
+    EpochRow,
+    SyncJobRow,
+    ThreadAdmissionRow,
+    TrackedThreadRow,
+)
 from facet.db.repositories import jobs, policy
 from facet.db.repositories.base import _get
 from facet.gmail.credentials import CredentialManager
@@ -114,6 +126,50 @@ def _status(owner):
     }
 
 
+def _prepare_epoch(owner, scope, epoch_id):
+    now = Timestamp(datetime.now(UTC))
+    reference = PartitionRefSourceWindow("source_window")
+    epoch = EpochRow(
+        owner.projection_id,
+        epoch_id,
+        EpochKind.SOURCE_RECONCILE,
+        EpochState.PREPARED,
+        Revision(0),
+        now,
+        scope.window_start,
+        scope.window_end,
+        scope.discovery_cutoff,
+        EpochDecisionRefRequestedReconcile(
+            "requested_reconcile", epoch_id, scope.ruleset_revision
+        ),
+        None,
+        None,
+        None,
+        None,
+        None,
+        False,
+        None,
+    )
+    partition = EpochPartitionRow(
+        owner.projection_id,
+        epoch_id,
+        partition_key(owner.projection_id, reference),
+        PartitionProgress(
+            reference, PartitionState.NOT_STARTED, Count(0), Count(0), None, None
+        ),
+        Revision(0),
+    )
+    from facet.db.repositories import epochs
+
+    with owner.session.transaction() as uow:
+        existing = uow._execute(
+            "SELECT 1 FROM epochs WHERE projection_id=? AND epoch_id=?",
+            (owner.projection_id.value, epoch_id.value),
+        ).fetchone()
+        if existing is None:
+            epochs.start_epoch(uow, owner.projection_id, epoch, (partition,))
+
+
 def _enqueue(owner, run_id):
     def enqueue(candidate, rule):
         message_id = ProviderId(candidate.message_id.value)
@@ -143,7 +199,7 @@ def _enqueue(owner, run_id):
                     Revision(0),
                     now,
                     now,
-                    None,
+                    run_id,
                     Count(0),
                     None,
                     None,
@@ -198,7 +254,7 @@ def _enqueue(owner, run_id):
                 None,
                 Count(0),
                 None,
-                None,
+                run_id,
                 subject,
             )
             policy.admit_thread(
@@ -236,18 +292,36 @@ def run_reconcile(options):
         owner.ensure_reconcile_schema(request_id, raw)
         request_key = getattr(options, "request_id", None) or request_id.value
         bindings = owner.bindings()
-        if any(
-            binding is None or binding.state is not BindingState.VERIFIED
-            for binding in bindings.values()
-        ):
+        source_binding = bindings.get(Role.SOURCE)
+        if source_binding is None or source_binding.state is not BindingState.VERIFIED:
             raise ValueError("binding_pending")
-        scope = _scope(owner, config)
-        admission = load_persisted_admission(owner, config, scope=None)
+        existing = owner._connection.execute(
+            "SELECT ruleset_revision,window_start,window_end,discovery_cutoff "
+            "FROM reconcile_runs WHERE projection_id=? AND request_key=?",
+            (owner.projection_id.value, request_key),
+        ).fetchone()
+        if existing is None:
+            scope = _scope(owner, config)
+        else:
+            scope = ReconcileScope(
+                Revision(existing[0]),
+                timestamp_from_sql(existing[1]),
+                timestamp_from_sql(existing[2]),
+                timestamp_from_sql(existing[3]),
+            )
+        admission = load_persisted_admission(
+            owner, config, ruleset_revision=scope.ruleset_revision
+        )
+        _prepare_epoch(owner, scope, request_id)
         service = _source_service(owner, config)
         try:
             source = SourceAdapter(
                 service, source_account=PrivateAddress(config.projection.source_email)
             )
+            # Bind the live OAuth token to the configured source before any
+            # mailbox scan.  This is deliberately source-only; target OAuth
+            # is not needed for a read-only reconcile.
+            source.profile()
             from facet.sync import SourceCandidateAdmission
 
             result = SourceReconciler(

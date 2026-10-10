@@ -1,6 +1,6 @@
 # Facet development status
 
-Updated: 2026-10-10 (PRC; historical UTC receipts retain their original dates)
+Updated: 2026-10-11 (PRC; historical UTC receipts retain their original dates)
 
 This is the durable handoff for autonomous development. Update it with evidence
 at the end of each coherent implementation unit. Do not store account addresses,
@@ -13,13 +13,14 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 The implementation plan is [full-source-reconcile](implementation-plans/full-source-reconcile.md).
 Schema v6 now has private `reconcile_runs` and candidate facts with resumable page
 state, bounded classifications, and no raw mail. `facet reconcile status` and the
-explicit `facet reconcile --source --full --yes` command are wired to a source-only
-provider path; it never constructs a Target adapter. The source adapter preserves
-metadata 404s for reconcile and can request `includeSpamTrash` for tracked-thread
-history. Focused schema/CLI checks pass. Candidate enqueue integration, durable
-per-candidate recheck/legacy-217 convergence, Dashboard aggregation, fake source
-coverage, and real source-only read validation remain incomplete; no live DB has
-been changed by this unit.
+explicit `facet reconcile --source --full --yes` command use a source-only provider
+path and never construct a Target adapter. Epoch lineage, source profile checking,
+legacy source-loss convergence, and the aggregate `/api/v1/reconcile` dashboard
+endpoint are wired; focused schema/CLI/dashboard checks pass. This remains an
+implementation candidate: the scan currently executes synchronously in the CLI
+instead of through a worker `reconcile_source` consumer, full fake-source fault
+coverage and preview/start lineage are still incomplete, and no live DB has been
+changed by this unit.
 
 ### Dashboard activity stream — layout refinement in progress
 

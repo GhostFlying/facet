@@ -22,6 +22,7 @@ from facet.contracts import (
     Timestamp,
 )
 from facet.db.codecs import StorageFailure, timestamp_to_sql
+from facet.db.repositories import events
 from facet.gmail.retry import ProviderFailure
 from facet.gmail.source import DiscoveryItem
 
@@ -31,7 +32,7 @@ class ReconcileClassification(StrEnum):
     MAPPED = "mapped"
     QUEUED = "queued"
     NO_RULE = "no_rule"
-    METADATA_UNAVAILABLE = "metadata_unavailable"
+    METADATA_UNAVAILABLE = "source_metadata_unavailable"
     DUPLICATE_EFFECT = "duplicate_effect"
     ATTENTION = "attention"
     MANAGED_SOURCE_MISSING = "managed_source_missing"
@@ -113,13 +114,18 @@ class SourceReconciler:
         fields = list(values)
         assignments = ",".join(f"{field}=?" for field in fields)
         params = [values[field] for field in fields]
-        if token is not None:
-            assignments += ",page_token=?"
-            params.append(token.value if hasattr(token, "value") else token)
-        params.extend((self.owner.projection_id.value, self.run_id.value))
+        assignments += ",page_token=?"
+        params.append(token.value if hasattr(token, "value") else token)
+        params.extend(
+            (
+                self.owner.projection_id.value,
+                self.run_id.value,
+                self.scope.ruleset_revision.value,
+            )
+        )
         uow._execute(
             f"UPDATE reconcile_runs SET {assignments},revision=revision+1 "
-            "WHERE projection_id=? AND run_id=?",
+            "WHERE projection_id=? AND run_id=? AND ruleset_revision=?",
             params,
         )
 
@@ -171,7 +177,15 @@ class SourceReconciler:
                     totals[name] = int(existing[index] or 0)
         query = self.admission.discovery_query(None)
         if query is None:
-            self._finish(totals, with_issues=False)
+            with self.owner.session.transaction() as uow:
+                uow._execute(
+                    "UPDATE reconcile_runs SET state='draining',revision=revision+1 "
+                    "WHERE projection_id=? AND run_id=?",
+                    (self.owner.projection_id.value, self.run_id.value),
+                )
+            self._scan_legacy_source_missing(totals, enqueue_candidate)
+            self._scan_tracked_threads(totals, enqueue_candidate)
+            self._finish(totals, with_issues=totals["remaining_issue"] > 0)
             return ReconcileResult(self.run_id, **totals)
         while True:
             self._assert_scope_revision()
@@ -182,7 +196,6 @@ class SourceReconciler:
                 query=query,
             )
             for item in response.items:
-                totals["listed"] += 1
                 if item.message_id.value in self._seen:
                     continue
                 with self.owner.session.transaction() as uow:
@@ -197,6 +210,7 @@ class SourceReconciler:
                     ).fetchone():
                         continue
                 self._seen.add(item.message_id.value)
+                totals["listed"] += 1
                 try:
                     read_candidate = getattr(
                         self.source, "reconcile_candidate", self.source.candidate
@@ -263,7 +277,9 @@ class SourceReconciler:
                         None,
                     )
                     continue
-                decision = self.admission._policy.evaluate(value, _now())
+                decision = self.admission._policy.evaluate(
+                    value, _now(), prospective=True
+                )
                 if not decision.admit:
                     self._record(
                         item,
@@ -338,7 +354,7 @@ class SourceReconciler:
                 "WHERE projection_id=? AND run_id=?",
                 (self.owner.projection_id.value, self.run_id.value),
             )
-        self._scan_legacy_source_missing(totals)
+        self._scan_legacy_source_missing(totals, enqueue_candidate)
         self._scan_tracked_threads(totals, enqueue_candidate)
         self._finish(totals, with_issues=totals["remaining_issue"] > 0)
         return ReconcileResult(self.run_id, **totals)
@@ -352,7 +368,7 @@ class SourceReconciler:
         if row is None or int(row[0]) != self.scope.ruleset_revision.value:
             raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
 
-    def _scan_legacy_source_missing(self, totals):
+    def _scan_legacy_source_missing(self, totals, enqueue_candidate):
         with self.owner.session.transaction() as uow:
             rows = uow._execute(
                 "SELECT source_message_id,source_thread_id FROM source_events "
@@ -361,6 +377,9 @@ class SourceReconciler:
                 (self.owner.projection_id.value,),
             ).fetchall()
         for message_id, thread_id in rows:
+            if message_id in self._seen:
+                continue
+            self._seen.add(message_id)
             item = DiscoveryItem(ProviderId(message_id), ProviderId(thread_id))
             try:
                 read_candidate = getattr(
@@ -403,6 +422,91 @@ class SourceReconciler:
                 )
             else:
                 totals["metadata_success"] += 1
+                value = result.candidate
+                if value.is_draft:
+                    self._record(
+                        item,
+                        ReconcileClassification.NO_RULE,
+                        ReconcileDisposition.RESET_VERIFIED,
+                        None,
+                        "draft",
+                        None,
+                    )
+                    totals["reset"] += 1
+                    continue
+                decision = self.admission._policy.evaluate(
+                    value, _now(), prospective=True
+                )
+                with self.owner.session.transaction() as uow:
+                    mapped = uow._execute(
+                        "SELECT 1 FROM message_mappings "
+                        "WHERE projection_id=? AND source_message_id=? LIMIT 1",
+                        (self.owner.projection_id.value, message_id),
+                    ).fetchone()
+                if mapped is not None:
+                    totals["mapped"] += 1
+                    totals["reset"] += 1
+                    with self.owner.session.transaction() as uow:
+                        events.converge_source_missing(
+                            uow,
+                            self.owner.projection_id,
+                            ProviderId(message_id),
+                            _now(),
+                        )
+                    self._record(
+                        item,
+                        ReconcileClassification.MAPPED,
+                        ReconcileDisposition.RESET_VERIFIED,
+                        None,
+                        "mapping",
+                        None,
+                    )
+                elif decision.admit and enqueue_candidate is not None:
+                    if enqueue_candidate(value, decision.rule):
+                        totals["matched"] += 1
+                        totals["queued"] += 1
+                        with self.owner.session.transaction() as uow:
+                            events.converge_source_missing(
+                                uow,
+                                self.owner.projection_id,
+                                ProviderId(message_id),
+                                _now(),
+                            )
+                        self._record(
+                            item,
+                            ReconcileClassification.QUEUED,
+                            ReconcileDisposition.QUEUED_PROJECTION,
+                            None,
+                            "legacy_source_missing_recovered",
+                            None,
+                        )
+                    else:
+                        totals["remaining_issue"] += 1
+                        self._record(
+                            item,
+                            ReconcileClassification.ATTENTION,
+                            ReconcileDisposition.REMAINING_ATTENTION,
+                            None,
+                            "enqueue_rejected",
+                            None,
+                        )
+                else:
+                    totals["reset"] += 1
+                    with self.owner.session.transaction() as uow:
+                        events.converge_source_missing(
+                            uow,
+                            self.owner.projection_id,
+                            ProviderId(message_id),
+                            _now(),
+                        )
+                    self._record(
+                        item,
+                        ReconcileClassification.NO_RULE,
+                        ReconcileDisposition.RESET_VERIFIED,
+                        "message_get",
+                        "legacy_source_missing_converged",
+                        None,
+                    )
 
     def _scan_tracked_threads(self, totals, enqueue_candidate):
         """Read complete available history for each active tracked thread."""
@@ -436,6 +540,9 @@ class SourceReconciler:
             for message in history.messages:
                 if "DRAFT" in message.labels:
                     continue
+                if message.message_id.value in self._seen:
+                    continue
+                self._seen.add(message.message_id.value)
                 totals["metadata_success"] += 1
                 item = DiscoveryItem(message.message_id, message.thread_id)
                 with self.owner.session.transaction() as uow:
