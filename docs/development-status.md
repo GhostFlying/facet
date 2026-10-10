@@ -128,13 +128,17 @@ discovery transaction rechecks current BlackList policy after provider metadata
 reads; a focused race test covers a blacklist added in that interval. Rules
 effective no later than the initial epoch creation are treated as covered by the
 initial scope. The full offline suite is 2954 passed, the affected focused suite
-is 130 passed, and Ruff/format/diff/repository-safety checks pass. Independent
-implementation review approved exact candidate `7c59c77`; PR #116's prior CI
-failure was these three stale complete-sync assertions, now fixed locally and
-awaiting CI rerun. Sender rule backfill is locally executable; domain rules
-remain fail-closed unless a provider adapter supplies the versioned domain-recall
-evidence gate. Real Gmail rule backfill and deployment remain separately
-authorized gates.
+is 130 passed, and Ruff/format/diff/repository-safety checks pass. PR #116
+merged the rule-scope implementation at
+`0e6e93de0da0eae83a89e35e62f8a4a01044d05f`. A follow-up production-wiring
+candidate now makes the same domain capability available from
+`GoogleGmailServiceFactory`; its focused service-factory, complete-sync, sync,
+and transport suite is 72 passed. Sender and domain rule backfill are locally
+executable: the production Google Gmail service factory now advertises the
+versioned `gmail-from-domain-v1` capability, while unrelated adapters remain
+fail-closed. Full offline validation and PR CI for this follow-up remain
+pending; real Gmail rule backfill and deployment remain separately authorized
+gates.
 
 ## Previous qualified delivery
 

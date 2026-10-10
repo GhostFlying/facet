@@ -122,9 +122,12 @@ def test_google_build_uses_only_access_token_and_separate_services(monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("sync must not construct auto-refresh/replay clients")
 
+    class BuiltService:
+        pass
+
     def build_spy(*args, **kwargs):
         builds.append((args, kwargs))
-        return object()
+        return BuiltService()
 
     monkeypatch.setattr(credentials, "Credentials", forbidden)
     monkeypatch.setattr(google_auth_httplib2, "AuthorizedHttp", forbidden)
@@ -160,6 +163,10 @@ def test_google_build_uses_only_access_token_and_separate_services(monkeypatch):
     assert all(args == ("gmail", "v1") for args, _ in builds)
     assert all(kwargs["cache_discovery"] is False for _, kwargs in builds)
     assert all(kwargs["num_retries"] == 0 for _, kwargs in builds)
+    assert all(
+        service.facet_domain_query_capability == "gmail-from-domain-v1"
+        for service in services
+    )
     assert vars(factory) == {}
 
 

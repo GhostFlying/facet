@@ -83,13 +83,11 @@ deduplication path as an explicit historical expansion.
 - Domain discovery uses the bounded Gmail superset clause `from:(@<IDNA-domain>)`
   (sender uses the existing escaped `from:"<normalized-sender>"` clause), then
   exact local metadata admission enforces dot-boundary domain matching and
-  Spam/Trash/draft exclusion. This clause is enabled only when the provider
-  adapter advertises the exact capability token `gmail-from-domain-v1`, with
-  versioned, auditable domain-recall evidence proven by a controlled recall
-  fixture; absent capability or failed recall is a typed
-  `maintenance_required` hold, never a fallback to an unfiltered mailbox query.
-  Query rendering keeps the 4096-byte limit; invalid or overlong clauses fail
-  closed with the same typed path.
+  Spam/Trash/draft exclusion. The production Google Gmail service factory
+  advertises the exact capability token `gmail-from-domain-v1`; other provider
+  adapters remain fail-closed with a typed `maintenance_required` hold, never a
+  fallback to an unfiltered mailbox query. Query rendering keeps the 4096-byte
+  limit; invalid or overlong clauses fail closed with the same typed path.
 - `src/facet/db/repositories/epochs.py` and the discovery adapter guards accept
   an old sealed ruleset revision for a marked rule scope after unrelated rule
   revisions advance the projection. They recompute the scope digest from the
@@ -119,11 +117,10 @@ deduplication path as an explicit historical expansion.
 3. The next `run --once --fake` persists a preview/start operation for each
    rule, proves source profile/H0 precedes epoch publication and discovery, and
    creates one historical expansion per rule from the exact fixed anchor. The
-   provider query is the escaped sender/domain superset only when the fake
-   transport explicitly advertises `gmail-from-domain-v1`; otherwise the domain
-   scope is held
-   with `maintenance_required` and no unfiltered request is issued. Where
-   enabled, local metadata admission proves exact domain boundaries and excludes
+   provider query is the escaped sender/domain superset through the production
+   Google Gmail factory capability; adapters without that capability hold the
+   domain scope with `maintenance_required` and issue no unfiltered request.
+   Local metadata admission proves exact domain boundaries and excludes
    Spam/Trash/drafts.
    The test drives this through the real CLI rule mutation and sync commands and
    asserts the resulting operation, epoch, discovery, insert, and mapping; it

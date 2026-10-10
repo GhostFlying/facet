@@ -22,6 +22,7 @@ __all__ = (
 )
 
 PROVIDER_REQUEST_TIMEOUT_SECONDS = 30
+GMAIL_DOMAIN_QUERY_CAPABILITY = "gmail-from-domain-v1"
 
 
 class GmailServiceFactory(Protocol):
@@ -91,13 +92,19 @@ class GoogleGmailServiceFactory:
             token_provider=token_provider,
         )
         try:
-            return build(
+            service = build(
                 "gmail",
                 "v1",
                 http=transport,
                 cache_discovery=False,
                 num_retries=0,
             )
+            # Gmail's bounded domain superset query is a provider-specific
+            # contract consumed by SourceAdapter. Keep the assertion at the
+            # production factory boundary so callers cannot accidentally use
+            # an unbounded fallback when a domain rule is enabled.
+            service.facet_domain_query_capability = GMAIL_DOMAIN_QUERY_CAPABILITY
+            return service
         except BaseException as error:
             transport.close()
             if isinstance(error, KeyboardInterrupt | SystemExit):
