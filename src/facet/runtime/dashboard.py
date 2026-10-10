@@ -166,21 +166,25 @@ def _issues(uow, projection_id, sampled_at, error_code) -> Issues:
 
 
 def _activity(uow, projection_id) -> Activity:
-    """Return bounded rule-attributed mapping batches without message details."""
+    """Return first-verification batches attributed to their admission rule."""
 
     rows = uow._execute(
-        "SELECT r.kind,r.normalized_value,COUNT(*),MAX(m.verified_at) "
-        "FROM message_mappings m "
-        "JOIN tracked_threads t ON t.projection_id=m.projection_id "
-        "AND t.source_thread_id=m.source_thread_id "
-        "JOIN thread_admissions a ON a.projection_id=t.projection_id "
-        "AND a.source_thread_id=t.source_thread_id "
-        "AND a.admission_revision=t.admission_revision "
-        "JOIN rules r ON r.projection_id=a.projection_id AND r.rule_id=a.rule_id "
-        "WHERE m.projection_id=? AND a.rule_id IS NOT NULL "
-        "AND r.kind IN('allow_sender','allow_domain') "
-        "GROUP BY r.kind,r.normalized_value,(m.verified_at / 1000000) "
-        "ORDER BY MAX(m.verified_at) DESC,r.kind DESC,r.normalized_value DESC "
+        "SELECT CASE WHEN r.kind IN('allow_sender','allow_domain') THEN r.kind "
+        "ELSE 'other' END, "
+        "CASE WHEN r.kind IN('allow_sender','allow_domain') THEN r.normalized_value "
+        "ELSE 'Other authorized thread' END, COUNT(*), MAX(h.verified_at) "
+        "FROM mapping_history h "
+        "JOIN insert_attempts i ON i.projection_id=h.projection_id "
+        "AND i.attempt_id=h.attempt_id "
+        "LEFT JOIN thread_admissions a ON a.projection_id=i.projection_id "
+        "AND a.source_thread_id=i.source_thread_id AND a.generation=i.generation "
+        "LEFT JOIN rules r ON r.projection_id=a.projection_id AND r.rule_id=a.rule_id "
+        "WHERE h.projection_id=? AND h.mapping_revision=1 "
+        "GROUP BY CASE WHEN r.kind IN('allow_sender','allow_domain') THEN r.kind "
+        "ELSE 'other' END, CASE WHEN r.kind IN('allow_sender','allow_domain') "
+        "THEN r.normalized_value ELSE 'Other authorized thread' END, "
+        "(h.verified_at / 60000000) "
+        "ORDER BY MAX(h.verified_at) DESC,1 DESC,2 DESC "
         "LIMIT 100",
         (projection_id.value,),
     ).fetchall()
@@ -204,6 +208,17 @@ def _resource_pressure(available, total) -> Pressure:
 
 def _memory_pressure() -> Pressure:
     try:
+        with open("/sys/fs/cgroup/memory.max", encoding="ascii") as limit_stream:
+            limit = limit_stream.read().strip()
+        with open("/sys/fs/cgroup/memory.current", encoding="ascii") as current_stream:
+            current = int(current_stream.read().strip())
+        if limit != "max":
+            maximum = int(limit)
+            if maximum > 0:
+                return _resource_pressure(maximum - current, maximum)
+    except (OSError, ValueError):
+        pass
+    try:
         values = {}
         with open("/proc/meminfo", encoding="ascii") as stream:
             for line in stream:
@@ -225,21 +240,36 @@ def _disk_pressure(owner) -> Pressure:
 
 def _commit_sha() -> str | None:
     candidate = os.environ.get("FACET_COMMIT_SHA", "").strip().lower()
-    if not candidate:
-        image = os.environ.get("FACET_IMAGE", "")
-        if "@sha256:" not in image:
-            candidate = image.rsplit(":", 1)[-1].strip().lower()
     return candidate if re.fullmatch(r"[0-9a-f]{40}", candidate) else None
 
 
-def _scope_state(binding) -> CheckState:
+def _scope_state(uow, projection_id, binding, config, role) -> CheckState:
     if binding is None:
         return CheckState.UNKNOWN
-    if binding.state is BindingState.VERIFIED:
-        return CheckState.OK
     if binding.state in {BindingState.AUTH_REQUIRED, BindingState.MISMATCH}:
         return CheckState.FAILED
-    return CheckState.UNKNOWN
+    if binding.state is not BindingState.VERIFIED:
+        return CheckState.UNKNOWN
+    expected = (
+        "source_readonly"
+        if role is Role.SOURCE and config.projection.source_mode is SourceMode.READONLY
+        else "source_convenience"
+        if role is Role.SOURCE
+        else "target_default"
+    )
+    row = uow._execute(
+        "SELECT 1 FROM credential_changes WHERE projection_id=? AND role=? "
+        "AND phase='committed' AND new_revision=? AND binding_revision=? "
+        "AND scope_policy=? ORDER BY updated_at DESC LIMIT 1",
+        (
+            projection_id.value,
+            role.value,
+            binding.credential_revision.value,
+            binding.binding_revision.value,
+            expected,
+        ),
+    ).fetchone()
+    return CheckState.OK if row is not None else CheckState.UNKNOWN
 
 
 def _phase(projection, epoch) -> PublicPhase:
@@ -293,7 +323,12 @@ def _health(projection, bindings, epoch, counts, issues) -> PublicHealth:
 
 
 def snapshot_from_owner(
-    owner, config, *, error_code: ErrorCode | None = None, cycle_verified=False
+    owner,
+    config,
+    *,
+    error_code: ErrorCode | None = None,
+    cycle_verified=False,
+    cycle_in_progress=False,
 ):
     """Build all five public envelopes from one short private DB snapshot."""
 
@@ -363,6 +398,12 @@ def snapshot_from_owner(
             )
         except Exception:
             db_writable = CheckState.UNKNOWN
+        source_scope = _scope_state(
+            uow, owner.projection_id, bindings[0], config, Role.SOURCE
+        )
+        target_scope = _scope_state(
+            uow, owner.projection_id, bindings[1], config, Role.TARGET
+        )
 
     if projection is None:
         raise ValueError("owner_unavailable")
@@ -379,6 +420,8 @@ def snapshot_from_owner(
             }
             else PublicHealth.DEGRADED
         )
+    if health is PublicHealth.HEALTHY and not cycle_verified:
+        health = PublicHealth.UNKNOWN
     phase = _phase(projection, epoch)
     if unresolved_gap is not None:
         phase = PublicPhase.RECOVERING
@@ -406,6 +449,7 @@ def snapshot_from_owner(
         timestamp_from_sql(last_poll) if last_poll is not None else None,
         timestamp_from_sql(last_insert) if last_insert is not None else None,
         sampled_at,
+        cycle_in_progress,
     )
     queue = _queue_counts(counts)
     progress = Progress(
@@ -434,8 +478,8 @@ def snapshot_from_owner(
         CheckState.OK,
         db_writable,
         config.projection.source_mode,
-        _scope_state(bindings[0]),
-        _scope_state(bindings[1]),
+        source_scope,
+        target_scope,
         _memory_pressure(),
         _disk_pressure(owner),
         sampled_at,

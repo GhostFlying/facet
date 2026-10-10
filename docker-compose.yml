@@ -3,8 +3,6 @@ services:
     image: ${FACET_IMAGE:?set FACET_IMAGE to an immutable full-commit tag or digest}
     pull_policy: never
     command: ["run", "--state-dir", "/var/lib/facet/production", "--host", "0.0.0.0", "--port", "8080"]
-    environment:
-      FACET_IMAGE: "${FACET_IMAGE}"
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

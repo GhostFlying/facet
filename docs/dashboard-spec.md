@@ -41,7 +41,7 @@ Discovery 完成后的 `known_message_total` 是搜索候选消息数，不是�
 
 各 job 状态汇总采用互斥分类，同一个 job 不同时算作 pending、retry 和 failed。新消息导致已知总量增加时更新说明，避免把进度变化误报为回退。
 
-日期仅展示运行事件的时间，不展示任何单封邮件的原始 Date；运营时间由服务器按本地时区格式化，内部仍以 UTC 瞬时值排序。角色 `auth_state` 为持久化账号绑定状态；`last_verified_at` 标为绑定验证时间，不是最近 profile 请求、凭据刷新时间或 token 健康保证。聚合延迟没有样本时返回不可用与样本数，不能用零代替未知。当前未采集的全局 tracked thread、reconcile/audit、速率/延迟及资源压力不得伪造；六类快照任一过期、不可用或刷新失败时，页面清除健康、零积压和零异常的当前结论。同步正在 backfill 或 discovery 时，已持久化的 phase、binding 和队列事实仍可展示；只有没有可读快照或快照过期时才将整个同步健康标为 Unknown。刷新有界、不重叠，失败后恢复正常快照才恢复显示。
+日期仅展示运行事件的时间，不展示任何单封邮件的原始 Date；运营时间由服务器按本地时区格式化，内部仍以 UTC 瞬时值排序。角色 `auth_state` 为持久化账号绑定状态；`last_verified_at` 标为绑定验证时间，不是最近 profile 请求、凭据刷新时间或 token 健康保证。聚合延迟没有样本时返回不可用与样本数，不能用零代替未知。当前未采集的全局 tracked thread、reconcile/audit、速率/延迟及资源压力不得伪造；六类快照任一过期、不可用或刷新失败时，页面清除健康、零积压和零异常的当前结论。同步周期进行中时，页面用 `cycle_in_progress` 显示中性的 Running/Backfill，不把尚未完成本轮检查误报为 Healthy；周期成功完成后才显示 Healthy，降级、阻塞和过期状态优先保留。刷新有界、不重叠，失败后恢复正常快照才恢复显示。
 
 ## HTTP 接口
 
@@ -54,7 +54,7 @@ Discovery 完成后的 `known_message_total` 是搜索候选消息数，不是�
 | `GET /api/v1/progress` | 当前 epoch、message 与 thread 汇总、队列和速率 |
 | `GET /api/v1/issues` | 按错误类别分组的汇总与固定处理建议 |
 | `GET /api/v1/rules` | 当前 sender/domain 规则和 action-label 文本、启用状态；仅限私有部署 Dashboard |
-| `GET /api/v1/activity` | 最近规则匹配批次的 sender/domain 规则、数量和服务器本地时间；仅限私有部署 Dashboard |
+| `GET /api/v1/activity` | 最近首次验证投影批次的 sender/domain 规则、Other authorized thread 归类、数量和服务器本地时间；仅限私有部署 Dashboard |
 | `GET /api/v1/diagnostics` | 已脱敏的组件检查、版本与资源状态 |
 | `GET /healthz` | Web 进程存活状态 |
 | `GET /readyz` | Dashboard 状态数据是否可读 |
@@ -113,4 +113,4 @@ M1 定义状态聚合和白名单 schema。M2 与 M3 提供真实计数和 backf
 5. 正式 DB、journal、运行文件和日志不保存 raw MIME、正文和附件，重启恢复仅依赖持久 metadata 与邮箱内容。
 6. 手机和桌面均可查看关键状态，刷新失败显示 stale，恢复后更新；资源状态未知时不伪报健康。
 7. HTTP 经前置 Nginx 可访问，应用内不要求 HTTPS 或用户认证，Compose 不额外启动多个同步进程。
-8. 规则匹配活动按时间倒序显示 sender/domain 规则和数量，缺少规则归属的 action-label/manual admission 不被猜测；commit SHA 仅接受部署注入的完整 40-hex 值。
+8. 规则匹配活动按时间倒序显示 sender/domain 规则和数量，缺少规则归属的 action-label/manual admission 显示为明确的 Other authorized thread；commit SHA 仅接受镜像构建时烘焙的完整 40-hex 值。

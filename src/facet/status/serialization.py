@@ -64,6 +64,7 @@ def _Status(value):
         "heartbeat_at": None
         if value.heartbeat_at is None
         else _time(value.heartbeat_at),
+        "cycle_in_progress": value.cycle_in_progress,
     }
 
 

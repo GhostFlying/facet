@@ -84,6 +84,7 @@ def test_fixed_public_record_field_inventory():
             "last_poll_at",
             "last_verified_insert_at",
             "heartbeat_at",
+            "cycle_in_progress",
         ],
         "EpochSummary": ["kind", "state", "started_at"],
         "QueueCounts": [

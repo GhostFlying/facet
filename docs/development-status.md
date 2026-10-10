@@ -14,15 +14,15 @@ The short plan [dashboard-diagnostics-activity](implementation-plans/dashboard-d
 adds a sixth read-only `activity` snapshot and fixes the misleading all-Unknown
 view during a running backfill. A verified binding now reports scope readiness;
 the owner connection reports DB write mode; Linux memory and state-filesystem
-free space report bounded pressure levels when available. Diagnostics also
-accepts a deployment-injected full commit SHA (`FACET_COMMIT_SHA`, then the
-immutable `FACET_IMAGE` tag) without exposing image paths or arbitrary text.
+free space report bounded pressure levels when available. Diagnostics accepts
+only the full commit SHA baked into the image as `FACET_COMMIT_SHA`; it does
+not treat a runtime image tag as source provenance.
 
-The activity timeline is derived from durable mapping verification times joined
-to the latest sender/domain admission rule. It shows only rule kind/value,
-matched mapping count and server-local time, newest first; action-label/manual
-admissions without a rule are omitted rather than guessed. No Gmail calls,
-message content, IDs or schema migration were added.
+The activity timeline is derived from durable first-verification mapping history
+joined to the admission generation's sender/domain rule. It shows only rule
+kind/value (or the explicit `Other authorized thread` bucket), matched mapping
+count and server-local time, newest first; repair/replay cannot recategorize old
+successes. No Gmail calls, message content, IDs or schema migration were added.
 
 Targeted Dashboard/model/privacy/container checks passed (56 tests); the full
 offline suite passed **2955 tests**. Browser acceptance was updated for the
@@ -31,10 +31,20 @@ installed. A local Docker build was attempted and timed out fetching the pinned
 Docker Hub base layer; current test deployment still runs the prior image until
 an image can be built and swapped under the existing deployment procedure.
 
-Next: retry the local image build or use the authorized image-build path, then
-perform a read-only Dashboard smoke check for `/api/v1/activity`, commit SHA,
-non-Unknown diagnostics and in-progress backfill status. This is not yet a
-merged or live-deployed acceptance claim.
+The corrected working tree now adds an explicit `cycle_in_progress` status flag:
+an in-flight healthy-looking cycle is rendered as neutral Running/Backfill,
+while degraded/blocked/stale states remain visible. Scope readiness requires a
+committed credential-change record matching the current binding revision and
+role policy; old binding state alone is no longer presented as current scope
+evidence. The image workflow bakes the checkout SHA through a Docker build arg;
+an arbitrary `FACET_IMAGE` tag is not treated as proof. Targeted checks pass
+(59 tests), but this corrected candidate is not yet deployed or merged.
+
+Next: independent review and the full offline baseline, then build the image or
+use the authorized image-build path and perform a read-only Dashboard smoke
+check for `/api/v1/activity`, baked commit SHA, non-Unknown diagnostics and
+in-progress backfill status. This is not yet a merged or live-deployed
+acceptance claim.
 
 ### Dashboard operational consumer — merged and running in the current test deployment
 

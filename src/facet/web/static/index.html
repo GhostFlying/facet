@@ -87,7 +87,7 @@
         <div class="row"><dt>Source / Target scopes</dt><dd id="scopes">Unknown</dd></div><div class="row"><dt>Memory / Disk pressure</dt><dd id="pressure">Unknown</dd></div>
         <div class="row"><dt>Checked</dt><dd id="checked">Unknown</dd></div>
       </dl></section>
-      <section class="wide"><h2>Rule matches · newest first</h2><div id="activity">Unknown</div><p class="muted">Each row is a server-local batch of newly verified projected messages attributed to its configured sender/domain rule. No message details are shown.</p></section>
+      <section class="wide"><h2>Rule matches · newest first</h2><div id="activity">Unknown</div><p class="muted">Each row is a server-local batch of first-verified projected messages attributed to its admission rule, or the explicit Other authorized thread bucket when no rule attribution exists. No message details are shown.</p></section>
       <section><h2>Reconcile and audit</h2><p class="muted">Not reported by the current snapshot collector.</p><p>Use the maintenance CLI for available checks. This page does not run Gmail requests, audits, retries or configuration changes.</p></section>
     </main>
     <footer>Times are operational events in the sync server's local timezone, never message dates. Refresh reads six cached aggregate snapshots every ten seconds. Unknown and stale data are not evidence of healthy sync.</footer>
@@ -127,7 +127,8 @@
             if (!Object.hasOwn(health, data.health) || (data.phase !== null && !Object.hasOwn(phase, data.phase))) throw new Error();
             const source = role(data.source, 'source'), target = role(data.target, 'target');
             if (data.health === 'healthy' && (!data.phase || [source, target].some(value => value.freshness !== 'Fresh' || value.binding !== 'Verified'))) throw new Error();
-            Object.assign(result, {health: label(data.health, health), phase: label(data.phase, phase), source, target, poll: time(data.last_poll_at), insert: time(data.last_verified_insert_at), heartbeat: time(data.heartbeat_at)});
+            if (typeof data.cycle_in_progress !== 'boolean') throw new Error();
+            Object.assign(result, {health: label(data.health, health), running: data.cycle_in_progress, phase: label(data.phase, phase), source, target, poll: time(data.last_poll_at), insert: time(data.last_verified_insert_at), heartbeat: time(data.heartbeat_at)});
           } else if (family === 'progress') {
             if (!object(data.jobs) || typeof data.discovery_complete !== 'boolean') throw new Error();
             Object.assign(result, {confirmed: count(data.confirmed_messages), jobs: Object.fromEntries(jobStates.map(state => [state, count(data.jobs[state])])), discovery: data.discovery_complete, scanned: count(data.scanned_threads), discovered: count(data.discovered_threads), completed: count(data.completed_threads), candidates: data.discovery_complete ? count(data.known_message_total) : null, oldest: metric(data.oldest_runnable_job_age_seconds), hour: count(data.verified_last_hour), day: count(data.verified_last_day)});
@@ -152,7 +153,7 @@
           } else if (family === 'activity') {
             if (!Array.isArray(data.entries) || data.entries.length > 100) throw new Error();
             result.entries = data.entries.map(entry => {
-              if (!object(entry) || !['allow_sender', 'allow_domain'].includes(entry.rule_kind) || typeof entry.rule_value !== 'string' || !entry.rule_value || entry.rule_value.length > 512 || /[\u0000-\u001f\u007f]/.test(entry.rule_value) || count(entry.matched_count) === null || entry.matched_count < 1 || !time(entry.observed_at)) throw new Error();
+              if (!object(entry) || !['allow_sender', 'allow_domain', 'other'].includes(entry.rule_kind) || typeof entry.rule_value !== 'string' || !entry.rule_value || entry.rule_value.length > 512 || /[\u0000-\u001f\u007f]/.test(entry.rule_value) || count(entry.matched_count) === null || entry.matched_count < 1 || !time(entry.observed_at)) throw new Error();
               return {kind: entry.rule_kind, value: entry.rule_value, count: entry.matched_count, observed: entry.observed_at};
             });
           } else {
@@ -168,7 +169,7 @@
         const render = ([s, p, i, r, a, d]) => {
           if ([s, p, i, r, a, d].some(data => data.freshness !== 'Fresh' || data.expires <= performance.now())) { unavailable('Stale or unavailable snapshot — current sync health and counts are unknown.'); return; }
           put('freshness', `Fresh aggregate snapshots · sampled ${s.sampled}`);
-          put('health', s.health); get('health').className = s.health === 'Healthy' ? 'badge healthy' : 'badge';
+          put('health', s.running && s.health === 'Unknown' ? 'Running' : s.health); get('health').className = s.running && s.health === 'Unknown' ? 'badge running' : s.health === 'Healthy' ? 'badge healthy' : 'badge';
           ['phase', 'poll', 'insert', 'heartbeat'].forEach(id => put(id, s[id]));
           ['source', 'target'].forEach(name => { put(`${name}-mode`, s[name].mode); put(`${name}-binding`, s[name].binding); put(`${name}-time`, s[name].verified); put(`${name}-fresh`, s[name].freshness); });
           put('confirmed', p.confirmed); put('queued', p.jobs.queued); put('attention', p.jobs.needs_attention);

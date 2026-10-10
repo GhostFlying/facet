@@ -39,7 +39,7 @@ def test_snapshot_from_initialized_owner_is_aggregate_only(
 ):
     owner = _ready_owner(trusted_state_parent, object(), monkeypatch, seed=False)
     try:
-        snapshots = snapshot_from_owner(owner, owner.config)
+        snapshots = snapshot_from_owner(owner, owner.config, cycle_verified=True)
         status = snapshots["status"].data
         progress = snapshots["progress"].data
         assert status.health is PublicHealth.HEALTHY
@@ -56,6 +56,20 @@ def test_snapshot_from_initialized_owner_is_aggregate_only(
             "RUNTIME_PRIVATE_SENTINEL",
         ):
             assert forbidden not in encoded
+    finally:
+        owner.close()
+
+
+def test_snapshot_marks_an_inflight_cycle_without_claiming_healthy(
+    trusted_state_parent, monkeypatch
+):
+    owner = _ready_owner(trusted_state_parent, object(), monkeypatch, seed=False)
+    try:
+        status = snapshot_from_owner(
+            owner, owner.config, cycle_verified=False, cycle_in_progress=True
+        )["status"].data
+        assert status.health is PublicHealth.UNKNOWN
+        assert status.cycle_in_progress is True
     finally:
         owner.close()
 

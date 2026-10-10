@@ -40,6 +40,10 @@ def test_image_workflow_has_bounded_publish_contract():
     assert WORKFLOW.count("flavor: latest=false") == 2
     assert ":latest" not in WORKFLOW
     assert "value=latest" not in WORKFLOW
+    assert WORKFLOW.count("build-args: FACET_COMMIT_SHA=${{ github.sha }}") == 2
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    assert "ARG FACET_COMMIT_SHA=unknown" in dockerfile
+    assert "FACET_COMMIT_SHA=${FACET_COMMIT_SHA}" in dockerfile
 
     build = WORKFLOW.split("  publish:", 1)[0]
     assert "docker/login-action@" not in build

@@ -162,11 +162,13 @@ class Status:
     last_poll_at: Timestamp | None
     last_verified_insert_at: Timestamp | None
     heartbeat_at: Timestamp | None
+    cycle_in_progress: bool = False
 
     def __post_init__(self):
         _exact(self, Status)
         _exact(self.phase, PublicPhase, nullable=True)
         _exact(self.health, PublicHealth)
+        _exact(self.cycle_in_progress, bool)
         _record(self.source, RoleStatus)
         _record(self.target, RoleStatus)
         _require(self.source.role is Role.SOURCE and self.target.role is Role.TARGET)
@@ -417,7 +419,7 @@ class ActivityEntry:
     def __post_init__(self):
         _exact(self, ActivityEntry)
         _exact(self.rule_kind, str)
-        _require(self.rule_kind in {"allow_sender", "allow_domain"})
+        _require(self.rule_kind in {"allow_sender", "allow_domain", "other"})
         _exact(self.rule_value, str)
         _require(1 <= len(self.rule_value.encode("utf-8")) <= 512)
         _require(
