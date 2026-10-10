@@ -31,6 +31,10 @@
       .queue .row { display: flex; justify-content: space-between; }
       .issue { border-top: 1px solid var(--line); padding: 1rem 0; overflow-wrap: anywhere; }
       .issue h3 { font-size: 1rem; margin: 0; }
+      #activity { overflow-x: auto; }
+      .activity-row { display: grid; grid-template-columns: minmax(8rem, .8fr) max-content auto auto; gap: .75rem; align-items: baseline; padding: .35rem 0; width: max-content; min-width: 44rem; white-space: nowrap; }
+      .activity-row > * { white-space: nowrap; }
+      .activity-kind, .activity-count, .activity-time { color: var(--muted); font-variant-numeric: tabular-nums; }
       footer { margin-top: 1.5rem; color: var(--muted); font-size: .85rem; }
       @media (max-width: 680px) { body { padding: 1rem; } header { flex-wrap: wrap; } .grid { grid-template-columns: 1fr; } .metrics { gap: .5rem; } .metric { padding: .8rem; } .metric strong { font-size: 1.4rem; } .queue { grid-template-columns: 1fr 1fr; } .row { gap: .5rem; } }
       @media (prefers-color-scheme: dark) { :root { --bg: #111a27; --panel: #1a2638; --ink: #e3ebf7; --muted: #a7b7cc; --line: #33445c; --accent: #8bd4ba; } }
@@ -201,10 +205,13 @@
           get('activity').replaceChildren();
           if (!a.entries.length) put('activity', 'No rule-attributed projected messages in this snapshot.');
           a.entries.forEach(entry => {
-            const row = document.createElement('div'); row.className = 'row';
-            const kind = document.createElement('dt'); kind.textContent = entry.kind;
-            const value = document.createElement('dd'); value.textContent = `${entry.value} · ${entry.count} message${entry.count === 1 ? '' : 's'} · ${entry.observed}`;
-            row.append(kind, value); get('activity').append(row);
+            const observed = entry.observed.replace(/\.\d{1,6}(?=[+-]\d\d:\d\d|Z$)/, '');
+            const row = document.createElement('div'); row.className = 'activity-row';
+            const kind = document.createElement('span'); kind.className = 'activity-kind'; kind.textContent = entry.kind;
+            const value = document.createElement('span'); value.textContent = entry.value;
+            const count = document.createElement('span'); count.className = 'activity-count'; count.textContent = `${entry.count} message${entry.count === 1 ? '' : 's'}`;
+            const time = document.createElement('span'); time.className = 'activity-time'; time.textContent = observed;
+            row.append(kind, value, count, time); get('activity').append(row);
           });
         };
         let busy = false, expiryTimer = null;
