@@ -10,12 +10,22 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "unit"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "integration"))
 
-from test_projection_worker import _ready_owner
+from test_projection_worker import (
+    _payload,
+    _raw,
+    _ready_owner,
+    _worker_adapters,
+)
 
 from facet.cli import bootstrap
 from facet.cli.bootstrap import _foreground_gate
 from facet.contracts import BindingState, ErrorCode, PublicHealth
-from facet.runtime.dashboard import LiveSnapshotProvider, snapshot_from_owner
+from facet.runtime.dashboard import (
+    LiveSnapshotProvider,
+    _commit_sha,
+    _resource_pressure,
+    snapshot_from_owner,
+)
 
 pytest_plugins = ("test_foreground_runtime",)
 
@@ -32,6 +42,17 @@ def test_provider_is_unavailable_until_a_snapshot_is_published():
     provider = LiveSnapshotProvider()
     assert provider.ready() is False
     assert provider.snapshot("status").freshness.value == "unavailable"
+
+
+def test_diagnostics_provenance_and_pressure_boundaries(monkeypatch):
+    monkeypatch.setenv("FACET_COMMIT_SHA", "A" * 40)
+    assert _commit_sha() == "a" * 40
+    monkeypatch.setenv("FACET_COMMIT_SHA", "manual-tag")
+    assert _commit_sha() is None
+    assert _resource_pressure(4, 100).value == "critical"
+    assert _resource_pressure(14, 100).value == "elevated"
+    assert _resource_pressure(15, 100).value == "normal"
+    assert _resource_pressure(None, 100).value == "unknown"
 
 
 def test_snapshot_from_initialized_owner_is_aggregate_only(
@@ -72,6 +93,60 @@ def test_snapshot_marks_an_inflight_cycle_without_claiming_healthy(
         assert status.cycle_in_progress is True
     finally:
         owner.close()
+
+
+def test_activity_uses_first_verified_rule_batch_and_survives_restart(
+    trusted_state_parent, gmail_controller, monkeypatch
+):
+    gmail_controller.seed(
+        "source",
+        "m-activity",
+        "thread-1",
+        _raw("activity", "ACTIVITY_SENTINEL"),
+        payload=_payload(_raw("activity", "ACTIVITY_SENTINEL")),
+    )
+    owner = _ready_owner(trusted_state_parent, gmail_controller, monkeypatch)
+    try:
+        worker, source, target = _worker_adapters(gmail_controller, owner)
+        assert worker.run(max_jobs=5).verified == 1
+        snapshot = snapshot_from_owner(owner, owner.config, cycle_verified=True)
+        entries = snapshot["activity"].data.entries
+        assert [
+            (entry.rule_kind, entry.rule_value, entry.matched_count)
+            for entry in entries
+        ] == [("allow_sender", "synthetic@example.com", 1)]
+        assert "ACTIVITY_SENTINEL" not in repr(snapshot)
+        with owner.session.transaction() as uow:
+            uow._execute(
+                "INSERT INTO mapping_history "
+                "SELECT projection_id,source_message_id,2,source_thread_id,"
+                "attempt_id,target_message_id,target_thread_id,verified_at,NULL "
+                "FROM mapping_history WHERE projection_id=? AND mapping_revision=1",
+                (owner.projection_id.value,),
+            )
+        assert (
+            len(snapshot_from_owner(owner, owner.config)["activity"].data.entries) == 1
+        )
+        owner.close()
+        reopened = __import__(
+            "facet.runtime.state_owner", fromlist=["StateOwner"]
+        ).StateOwner.open(trusted_state_parent / "state", owner.config)
+        try:
+            replay = _worker_adapters(gmail_controller, reopened)[0]
+            assert replay.run(max_jobs=5).processed == 0
+            assert (
+                len(
+                    snapshot_from_owner(reopened, reopened.config)[
+                        "activity"
+                    ].data.entries
+                )
+                == 1
+            )
+        finally:
+            reopened.close()
+    finally:
+        if owner._connection is not None:
+            owner.close()
 
 
 def test_snapshot_reports_epoch_thread_progress_without_private_values(

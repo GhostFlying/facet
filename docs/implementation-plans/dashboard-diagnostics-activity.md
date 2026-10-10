@@ -1,17 +1,17 @@
 # Dashboard diagnostics and rule-match activity
 
-2026-10-10, revision 2. Source base: `0366a5f`; prior exploratory candidate
+2026-10-10, revision 3. Source base: `0366a5f`; prior exploratory candidate
 `53114b4` is not qualified for merge/deployment. Root implements; independent
 Sol xhigh reviews this corrected plan before follow-up implementation and then
 the exact final candidate. No historical review is fabricated.
 
 Review status: the required pre-implementation plan review was not obtained;
-two attempts failed because the review model service reported capacity. The
-implementation review was therefore performed after the first candidate and
-found/fixed cycle-level error retention in `d7485fc`; this is implementation
-evidence, not retroactive plan approval. The candidate remains unqualified for
-merge or deployment until an independent review records a decision against
-revision 2 and the exact final head.
+review attempts failed because the review model service reported capacity. This
+revision is a bounded closure plan, not retroactive approval. The existing
+implementation review found/fixed cycle-level error retention in `d7485fc` and
+cycle-start visibility in `3708182`. The candidate remains unqualified for
+merge or deployment until the closure checks and an independent review against
+the exact final head are complete.
 
 ## User-visible delivery
 
@@ -66,6 +66,12 @@ rules view, content, digests, or provider errors.
   activity snapshot is independently validated and stale/unavailable-safe.
 - Synthetic DB tests prove diagnostics states and activity aggregation; HTTP and
   browser tests prove no IDs/content appear and that newest activity sorts first.
+  The closure tests are deliberately bounded to the existing production owner
+  and browser fixture: sender/domain/Other attribution, minute grouping,
+  newest ordering, cap 100, revision/replay/re-admission exclusion, restart,
+  privacy sentinels, scope/resource/SHA edge states, cycle-start/error
+  retention, and six-family browser rendering. No new framework or schema is
+  introduced.
 - Focused synthetic writer-owned tests cover successful cycles and in-flight
   status, retained failures, scope lineage, disk/cgroup availability, new
   sender/domain activity, manual fallback, repair/replay/re-admission and

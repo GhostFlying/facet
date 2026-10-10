@@ -15,7 +15,11 @@ const fixture = () => {
     progress: {epoch: {kind: 'initial_backfill', state: 'completed', started_at: timestamp}, discovery_complete: true, scanned_threads: 777, discovered_threads: 777, completed_threads: 777, known_message_total: 4234, confirmed_messages: 4340, jobs: {queued: 0, claimed: 0, retry_wait: 0, blocked: 0, needs_attention: 0, completed: 9010, cancelled: 3, source_missing: 0, failed: 0}, oldest_runnable_job_age_seconds: null, verified_last_hour: null, verified_last_day: null, rate: {value: null, unit: 'messages_per_second', window_seconds: 60, sample_count: 0}, latency: {p50: null, p95: null, unit: 'milliseconds', window_seconds: 60, sample_count: 0}},
     issues: {groups: []},
     rules: {entries: [{kind: 'allow_sender', value: 'sender@example.test', enabled: true}, {kind: 'action_label_add_sender', value: 'Facet/AddSender', enabled: true}]},
-    activity: {entries: [{rule_kind: 'allow_sender', rule_value: 'sender@example.test', matched_count: 4, observed_at: timestamp}]},
+    activity: {entries: [
+      {rule_kind: 'allow_sender', rule_value: 'sender@example.test', matched_count: 4, observed_at: timestamp},
+      {rule_kind: 'allow_domain', rule_value: 'example.test', matched_count: 2, observed_at: '2026-10-09T10:59:00.000000+08:00'},
+      {rule_kind: 'other', rule_value: 'Other authorized thread', matched_count: 1, observed_at: '2026-10-09T10:58:00.000000+08:00'}
+    ]},
     diagnostics: {app_version: '0.1.0', commit_sha: '0123456789abcdef0123456789abcdef01234567', schema_version: 5, sync_owner_count: 1, db_readable: 'ok', db_writable: 'ok', source_mode: 'readonly', source_scope_ready: 'ok', target_scope_ready: 'ok', memory_pressure: 'normal', disk_pressure: 'normal', heartbeat_at: timestamp, checked_at: timestamp}
   };
   return Object.fromEntries(families.map(name => [name, {data: values[name], schema_version: 1, sampled_at: timestamp, freshness: 'fresh', age_seconds: 0, scope: 'projection'}]));
@@ -63,10 +67,25 @@ const fixture = () => {
       assert.equal(await text('source-binding'), 'Verified');
       assert.equal(await text('commit-sha'), '0123456789abcdef0123456789abcdef01234567');
       assert.match(await text('activity'), /sender@example\.test.*4 messages/);
+      const activityText = await text('activity');
+      assert.ok(activityText.indexOf('sender@example.test') < activityText.indexOf('example.test · 2 messages'));
+      assert.match(activityText, /Other authorized thread · 1 message/);
       assert.match(await page.locator('body').innerText(), /Source binding verified/);
       assert.doesNotMatch(await page.locator('body').innerText(), /\d+(?:\.\d+)?%|ETA/);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       if (process.env.FACET_BROWSER_SCREENSHOT_DIR) await page.screenshot({path: `${process.env.FACET_BROWSER_SCREENSHOT_DIR}/dashboard-${viewport.width}.png`, fullPage: true});
+
+      // A fresh cycle is neutral Running, and an unavailable image revision is simply Unknown.
+      snapshots.status.data.health = 'unknown';
+      snapshots.status.data.cycle_in_progress = true;
+      snapshots.diagnostics.data.commit_sha = null;
+      await refresh();
+      assert.equal(await text('health'), 'Running');
+      assert.equal(await text('commit-sha'), 'Unknown');
+      snapshots.status.data.health = 'healthy';
+      snapshots.status.data.cycle_in_progress = false;
+      snapshots.diagnostics.data.commit_sha = '0123456789abcdef0123456789abcdef01234567';
+      await refresh();
 
       // Unknown discovery, backlog, unit-bearing real samples, gap recovery.
       snapshots.progress.data.discovery_complete = false;
