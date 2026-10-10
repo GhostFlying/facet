@@ -838,6 +838,16 @@ def _run_foreground_service(
             error_code = None
             cycle_started = monotonic()
             try:
+                # Publish before the first provider request so even a short
+                # cycle has an explicit in-flight status. The regular
+                # progress callback remains throttled between pages/jobs.
+                provider.publish_from_owner(
+                    owner,
+                    config,
+                    error_code=last_error_code,
+                    cycle_verified=False,
+                    cycle_in_progress=True,
+                )
                 receipt = run_foreground_once(
                     owner,
                     config,

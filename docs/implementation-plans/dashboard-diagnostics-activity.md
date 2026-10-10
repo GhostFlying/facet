@@ -5,6 +5,14 @@
 Sol xhigh reviews this corrected plan before follow-up implementation and then
 the exact final candidate. No historical review is fabricated.
 
+Review status: the required pre-implementation plan review was not obtained;
+two attempts failed because the review model service reported capacity. The
+implementation review was therefore performed after the first candidate and
+found/fixed cycle-level error retention in `d7485fc`; this is implementation
+evidence, not retroactive plan approval. The candidate remains unqualified for
+merge or deployment until an independent review records a decision against
+revision 2 and the exact final head.
+
 ## User-visible delivery
 
 The read-only Dashboard will explain previously unreported diagnostics instead

@@ -40,11 +40,18 @@ evidence. The image workflow bakes the checkout SHA through a Docker build arg;
 an arbitrary `FACET_IMAGE` tag is not treated as proof. Targeted checks pass
 (59 tests), but this corrected candidate is not yet deployed or merged.
 
-Next: independent review and the full offline baseline, then build the image or
-use the authorized image-build path and perform a read-only Dashboard smoke
-check for `/api/v1/activity`, baked commit SHA, non-Unknown diagnostics and
-in-progress backfill status. This is not yet a merged or live-deployed
-acceptance claim.
+The implementation reviewer later found and the candidate fixed one retained
+cycle-error propagation bug in `d7485fc`; focused runtime/sync/foreground/web/
+status checks passed (44 tests). The required pre-implementation plan review
+was not obtained because the review service twice reported capacity, so this
+candidate is deliberately not qualified for merge/deployment. The live smoke
+used the candidate only temporarily with the existing proxy/TZ overrides,
+completed several zero-write real cycles, and the official image was restored.
+
+Next: record an independent review against plan revision 2 and the exact final
+head, then use the resulting CI and review evidence to decide merge and a new
+test-deployment upgrade. This is not yet a merged or live-deployed acceptance
+claim.
 
 ### Dashboard operational consumer — merged and running in the current test deployment
 
