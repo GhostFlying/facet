@@ -46,6 +46,7 @@ jobs:
           context: .
           platforms: ${{ env.PLATFORMS }}
           tags: ${{ steps.meta.outputs.tags }}
+          build-args: FACET_COMMIT_SHA=${{ github.sha }}
           push: false
 
   publish:
@@ -86,6 +87,7 @@ jobs:
           context: .
           platforms: ${{ env.PLATFORMS }}
           tags: ${{ steps.meta.outputs.tags }}
+          build-args: FACET_COMMIT_SHA=${{ github.sha }}
           push: true
           sbom: true
           provenance: mode=max

@@ -20,6 +20,8 @@ from facet.contracts import (
 from facet.status.errors import OutputBoundaryError, catalog_entry
 from facet.status.models import (
     MAX_PUBLIC_COUNT,
+    Activity,
+    ActivityEntry,
     CheckState,
     Component,
     Diagnostics,
@@ -111,12 +113,25 @@ def diagnostics():
     )
 
 
+def activity():
+    return Activity(
+        (
+            ActivityEntry(
+                "allow_sender",
+                "sender@example.invalid",
+                2,
+                NOW,
+            ),
+        )
+    )
+
+
 def envelope(data):
     return PublicEnvelope(data, 1, NOW, Freshness.UNAVAILABLE, None, "projection")
 
 
 @pytest.mark.parametrize(
-    "data", [unknown_status(), progress(), Issues(()), diagnostics()]
+    "data", [unknown_status(), progress(), Issues(()), activity(), diagnostics()]
 )
 def test_all_families_explicit_keys_pure_and_no_missing_source_success(
     data, deny_external_network

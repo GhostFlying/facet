@@ -774,7 +774,7 @@ def _run_foreground_service(
         started = True
         last_progress = 0.0
 
-        def progress():
+        def progress(*, cycle_in_progress=False):
             nonlocal last_progress
             # Checked between provider pages/jobs, never during dispatched insert.
             if stop.is_set():
@@ -784,13 +784,19 @@ def _run_foreground_service(
                 return
             last_progress = now
             try:
-                provider.publish_from_owner(owner, config, cycle_verified=False)
+                provider.publish_from_owner(
+                    owner,
+                    config,
+                    error_code=last_error_code,
+                    cycle_verified=False,
+                    cycle_in_progress=cycle_in_progress,
+                )
             except Exception:
                 provider.invalidate()
 
         emit_operation(OperationStage.START)
-        progress()
         last_error_code = None
+        progress(cycle_in_progress=False)
         last_cycle_verified = False
 
         def refresh_local_snapshot():
@@ -800,6 +806,7 @@ def _run_foreground_service(
                     config,
                     error_code=last_error_code,
                     cycle_verified=last_cycle_verified,
+                    cycle_in_progress=False,
                 )
             except Exception:
                 provider.invalidate()
@@ -820,6 +827,7 @@ def _run_foreground_service(
                         config,
                         error_code=gate_error,
                         cycle_verified=False,
+                        cycle_in_progress=False,
                     )
                 except Exception:
                     provider.invalidate()
@@ -830,11 +838,21 @@ def _run_foreground_service(
             error_code = None
             cycle_started = monotonic()
             try:
+                # Publish before the first provider request so even a short
+                # cycle has an explicit in-flight status. The regular
+                # progress callback remains throttled between pages/jobs.
+                provider.publish_from_owner(
+                    owner,
+                    config,
+                    error_code=last_error_code,
+                    cycle_verified=False,
+                    cycle_in_progress=True,
+                )
                 receipt = run_foreground_once(
                     owner,
                     config,
                     GoogleGmailServiceFactory(),
-                    progress=progress,
+                    progress=lambda: progress(cycle_in_progress=True),
                     should_stop=stop.is_set,
                 )
                 if "target_missing" in receipt.warnings:
@@ -863,6 +881,7 @@ def _run_foreground_service(
                     config,
                     error_code=error_code,
                     cycle_verified=error_code is None,
+                    cycle_in_progress=False,
                 )
             except Exception:
                 provider.invalidate()

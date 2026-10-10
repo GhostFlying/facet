@@ -8,6 +8,53 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Dashboard diagnostics and rule-match activity — local candidate
+
+The short plan [dashboard-diagnostics-activity](implementation-plans/dashboard-diagnostics-activity.md)
+adds a sixth read-only `activity` snapshot and fixes the misleading all-Unknown
+view during a running backfill. A verified binding now reports scope readiness;
+the owner connection reports DB write mode; Linux memory and state-filesystem
+free space report bounded pressure levels when available. Diagnostics accepts
+only the full commit SHA baked into the image as `FACET_COMMIT_SHA`; it does
+not treat a runtime image tag as source provenance.
+
+The activity timeline is derived from durable first-verification mapping history
+joined to the admission generation's sender/domain rule. It shows only rule
+kind/value (or the explicit `Other authorized thread` bucket), matched mapping
+count and server-local time, newest first; repair/replay cannot recategorize old
+successes. No Gmail calls, message content, IDs or schema migration were added.
+
+Targeted Dashboard/model/privacy/container checks passed; the exact-head
+runtime/web subset is 20 tests, and the complete browser script passed synthetic
+desktop 1440x900 and mobile 390x844 viewports. A real Dockerfile build was
+completed after importing the pinned Docker Hub base layer through the approved
+sgbox relay. The local Compose test deployment now runs that built candidate
+with `FACET_COMMIT_SHA=123dfadfa68843220240216b5576951259263e12`.
+
+The corrected candidate adds an explicit `cycle_in_progress` status flag:
+an in-flight healthy-looking cycle is rendered as neutral Running/Backfill,
+while degraded/blocked/stale states remain visible. Scope readiness requires a
+committed credential-change record matching the current binding revision and
+role policy; old binding state alone is no longer presented as current scope
+evidence. The image workflow bakes the checkout SHA through a Docker build arg;
+an arbitrary `FACET_IMAGE` tag is not treated as proof. The candidate has not
+yet been merged or published to GHCR; the local image is explicitly a temporary
+deployment artifact.
+
+The implementation reviewer later found and the candidate fixed one retained
+cycle-error propagation bug in `d7485fc`; focused runtime/sync/foreground/web/
+status checks passed (44 tests). The required pre-implementation plan review
+was not obtained because the review service twice reported capacity; this is
+recorded as a process gap, not retroactive approval. The local test deployment
+has now been upgraded with stopped-state backup and retained state, and has
+completed zero-write real cycles plus a restart with unchanged mapping and
+attempt counts.
+
+Next: record an independent review against plan revision 3 and exact final
+head, then use the resulting CI and review evidence to decide merge and GHCR
+publication. The local deployment evidence is test-host evidence, not final
+Phase 1 acceptance.
+
 ### Dashboard operational consumer — merged and running in the current test deployment
 
 The [short plan](implementation-plans/dashboard-observability.md) and source

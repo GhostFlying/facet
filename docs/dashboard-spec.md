@@ -6,7 +6,7 @@
 
 Dashboard 展示同步是否正常、历史复制进度、成功数量、异常和可操作的诊断信息。页面和 HTTP API 只提供运行状态与汇总统计，不提供任何邮件细节。HTTPS、用户认证和外部访问控制由前置 Nginx 负责，Facet 仅提供 HTTP 服务。
 
-本规格是 [项目计划](project-plan.md) 与 [产品契约](product-contract.md) 的补充。生产 runtime 已提供五类只读汇总快照（状态、进度、异常、当前规则、诊断）与静态页面；页面消费现有字段，未实现的采集指标须明确显示未知或未提供，不得据此宣称最终 M4/M6 验收完成。
+本规格是 [项目计划](project-plan.md) 与 [产品契约](product-contract.md) 的补充。生产 runtime 已提供六类只读汇总快照（状态、进度、异常、当前规则、规则匹配活动、诊断）与静态页面；页面消费现有字段，未实现的采集指标须明确显示未知或未提供，不得据此宣称最终 M4/M6 验收完成。
 
 ## 页面内容
 
@@ -20,7 +20,8 @@ Dashboard 展示同步是否正常、历史复制进度、成功数量、异常�
 | 增量同步 | 最近成功 poll 距今多久、最老 job 年龄、最近一小时和一天的成功数量、可用的端到端延迟统计 |
 | 校对状态 | 最近 source reconcile、target audit 的时间、状态、补齐与异常汇总 |
 | 异常汇总 | 按错误类别和 source/target 角色分组的数量、首次与最近发生时间、是否自动恢复、下一次重试时间、固定处理建议 |
-| 诊断 | OAuth 健康状态和权限模式、DB 可读写与迁移状态、运行版本、调度 heartbeat、磁盘与内存压力、诊断快照时间 |
+| 规则匹配活动 | 按服务器本地时间倒序展示最近新增投影消息批次对应的 sender/domain 规则和数量；不展示邮件细节或 ID |
+| 诊断 | OAuth 健康状态和权限模式、DB 可读写与迁移状态、运行版本和当前 commit SHA、调度 heartbeat、磁盘与内存压力、诊断快照时间 |
 
 仅用 Source 和 Target 标识账号角色，不显示完整或遮掩后的绑定账号地址。按 2026-10-09 用户明确要求，规则区域可显示当前 sender/domain 值和 action-label 文本；这些是私密部署配置，不进入其他公共 DTO、日志或导出。邮件标题、正文、附件、邮件 IDs 和原始错误仍禁止。
 
@@ -40,7 +41,7 @@ Discovery 完成后的 `known_message_total` 是搜索候选消息数，不是�
 
 各 job 状态汇总采用互斥分类，同一个 job 不同时算作 pending、retry 和 failed。新消息导致已知总量增加时更新说明，避免把进度变化误报为回退。
 
-日期仅展示运行事件的时间，不展示任何单封邮件的原始 Date；运营时间由服务器按本地时区格式化，内部仍以 UTC 瞬时值排序。角色 `auth_state` 为持久化账号绑定状态；`last_verified_at` 标为绑定验证时间，不是最近 profile 请求、凭据刷新时间或 token 健康保证。聚合延迟没有样本时返回不可用与样本数，不能用零代替未知。当前未采集的全局 tracked thread、reconcile/audit、速率/延迟及资源压力不得伪造；五类快照任一过期、不可用或刷新失败时，页面清除健康、零积压和零异常的当前结论。刷新有界、不重叠，失败后恢复正常快照才恢复显示。
+日期仅展示运行事件的时间，不展示任何单封邮件的原始 Date；运营时间由服务器按本地时区格式化，内部仍以 UTC 瞬时值排序。角色 `auth_state` 为持久化账号绑定状态；`last_verified_at` 标为绑定验证时间，不是最近 profile 请求、凭据刷新时间或 token 健康保证。聚合延迟没有样本时返回不可用与样本数，不能用零代替未知。当前未采集的全局 tracked thread、reconcile/audit、速率/延迟及资源压力不得伪造；六类快照任一过期、不可用或刷新失败时，页面清除健康、零积压和零异常的当前结论。同步周期进行中时，页面用 `cycle_in_progress` 显示中性的 Running/Backfill，不把尚未完成本轮检查误报为 Healthy；周期成功完成后才显示 Healthy，降级、阻塞和过期状态优先保留。刷新有界、不重叠，失败后恢复正常快照才恢复显示。
 
 ## HTTP 接口
 
@@ -53,6 +54,7 @@ Discovery 完成后的 `known_message_total` 是搜索候选消息数，不是�
 | `GET /api/v1/progress` | 当前 epoch、message 与 thread 汇总、队列和速率 |
 | `GET /api/v1/issues` | 按错误类别分组的汇总与固定处理建议 |
 | `GET /api/v1/rules` | 当前 sender/domain 规则和 action-label 文本、启用状态；仅限私有部署 Dashboard |
+| `GET /api/v1/activity` | 最近首次验证投影批次的 sender/domain 规则、Other authorized thread 归类、数量和服务器本地时间；仅限私有部署 Dashboard |
 | `GET /api/v1/diagnostics` | 已脱敏的组件检查、版本与资源状态 |
 | `GET /healthz` | Web 进程存活状态 |
 | `GET /readyz` | Dashboard 状态数据是否可读 |
@@ -84,7 +86,7 @@ SQLite 保存同步所需的 IDs、source 到 target 映射、RFC Message-ID、�
 
 不保存邮件完整内容，也不保存正文、HTML、snippet、附件 bytes、完整 header dump、每封邮件的 Subject 或 From/To/Cc 副本。Rules 中的明确 sender/domain 和账号 binding 是必要的私密配置，保存在内部 DB 或配置中；当前规则快照按明确批准的私有 Dashboard 例外只读展示 sender/domain 值和 action-label 文本，不进入其他公共 DTO、日志或导出。
 
-`source_events` 和 jobs 的 payload 仅包含必要的类型、IDs、label ID 与调度信息；`last_error` 使用受控字段，不能成为任意 provider response 的存储容器。审计记录保存操作和状态变化，不复制邮件字段。
+`source_events` 和 jobs 的 payload 仅包含必要的类型、IDs、label ID 与调度信息；`last_error` 使用受控字段，不能成为任意 provider response 的存储容器。审计记录保存操作和状态变化，不复制邮件字段。规则匹配活动由已有 mapping verified 时间、thread admission 和规则元数据聚合，不新增邮件内容或公开 ID。
 
 默认 raw 只在 source 读取、target 插入和保真回读期间驻留内存，不存 SQLite、不建立磁盘 spool，也不写日志。重启后重新读取 source；已经插入但结果未知时先恢复 target 映射。Source 已删除且 target 也无法恢复的情况明确记录 `source_missing`。
 
@@ -111,3 +113,4 @@ M1 定义状态聚合和白名单 schema。M2 与 M3 提供真实计数和 backf
 5. 正式 DB、journal、运行文件和日志不保存 raw MIME、正文和附件，重启恢复仅依赖持久 metadata 与邮箱内容。
 6. 手机和桌面均可查看关键状态，刷新失败显示 stale，恢复后更新；资源状态未知时不伪报健康。
 7. HTTP 经前置 Nginx 可访问，应用内不要求 HTTPS 或用户认证，Compose 不额外启动多个同步进程。
+8. 规则匹配活动按时间倒序显示 sender/domain 规则和数量，缺少规则归属的 action-label/manual admission 显示为明确的 Other authorized thread；commit SHA 仅接受镜像构建时烘焙的完整 40-hex 值。

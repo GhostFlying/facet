@@ -9,6 +9,7 @@ from facet.contracts import BindingState, ErrorCode, Freshness, Role, Timestamp
 
 from .errors import OutputBoundaryError
 from .models import (
+    Activity,
     CheckState,
     Component,
     Diagnostics,
@@ -63,6 +64,7 @@ def _Status(value):
         "heartbeat_at": None
         if value.heartbeat_at is None
         else _time(value.heartbeat_at),
+        "cycle_in_progress": value.cycle_in_progress,
     }
 
 
@@ -159,6 +161,19 @@ def _Rules(value):
     return {"entries": [_RuleSummary(entry) for entry in value.entries]}
 
 
+def _ActivityEntry(value):
+    return {
+        "rule_kind": value.rule_kind,
+        "rule_value": value.rule_value,
+        "matched_count": value.matched_count,
+        "observed_at": _time(value.observed_at),
+    }
+
+
+def _Activity(value):
+    return {"entries": [_ActivityEntry(entry) for entry in value.entries]}
+
+
 def _Diagnostics(value):
     return {
         "app_version": value.app_version,
@@ -175,6 +190,7 @@ def _Diagnostics(value):
         if value.heartbeat_at is None
         else _time(value.heartbeat_at),
         "checked_at": None if value.checked_at is None else _time(value.checked_at),
+        "commit_sha": value.commit_sha,
     }
 
 
@@ -183,6 +199,7 @@ _SERIALIZERS = {
     Progress: _Progress,
     Issues: _Issues,
     Rules: _Rules,
+    Activity: _Activity,
     Diagnostics: _Diagnostics,
 }
 
