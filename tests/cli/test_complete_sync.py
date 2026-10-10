@@ -44,8 +44,7 @@ def wire(tmp_path):
         hook = tmp_path / "hook"
         hook.mkdir()
         (hook / "sitecustomize.py").write_text(
-            "from fakes.sync_wire import install_route\n"
-            "install_route(domain_capability=True)\n"
+            "from fakes.sync_wire import install_route\ninstall_route()\n"
         )
         env = os.environ.copy()
         env["FACET_TEST_WIRE_ORIGIN"] = mailbox.origin
