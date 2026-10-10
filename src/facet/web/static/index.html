@@ -32,8 +32,8 @@
       .issue { border-top: 1px solid var(--line); padding: 1rem 0; overflow-wrap: anywhere; }
       .issue h3 { font-size: 1rem; margin: 0; }
       #activity { overflow-x: auto; }
-      .activity-row { display: grid; grid-template-columns: minmax(8rem, .8fr) minmax(14rem, 2fr) auto auto; gap: .75rem; align-items: baseline; padding: .35rem 0; min-width: 44rem; white-space: nowrap; }
-      .activity-row > * { overflow: hidden; text-overflow: ellipsis; }
+      .activity-row { display: grid; grid-template-columns: minmax(8rem, .8fr) max-content auto auto; gap: .75rem; align-items: baseline; padding: .35rem 0; width: max-content; min-width: 44rem; white-space: nowrap; }
+      .activity-row > * { white-space: nowrap; }
       .activity-kind, .activity-count, .activity-time { color: var(--muted); font-variant-numeric: tabular-nums; }
       footer { margin-top: 1.5rem; color: var(--muted); font-size: .85rem; }
       @media (max-width: 680px) { body { padding: 1rem; } header { flex-wrap: wrap; } .grid { grid-template-columns: 1fr; } .metrics { gap: .5rem; } .metric { padding: .8rem; } .metric strong { font-size: 1.4rem; } .queue { grid-template-columns: 1fr 1fr; } .row { gap: .5rem; } }

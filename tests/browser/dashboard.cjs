@@ -6,6 +6,7 @@ const base = new URL(process.env.FACET_DASHBOARD_TEST_URL || 'http://127.0.0.1:1
 assert.equal(base.hostname, '127.0.0.1', 'Use an isolated loopback test server.');
 assert.equal(base.pathname, '/');
 const timestamp = '2026-10-09T11:00:00.000000+08:00';
+const longRule = `${'long-rule-'.repeat(24)}example.test`;
 const families = ['status', 'progress', 'issues', 'rules', 'activity', 'diagnostics'];
 const apiPaths = families.map(name => `/api/v1/${name}`);
 const fixture = () => {
@@ -17,7 +18,7 @@ const fixture = () => {
     rules: {entries: [{kind: 'allow_sender', value: 'sender@example.test', enabled: true}, {kind: 'action_label_add_sender', value: 'Facet/AddSender', enabled: true}]},
     activity: {entries: [
       {rule_kind: 'allow_sender', rule_value: 'sender@example.test', matched_count: 4, observed_at: timestamp},
-      {rule_kind: 'allow_domain', rule_value: 'example.test', matched_count: 2, observed_at: '2026-10-09T10:59:00.000000+08:00'},
+      {rule_kind: 'allow_domain', rule_value: longRule, matched_count: 2, observed_at: '2026-10-09T10:59:00.000000+08:00'},
       {rule_kind: 'other', rule_value: 'Other authorized thread', matched_count: 1, observed_at: '2026-10-09T10:58:00.000000+08:00'}
     ]},
     diagnostics: {app_version: '0.1.0', commit_sha: '0123456789abcdef0123456789abcdef01234567', schema_version: 5, sync_owner_count: 1, db_readable: 'ok', db_writable: 'ok', source_mode: 'readonly', source_scope_ready: 'ok', target_scope_ready: 'ok', memory_pressure: 'normal', disk_pressure: 'normal', heartbeat_at: timestamp, checked_at: timestamp}
@@ -67,11 +68,15 @@ const fixture = () => {
       assert.equal(await text('source-binding'), 'Verified');
       assert.equal(await text('commit-sha'), '0123456789abcdef0123456789abcdef01234567');
       const activityText = await text('activity');
-      assert.ok(activityText.indexOf('sender@example.test') < activityText.indexOf('example.test'));
+      const activityRows = page.locator('#activity .activity-row');
+      assert.equal(await activityRows.nth(0).locator('span').nth(1).innerText(), 'sender@example.test');
+      assert.equal(await activityRows.nth(1).locator('span').nth(1).innerText(), longRule);
+      assert.ok((await activityRows.nth(0).innerText()).includes('4 messages'));
+      assert.ok((await activityRows.nth(1).innerText()).includes('2 messages'));
       assert.match(activityText, /4 messages/);
       assert.match(activityText, /Other authorized thread[\s\S]*1 message/);
-      assert.equal(await page.locator('#activity .activity-row').count(), 3);
-      assert.equal(await page.locator('#activity .activity-row').evaluateAll(rows => rows.every(row => getComputedStyle(row).whiteSpace === 'nowrap')), true);
+      assert.equal(await activityRows.count(), 3);
+      assert.equal(await activityRows.evaluateAll(rows => rows.every(row => getComputedStyle(row).whiteSpace === 'nowrap')), true);
       assert.doesNotMatch(activityText, /\.\d{3,6}(?=[+-]\d\d:\d\d|Z)/);
       assert.equal(await page.locator('#activity').evaluate(node => node.scrollWidth >= node.clientWidth), true);
       assert.equal(await page.locator('.activity-separator').count(), 0);
