@@ -787,6 +787,7 @@ def _run_foreground_service(
                 provider.publish_from_owner(
                     owner,
                     config,
+                    error_code=last_error_code,
                     cycle_verified=False,
                     cycle_in_progress=cycle_in_progress,
                 )
@@ -794,8 +795,8 @@ def _run_foreground_service(
                 provider.invalidate()
 
         emit_operation(OperationStage.START)
-        progress(cycle_in_progress=False)
         last_error_code = None
+        progress(cycle_in_progress=False)
         last_cycle_verified = False
 
         def refresh_local_snapshot():
