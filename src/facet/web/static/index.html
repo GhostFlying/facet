@@ -82,14 +82,15 @@
       </dl><p class="muted">No samples means Unknown, not zero. No sync latency or completion-time promise.</p></section>
       <section class="wide"><h2>Exceptions · grouped operational issues</h2><div id="issues">Unknown</div></section>
       <section><h2>Diagnostics</h2><dl>
-        <div class="row"><dt>App version</dt><dd id="version">Unknown</dd></div><div class="row"><dt>Schema version</dt><dd id="schema">Unknown</dd></div>
+        <div class="row"><dt>App version</dt><dd id="version">Unknown</dd></div><div class="row"><dt>Commit SHA</dt><dd id="commit-sha">Unknown</dd></div><div class="row"><dt>Schema version</dt><dd id="schema">Unknown</dd></div>
         <div class="row"><dt>Sync owners</dt><dd id="owners">Unknown</dd></div><div class="row"><dt>DB readable / writable</dt><dd id="database">Unknown</dd></div>
         <div class="row"><dt>Source / Target scopes</dt><dd id="scopes">Unknown</dd></div><div class="row"><dt>Memory / Disk pressure</dt><dd id="pressure">Unknown</dd></div>
         <div class="row"><dt>Checked</dt><dd id="checked">Unknown</dd></div>
       </dl></section>
+      <section class="wide"><h2>Rule matches · newest first</h2><div id="activity">Unknown</div><p class="muted">Each row is a server-local batch of newly verified projected messages attributed to its configured sender/domain rule. No message details are shown.</p></section>
       <section><h2>Reconcile and audit</h2><p class="muted">Not reported by the current snapshot collector.</p><p>Use the maintenance CLI for available checks. This page does not run Gmail requests, audits, retries or configuration changes.</p></section>
     </main>
-    <footer>Times are operational events in the sync server's local timezone, never message dates. Refresh reads five cached aggregate snapshots every ten seconds. Unknown and stale data are not evidence of healthy sync.</footer>
+    <footer>Times are operational events in the sync server's local timezone, never message dates. Refresh reads six cached aggregate snapshots every ten seconds. Unknown and stale data are not evidence of healthy sync.</footer>
     <script>
       (() => {
         const get = id => document.getElementById(id);
@@ -111,7 +112,7 @@
         const advice = {correct_input: 'Correct CLI input.', inspect_request: 'Inspect the CLI request receipt.', repeat_same_request: 'Repeat the same CLI request key.', confirm_scope: 'Confirm scope in the CLI.', verify_binding: 'Verify account bindings in the CLI.', refresh_preview: 'Refresh the CLI preview.', inspect_owner: 'Inspect sync ownership.', wait_receipt: 'Wait for the request receipt.', authorize_source: 'Reauthorize Source on the deployment host.', authorize_target: 'Reauthorize Target on the deployment host.', wait_dependency: 'Wait for automatic dependency retry.', inspect_target_storage: 'Inspect Target storage.', inspect_recovery: 'Inspect insert recovery in the CLI.', inspect_work: 'Inspect work in the CLI.', inspect_maintenance: 'Inspect offline maintenance.'};
         const codes = new Set('invalid_input unsupported_version request_conflict request_not_received request_outcome_unknown request_lineage_mismatch confirmation_required scope_required binding_mismatch binding_pending preview_invalid generation_stale owner_unavailable owner_busy maintenance_incomplete wait_timeout source_auth_required target_auth_required source_rate_limited target_rate_limited network_unavailable target_storage_full insert_result_unknown duplicate_candidates attribution_unknown fidelity_mismatch source_missing target_missing database_unavailable persistence_failure consistency_failure maintenance_required'.split(' '));
         const jobStates = 'queued claimed retry_wait blocked needs_attention completed cancelled source_missing failed'.split(' ');
-        const valueIds = 'confirmed queued attention phase poll insert heartbeat source-mode source-binding source-time source-fresh target-mode target-binding target-time target-fresh epoch-kind epoch-state epoch-start discovery scanned discovered completed candidates oldest hour day rate latency version schema owners database scopes pressure checked rules'.split(' ').concat(jobStates.map(state => `job-${state}`));
+        const valueIds = 'confirmed queued attention phase poll insert heartbeat source-mode source-binding source-time source-fresh target-mode target-binding target-time target-fresh epoch-kind epoch-state epoch-start discovery scanned discovered completed candidates oldest hour day rate latency version commit-sha schema owners database scopes pressure checked rules activity'.split(' ').concat(jobStates.map(state => `job-${state}`));
         const role = (data, name) => {
           if (!object(data) || data.role !== name || !Object.hasOwn(fresh, data.freshness) || (data.auth_state !== null && !Object.hasOwn(bindings, data.auth_state))) throw new Error();
           return {mode: label(data.mode, modes), binding: label(data.auth_state, bindings), verified: time(data.last_verified_at), freshness: label(data.freshness, fresh)};
@@ -148,8 +149,14 @@
               if (!object(entry) || !kinds.has(entry.kind) || typeof entry.value !== 'string' || !entry.value || entry.value.length > 512 || typeof entry.enabled !== 'boolean' || /[\u0000-\u001f\u007f]/.test(entry.value)) throw new Error();
               return {kind: entry.kind, value: entry.value, enabled: entry.enabled};
             });
+          } else if (family === 'activity') {
+            if (!Array.isArray(data.entries) || data.entries.length > 100) throw new Error();
+            result.entries = data.entries.map(entry => {
+              if (!object(entry) || !['allow_sender', 'allow_domain'].includes(entry.rule_kind) || typeof entry.rule_value !== 'string' || !entry.rule_value || entry.rule_value.length > 512 || /[\u0000-\u001f\u007f]/.test(entry.rule_value) || count(entry.matched_count) === null || entry.matched_count < 1 || !time(entry.observed_at)) throw new Error();
+              return {kind: entry.rule_kind, value: entry.rule_value, count: entry.matched_count, observed: entry.observed_at};
+            });
           } else {
-            Object.assign(result, {version: typeof data.app_version === 'string' && /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-zA-Z0-9.-]+)?$/.test(data.app_version) && data.app_version.length <= 64 ? data.app_version : null, schema: count(data.schema_version), owners: count(data.sync_owner_count), readable: label(data.db_readable, checks), writable: label(data.db_writable, checks), sourceScope: label(data.source_scope_ready, checks), targetScope: label(data.target_scope_ready, checks), memory: label(data.memory_pressure, pressures), disk: label(data.disk_pressure, pressures), checked: time(data.checked_at)});
+            Object.assign(result, {version: typeof data.app_version === 'string' && /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-zA-Z0-9.-]+)?$/.test(data.app_version) && data.app_version.length <= 64 ? data.app_version : null, commit: typeof data.commit_sha === 'string' && /^[0-9a-f]{40}$/.test(data.commit_sha) ? data.commit_sha : null, schema: count(data.schema_version), owners: count(data.sync_owner_count), readable: label(data.db_readable, checks), writable: label(data.db_writable, checks), sourceScope: label(data.source_scope_ready, checks), targetScope: label(data.target_scope_ready, checks), memory: label(data.memory_pressure, pressures), disk: label(data.disk_pressure, pressures), checked: time(data.checked_at)});
           }
           return result;
         };
@@ -158,8 +165,8 @@
           put('health', 'Unknown'); get('health').className = 'badge';
           put('issues', 'Unknown — no current exception snapshot.'); put('freshness', note);
         };
-        const render = ([s, p, i, r, d]) => {
-          if ([s, p, i, r, d].some(data => data.freshness !== 'Fresh' || data.expires <= performance.now())) { unavailable('Stale or unavailable snapshot — current sync health and counts are unknown.'); return; }
+        const render = ([s, p, i, r, a, d]) => {
+          if ([s, p, i, r, a, d].some(data => data.freshness !== 'Fresh' || data.expires <= performance.now())) { unavailable('Stale or unavailable snapshot — current sync health and counts are unknown.'); return; }
           put('freshness', `Fresh aggregate snapshots · sampled ${s.sampled}`);
           put('health', s.health); get('health').className = s.health === 'Healthy' ? 'badge healthy' : 'badge';
           ['phase', 'poll', 'insert', 'heartbeat'].forEach(id => put(id, s[id]));
@@ -188,8 +195,16 @@
             const suggestion = document.createElement('p'); suggestion.textContent = group.advice;
             card.append(title, times, retry, suggestion); get('issues').append(card);
           });
-          ['version', 'schema', 'owners', 'checked'].forEach(id => put(id, d[id]));
+          ['version', 'commit', 'schema', 'owners', 'checked'].forEach(id => put(id === 'commit' ? 'commit-sha' : id, d[id]));
           put('database', `${d.readable} / ${d.writable}`); put('scopes', `${d.sourceScope} / ${d.targetScope}`); put('pressure', `${d.memory} / ${d.disk}`);
+          get('activity').replaceChildren();
+          if (!a.entries.length) put('activity', 'No rule-attributed projected messages in this snapshot.');
+          a.entries.forEach(entry => {
+            const row = document.createElement('div'); row.className = 'row';
+            const kind = document.createElement('dt'); kind.textContent = entry.kind;
+            const value = document.createElement('dd'); value.textContent = `${entry.value} · ${entry.count} message${entry.count === 1 ? '' : 's'} · ${entry.observed}`;
+            row.append(kind, value); get('activity').append(row);
+          });
         };
         let busy = false, expiryTimer = null;
         const load = async () => {
@@ -198,7 +213,7 @@
           const controller = new AbortController();
           const timeout = window.setTimeout(() => controller.abort(), 8000);
           try {
-            const snapshots = await Promise.all(['status', 'progress', 'issues', 'rules', 'diagnostics'].map(async family => {
+            const snapshots = await Promise.all(['status', 'progress', 'issues', 'rules', 'activity', 'diagnostics'].map(async family => {
               const requestedAt = performance.now();
               const response = await fetch(`/api/v1/${family}`, {cache: 'no-store', signal: controller.signal});
               if (!response.ok) throw new Error();

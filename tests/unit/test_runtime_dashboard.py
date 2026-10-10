@@ -42,7 +42,7 @@ def test_snapshot_from_initialized_owner_is_aggregate_only(
         snapshots = snapshot_from_owner(owner, owner.config)
         status = snapshots["status"].data
         progress = snapshots["progress"].data
-        assert status.health is PublicHealth.UNKNOWN
+        assert status.health is PublicHealth.HEALTHY
         assert status.source.auth_state is BindingState.VERIFIED
         assert status.target.auth_state is BindingState.VERIFIED
         assert progress.confirmed_messages == 0

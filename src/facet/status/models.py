@@ -408,6 +408,45 @@ class Rules:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class ActivityEntry:
+    rule_kind: str
+    rule_value: str
+    matched_count: PublicCount
+    observed_at: Timestamp
+
+    def __post_init__(self):
+        _exact(self, ActivityEntry)
+        _exact(self.rule_kind, str)
+        _require(self.rule_kind in {"allow_sender", "allow_domain"})
+        _exact(self.rule_value, str)
+        _require(1 <= len(self.rule_value.encode("utf-8")) <= 512)
+        _require(
+            not any(
+                unicodedata.category(char).startswith("C") for char in self.rule_value
+            )
+        )
+        _count(self.matched_count)
+        _require(self.matched_count >= 1)
+        _timestamp(self.observed_at)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class Activity:
+    entries: tuple[ActivityEntry, ...]
+
+    def __post_init__(self):
+        _exact(self, Activity)
+        _exact(self.entries, tuple)
+        _require(len(self.entries) <= 100)
+        previous = None
+        for entry in self.entries:
+            _record(entry, ActivityEntry)
+            key = (entry.observed_at.value, entry.rule_kind, entry.rule_value)
+            _require(previous is None or key < previous)
+            previous = key
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class Diagnostics:
     app_version: BuildVersion
     schema_version: PublicCount | None
@@ -421,6 +460,7 @@ class Diagnostics:
     disk_pressure: Pressure
     heartbeat_at: Timestamp | None
     checked_at: Timestamp | None
+    commit_sha: str | None = None
 
     def __post_init__(self):
         _exact(self, Diagnostics)
@@ -446,11 +486,14 @@ class Diagnostics:
         _exact(self.disk_pressure, Pressure)
         _timestamp(self.heartbeat_at, nullable=True)
         _timestamp(self.checked_at, nullable=True)
+        _exact(self.commit_sha, str, nullable=True)
+        if self.commit_sha is not None:
+            _require(re.fullmatch(r"[0-9a-f]{40}", self.commit_sha) is not None)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
 class PublicEnvelope:
-    data: Status | Progress | Issues | Rules | Diagnostics
+    data: Status | Progress | Issues | Rules | Activity | Diagnostics
     schema_version: Literal[1]
     sampled_at: Timestamp
     freshness: Freshness
@@ -462,7 +505,7 @@ class PublicEnvelope:
         _require(
             any(
                 type(self.data) is cls
-                for cls in (Status, Progress, Issues, Rules, Diagnostics)
+                for cls in (Status, Progress, Issues, Rules, Activity, Diagnostics)
             )
         )
         _record(self.data, type(self.data))

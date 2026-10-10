@@ -8,6 +8,34 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Dashboard diagnostics and rule-match activity — local candidate
+
+The short plan [dashboard-diagnostics-activity](implementation-plans/dashboard-diagnostics-activity.md)
+adds a sixth read-only `activity` snapshot and fixes the misleading all-Unknown
+view during a running backfill. A verified binding now reports scope readiness;
+the owner connection reports DB write mode; Linux memory and state-filesystem
+free space report bounded pressure levels when available. Diagnostics also
+accepts a deployment-injected full commit SHA (`FACET_COMMIT_SHA`, then the
+immutable `FACET_IMAGE` tag) without exposing image paths or arbitrary text.
+
+The activity timeline is derived from durable mapping verification times joined
+to the latest sender/domain admission rule. It shows only rule kind/value,
+matched mapping count and server-local time, newest first; action-label/manual
+admissions without a rule are omitted rather than guessed. No Gmail calls,
+message content, IDs or schema migration were added.
+
+Targeted Dashboard/model/privacy/container checks passed (56 tests); the full
+offline suite passed **2955 tests**. Browser acceptance was updated for the
+sixth family but could not run in this checkout because `playwright-core` is not
+installed. A local Docker build was attempted and timed out fetching the pinned
+Docker Hub base layer; current test deployment still runs the prior image until
+an image can be built and swapped under the existing deployment procedure.
+
+Next: retry the local image build or use the authorized image-build path, then
+perform a read-only Dashboard smoke check for `/api/v1/activity`, commit SHA,
+non-Unknown diagnostics and in-progress backfill status. This is not yet a
+merged or live-deployed acceptance claim.
+
 ### Dashboard operational consumer — merged and running in the current test deployment
 
 The [short plan](implementation-plans/dashboard-observability.md) and source

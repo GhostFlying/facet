@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from facet import __version__
 from facet.contracts import Freshness, PublicHealth, Role, Timestamp
 from facet.status.models import (
+    Activity,
     CheckState,
     Diagnostics,
     Issues,
@@ -38,6 +39,7 @@ _ROUTES = {
     "/api/v1/progress": "progress",
     "/api/v1/issues": "issues",
     "/api/v1/rules": "rules",
+    "/api/v1/activity": "activity",
     "/api/v1/diagnostics": "diagnostics",
 }
 _STATIC_ROOT = Path(__file__).with_name("static")
@@ -97,6 +99,7 @@ def _unavailable_envelopes() -> dict[str, PublicEnvelope]:
         None,
         None,
     )
+    activity = Activity(())
     return {
         "status": PublicEnvelope(
             status, 1, now, Freshness.UNAVAILABLE, None, "projection"
@@ -109,6 +112,9 @@ def _unavailable_envelopes() -> dict[str, PublicEnvelope]:
         ),
         "rules": PublicEnvelope(
             Rules(()), 1, now, Freshness.UNAVAILABLE, None, "projection"
+        ),
+        "activity": PublicEnvelope(
+            activity, 1, now, Freshness.UNAVAILABLE, None, "projection"
         ),
         "diagnostics": PublicEnvelope(
             diagnostics, 1, now, Freshness.UNAVAILABLE, None, "projection"

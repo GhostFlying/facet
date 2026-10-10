@@ -7,6 +7,9 @@ SQLite handle, Gmail service, or private configuration value.
 
 from __future__ import annotations
 
+import os
+import re
+import shutil
 from dataclasses import replace
 from datetime import UTC, datetime
 from threading import Lock
@@ -31,6 +34,8 @@ from facet.db.repositories.base import _decode, _query
 from facet.db.repositories.serialization import COLUMNS
 from facet.status.errors import catalog_entry
 from facet.status.models import (
+    Activity,
+    ActivityEntry,
     CheckState,
     Diagnostics,
     EpochSummary,
@@ -160,6 +165,83 @@ def _issues(uow, projection_id, sampled_at, error_code) -> Issues:
     return Issues(tuple(groups[code] for code in sorted(groups)))
 
 
+def _activity(uow, projection_id) -> Activity:
+    """Return bounded rule-attributed mapping batches without message details."""
+
+    rows = uow._execute(
+        "SELECT r.kind,r.normalized_value,COUNT(*),MAX(m.verified_at) "
+        "FROM message_mappings m "
+        "JOIN tracked_threads t ON t.projection_id=m.projection_id "
+        "AND t.source_thread_id=m.source_thread_id "
+        "JOIN thread_admissions a ON a.projection_id=t.projection_id "
+        "AND a.source_thread_id=t.source_thread_id "
+        "AND a.admission_revision=t.admission_revision "
+        "JOIN rules r ON r.projection_id=a.projection_id AND r.rule_id=a.rule_id "
+        "WHERE m.projection_id=? AND a.rule_id IS NOT NULL "
+        "AND r.kind IN('allow_sender','allow_domain') "
+        "GROUP BY r.kind,r.normalized_value,(m.verified_at / 1000000) "
+        "ORDER BY MAX(m.verified_at) DESC,r.kind DESC,r.normalized_value DESC "
+        "LIMIT 100",
+        (projection_id.value,),
+    ).fetchall()
+    entries = tuple(
+        ActivityEntry(str(kind), str(value), int(count), timestamp_from_sql(observed))
+        for kind, value, count, observed in rows
+    )
+    return Activity(entries)
+
+
+def _resource_pressure(available, total) -> Pressure:
+    if not isinstance(available, int) or not isinstance(total, int) or total <= 0:
+        return Pressure.UNKNOWN
+    ratio = available / total
+    if ratio < 0.05:
+        return Pressure.CRITICAL
+    if ratio < 0.15:
+        return Pressure.ELEVATED
+    return Pressure.NORMAL
+
+
+def _memory_pressure() -> Pressure:
+    try:
+        values = {}
+        with open("/proc/meminfo", encoding="ascii") as stream:
+            for line in stream:
+                key, separator, value = line.partition(":")
+                if separator and key in {"MemTotal", "MemAvailable"}:
+                    values[key] = int(value.strip().split()[0]) * 1024
+        return _resource_pressure(values.get("MemAvailable"), values.get("MemTotal"))
+    except (OSError, ValueError, IndexError):
+        return Pressure.UNKNOWN
+
+
+def _disk_pressure(owner) -> Pressure:
+    try:
+        usage = shutil.disk_usage(owner._state_dir)
+        return _resource_pressure(usage.free, usage.total)
+    except OSError:
+        return Pressure.UNKNOWN
+
+
+def _commit_sha() -> str | None:
+    candidate = os.environ.get("FACET_COMMIT_SHA", "").strip().lower()
+    if not candidate:
+        image = os.environ.get("FACET_IMAGE", "")
+        if "@sha256:" not in image:
+            candidate = image.rsplit(":", 1)[-1].strip().lower()
+    return candidate if re.fullmatch(r"[0-9a-f]{40}", candidate) else None
+
+
+def _scope_state(binding) -> CheckState:
+    if binding is None:
+        return CheckState.UNKNOWN
+    if binding.state is BindingState.VERIFIED:
+        return CheckState.OK
+    if binding.state in {BindingState.AUTH_REQUIRED, BindingState.MISMATCH}:
+        return CheckState.FAILED
+    return CheckState.UNKNOWN
+
+
 def _phase(projection, epoch) -> PublicPhase:
     if projection.restore_state.value != "normal":
         return PublicPhase.MAINTENANCE
@@ -232,6 +314,7 @@ def snapshot_from_owner(
             else (None, None)
         )
         issues = _issues(uow, owner.projection_id, sampled_at, error_code)
+        activity = _activity(uow, owner.projection_id)
         rule_rows = uow._execute(
             "SELECT r.kind,r.normalized_value,rr.enabled FROM rules r "
             "JOIN rule_revisions rr ON rr.projection_id=r.projection_id "
@@ -272,12 +355,18 @@ def snapshot_from_owner(
         schema_row = uow._execute(
             "SELECT schema_version FROM schema_metadata LIMIT 1"
         ).fetchone()
+        try:
+            db_writable = (
+                CheckState.OK
+                if uow._execute("PRAGMA query_only").fetchone()[0] == 0
+                else CheckState.FAILED
+            )
+        except Exception:
+            db_writable = CheckState.UNKNOWN
 
     if projection is None:
         raise ValueError("owner_unavailable")
     health = _health(projection, bindings, epoch, counts, issues)
-    if health is PublicHealth.HEALTHY and not cycle_verified:
-        health = PublicHealth.UNKNOWN
     if error_code is not None:
         health = (
             PublicHealth.BLOCKED
@@ -301,7 +390,11 @@ def snapshot_from_owner(
             _mode(config, role),
             binding.state if binding else None,
             binding.verified_at if binding else None,
-            Freshness.FRESH if cycle_verified else Freshness.STALE,
+            (
+                Freshness.FRESH
+                if binding is not None and binding.state is BindingState.VERIFIED
+                else Freshness.STALE
+            ),
         )
         for role, binding in zip(Role, bindings, strict=True)
     )
@@ -339,20 +432,22 @@ def snapshot_from_owner(
         int(schema_row[0]) if schema_row is not None else None,
         1,
         CheckState.OK,
-        CheckState.UNKNOWN,
+        db_writable,
         config.projection.source_mode,
-        CheckState.OK if cycle_verified else CheckState.UNKNOWN,
-        CheckState.OK if cycle_verified else CheckState.UNKNOWN,
-        Pressure.UNKNOWN,
-        Pressure.UNKNOWN,
+        _scope_state(bindings[0]),
+        _scope_state(bindings[1]),
+        _memory_pressure(),
+        _disk_pressure(owner),
         sampled_at,
         sampled_at,
+        _commit_sha(),
     )
     return {
         "status": _envelope(status, sampled_at),
         "progress": _envelope(progress, sampled_at),
         "issues": _envelope(issues, sampled_at),
         "rules": _envelope(rules, sampled_at),
+        "activity": _envelope(activity, sampled_at),
         "diagnostics": _envelope(diagnostics, sampled_at),
     }
 

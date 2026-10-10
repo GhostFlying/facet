@@ -126,6 +126,13 @@ def test_fixed_public_record_field_inventory():
             "suggestion",
         ],
         "Issues": ["groups"],
+        "ActivityEntry": [
+            "rule_kind",
+            "rule_value",
+            "matched_count",
+            "observed_at",
+        ],
+        "Activity": ["entries"],
         "Diagnostics": [
             "app_version",
             "schema_version",
@@ -139,6 +146,7 @@ def test_fixed_public_record_field_inventory():
             "disk_pressure",
             "heartbeat_at",
             "checked_at",
+            "commit_sha",
         ],
         "PublicEnvelope": [
             "data",
