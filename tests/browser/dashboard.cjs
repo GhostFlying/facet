@@ -66,10 +66,15 @@ const fixture = () => {
       assert.equal(await text('latency'), 'Unknown');
       assert.equal(await text('source-binding'), 'Verified');
       assert.equal(await text('commit-sha'), '0123456789abcdef0123456789abcdef01234567');
-      assert.match(await text('activity'), /sender@example\.test.*4 messages/);
       const activityText = await text('activity');
-      assert.ok(activityText.indexOf('sender@example.test') < activityText.indexOf('example.test · 2 messages'));
-      assert.match(activityText, /Other authorized thread · 1 message/);
+      assert.ok(activityText.indexOf('sender@example.test') < activityText.indexOf('example.test'));
+      assert.match(activityText, /4 messages/);
+      assert.match(activityText, /Other authorized thread[\s\S]*1 message/);
+      assert.equal(await page.locator('#activity .activity-row').count(), 3);
+      assert.equal(await page.locator('#activity .activity-row').evaluateAll(rows => rows.every(row => getComputedStyle(row).whiteSpace === 'nowrap')), true);
+      assert.doesNotMatch(activityText, /\.\d{3,6}(?=[+-]\d\d:\d\d|Z)/);
+      assert.equal(await page.locator('#activity').evaluate(node => node.scrollWidth >= node.clientWidth), true);
+      assert.equal(await page.locator('.activity-separator').count(), 0);
       assert.match(await page.locator('body').innerText(), /Source binding verified/);
       assert.doesNotMatch(await page.locator('body').innerText(), /\d+(?:\.\d+)?%|ETA/);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

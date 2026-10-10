@@ -8,6 +8,31 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Dashboard activity stream — layout refinement in progress
+
+The activity stream keeps server-local time ordering, renders timestamps to
+whole seconds, and keeps each rule/count/time record on one line with local
+horizontal overflow on narrow screens. It intentionally has no run separators:
+the current snapshot does not persist exact sync-cycle boundaries, so time gaps
+are only approximate ordering cues. Synthetic browser assertions are being
+added for this bounded presentation change; no API, DB, Gmail, or privacy
+contract changes are involved.
+
+### `source_missing` investigation — read-only evidence on test deployment
+
+The current test deployment has 217 non-retryable `source_missing` jobs, all
+`resolve_event` jobs for `message_added` History events; none is mapped and the
+source binding/profile probe remains healthy. A provider read-only probe found
+HTTP 404 for 5/5 sampled persisted IDs and 30/30 sampled `messageAdded` IDs
+from the same History range. All 217 persisted IDs were present in the
+provider's `messageAdded` set, while no matching `messageDeleted` record was
+returned in that range. This proves the objects were advertised by History but
+were no longer readable when Facet resolved them; it does not distinguish user
+deletion from provider-side expiry. The path is the intended fail-closed
+History resolver, not a target insert failure or authentication outage. No DB
+mutation or automatic retry was performed; the records remain an explicit
+source-loss diagnostic until a source-side recovery policy is chosen.
+
 ### Dashboard diagnostics and rule-match activity — local candidate
 
 The short plan [dashboard-diagnostics-activity](implementation-plans/dashboard-diagnostics-activity.md)
