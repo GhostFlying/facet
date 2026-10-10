@@ -1,0 +1,528 @@
+"""Explicit, source-only full reconcile.
+
+The reconciler deliberately has no Target adapter.  It enumerates the sealed
+source scope, records only controlled metadata, and hands eligible candidates
+to a caller supplied normal projection enqueue function.  This keeps a costly
+audit separate from ordinary sync while making its state restartable.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import StrEnum
+from uuid import uuid4
+
+from facet.contracts import (
+    ErrorCode,
+    LocalId,
+    ProviderId,
+    ProviderPageToken,
+    Revision,
+    Timestamp,
+)
+from facet.db.codecs import StorageFailure, timestamp_to_sql
+from facet.gmail.retry import ProviderFailure
+from facet.gmail.source import DiscoveryItem
+
+
+class ReconcileClassification(StrEnum):
+    SEEN = "seen"
+    MAPPED = "mapped"
+    QUEUED = "queued"
+    NO_RULE = "no_rule"
+    METADATA_UNAVAILABLE = "metadata_unavailable"
+    DUPLICATE_EFFECT = "duplicate_effect"
+    ATTENTION = "attention"
+    MANAGED_SOURCE_MISSING = "managed_source_missing"
+
+
+class ReconcileDisposition(StrEnum):
+    QUEUED_PROJECTION = "queued_projection"
+    ALREADY_CONVERGED = "already_converged"
+    RECHECK_SCHEDULED = "recheck_scheduled"
+    TERMINAL_UNKNOWN = "terminal_unknown"
+    RESET_VERIFIED = "reset_verified"
+    REMAINING_ATTENTION = "remaining_attention"
+
+
+@dataclass(frozen=True, slots=True)
+class ReconcileScope:
+    ruleset_revision: Revision
+    window_start: Timestamp
+    window_end: Timestamp
+    discovery_cutoff: Timestamp
+
+
+@dataclass(frozen=True, slots=True)
+class ReconcileResult:
+    run_id: LocalId
+    listed: int = 0
+    metadata_success: int = 0
+    metadata_404: int = 0
+    matched: int = 0
+    mapped: int = 0
+    queued: int = 0
+    reset: int = 0
+    remaining_issue: int = 0
+
+
+def _now() -> Timestamp:
+    return Timestamp(datetime.now(UTC))
+
+
+def _provider_details(error: ProviderFailure) -> tuple[str, str, int | None]:
+    stage = error.provider_stage.value if error.provider_stage else "unknown"
+    reason = error.code.value
+    return stage, reason, error.status
+
+
+class SourceReconciler:
+    """Run one frozen source scan against an owner and admission evaluator."""
+
+    def __init__(self, owner, source, admission, scope: ReconcileScope, *, run_id=None):
+        self.owner = owner
+        self.source = source
+        self.admission = admission
+        self.scope = scope
+        self.run_id = run_id or LocalId(uuid4().hex)
+        self._seen: set[str] = set()
+
+    def _insert_run(self, uow, request_key: str) -> None:
+        uow._execute(
+            "INSERT INTO reconcile_runs(projection_id,run_id,request_key,state,"
+            "ruleset_revision,window_start,window_end,discovery_cutoff,created_at,"
+            "page_token,listed_count,metadata_success_count,metadata_404_count,"
+            "matched_count,mapped_count,queued_count,reset_count,remaining_issue_count,"
+            "revision) VALUES(?,?,?,'prepared',?,?,?,?,?,NULL,0,0,0,0,0,0,0,0,0)",
+            (
+                self.owner.projection_id.value,
+                self.run_id.value,
+                request_key,
+                self.scope.ruleset_revision.value,
+                timestamp_to_sql(self.scope.window_start),
+                timestamp_to_sql(self.scope.window_end),
+                timestamp_to_sql(self.scope.discovery_cutoff),
+                timestamp_to_sql(_now()),
+            ),
+        )
+
+    def _update_run(
+        self, uow, values: dict[str, int | str | None], *, token=None
+    ) -> None:
+        fields = list(values)
+        assignments = ",".join(f"{field}=?" for field in fields)
+        params = [values[field] for field in fields]
+        if token is not None:
+            assignments += ",page_token=?"
+            params.append(token.value if hasattr(token, "value") else token)
+        params.extend((self.owner.projection_id.value, self.run_id.value))
+        uow._execute(
+            f"UPDATE reconcile_runs SET {assignments},revision=revision+1 "
+            "WHERE projection_id=? AND run_id=?",
+            params,
+        )
+
+    def run(self, request_key: str, *, enqueue_candidate=None) -> ReconcileResult:
+        """Scan all pages; provider reads happen outside SQLite transactions."""
+        page = None
+        totals = {
+            name: 0
+            for name in (
+                "listed",
+                "metadata_success",
+                "metadata_404",
+                "matched",
+                "mapped",
+                "queued",
+                "reset",
+                "remaining_issue",
+            )
+        }
+        with self.owner.session.transaction() as uow:
+            existing = uow._execute(
+                "SELECT run_id,state,page_token,listed_count,metadata_success_count,"
+                "metadata_404_count,matched_count,mapped_count,queued_count,"
+                "reset_count,remaining_issue_count,ruleset_revision "
+                "FROM reconcile_runs "
+                "WHERE projection_id=? AND request_key=?",
+                (self.owner.projection_id.value, request_key),
+            ).fetchone()
+            if existing is None:
+                self._insert_run(uow, request_key)
+                uow._execute(
+                    "UPDATE reconcile_runs SET state='scanning',revision=revision+1 "
+                    "WHERE projection_id=? AND run_id=?",
+                    (self.owner.projection_id.value, self.run_id.value),
+                )
+            else:
+                self.run_id = LocalId(existing[0])
+                if int(existing[11]) != self.scope.ruleset_revision.value:
+                    raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
+                if existing[1] in {"completed", "completed_with_issues"}:
+                    return ReconcileResult(
+                        self.run_id,
+                        *[int(existing[index] or 0) for index in range(3, 11)],
+                    )
+                page = (
+                    ProviderPageToken(existing[2]) if existing[2] is not None else None
+                )
+                for name, index in zip(totals, range(3, 11), strict=True):
+                    totals[name] = int(existing[index] or 0)
+        query = self.admission.discovery_query(None)
+        if query is None:
+            self._finish(totals, with_issues=False)
+            return ReconcileResult(self.run_id, **totals)
+        while True:
+            self._assert_scope_revision()
+            response = self.source.discover(
+                window_start=self.scope.window_start.value,
+                window_end=self.scope.window_end.value,
+                page_token=page,
+                query=query,
+            )
+            for item in response.items:
+                totals["listed"] += 1
+                if item.message_id.value in self._seen:
+                    continue
+                with self.owner.session.transaction() as uow:
+                    if uow._execute(
+                        "SELECT 1 FROM reconcile_candidates WHERE projection_id=? "
+                        "AND run_id=? AND source_message_id=? LIMIT 1",
+                        (
+                            self.owner.projection_id.value,
+                            self.run_id.value,
+                            item.message_id.value,
+                        ),
+                    ).fetchone():
+                        continue
+                self._seen.add(item.message_id.value)
+                try:
+                    read_candidate = getattr(
+                        self.source, "reconcile_candidate", self.source.candidate
+                    )
+                    candidate = read_candidate(item)
+                except ProviderFailure as error:
+                    stage, reason, status = _provider_details(error)
+                    if status == 404:
+                        totals["metadata_404"] += 1
+                        totals["remaining_issue"] += 1
+                        self._record(
+                            item,
+                            ReconcileClassification.METADATA_UNAVAILABLE,
+                            ReconcileDisposition.RECHECK_SCHEDULED,
+                            stage,
+                            reason,
+                            status,
+                        )
+                    else:
+                        totals["remaining_issue"] += 1
+                        self._record(
+                            item,
+                            ReconcileClassification.ATTENTION,
+                            ReconcileDisposition.REMAINING_ATTENTION,
+                            stage,
+                            reason,
+                            status,
+                        )
+                    continue
+                if candidate.attention is not None:
+                    totals["remaining_issue"] += 1
+                    self._record(
+                        item,
+                        ReconcileClassification.ATTENTION,
+                        ReconcileDisposition.REMAINING_ATTENTION,
+                        "message_get",
+                        candidate.attention.reason.value,
+                        None,
+                    )
+                    continue
+                totals["metadata_success"] += 1
+                value = candidate.candidate
+                if value.is_draft:
+                    self._record(
+                        item,
+                        ReconcileClassification.NO_RULE,
+                        ReconcileDisposition.ALREADY_CONVERGED,
+                        None,
+                        "draft",
+                        None,
+                    )
+                    continue
+                if not (
+                    self.scope.window_start.value
+                    <= value.observed_at.value
+                    <= self.scope.window_end.value
+                ):
+                    self._record(
+                        item,
+                        ReconcileClassification.NO_RULE,
+                        ReconcileDisposition.ALREADY_CONVERGED,
+                        None,
+                        "outside_window",
+                        None,
+                    )
+                    continue
+                decision = self.admission._policy.evaluate(value, _now())
+                if not decision.admit:
+                    self._record(
+                        item,
+                        ReconcileClassification.NO_RULE,
+                        ReconcileDisposition.RESET_VERIFIED,
+                        None,
+                        "no_rule",
+                        None,
+                    )
+                    totals["reset"] += 1
+                    continue
+                totals["matched"] += 1
+                with self.owner.session.transaction() as uow:
+                    mapped = uow._execute(
+                        "SELECT 1 FROM message_mappings "
+                        "WHERE projection_id=? AND source_message_id=? LIMIT 1",
+                        (self.owner.projection_id.value, item.message_id.value),
+                    ).fetchone()
+                if mapped is not None:
+                    totals["mapped"] += 1
+                    self._record(
+                        item,
+                        ReconcileClassification.MAPPED,
+                        ReconcileDisposition.ALREADY_CONVERGED,
+                        None,
+                        "mapping",
+                        None,
+                    )
+                    continue
+                if enqueue_candidate is None:
+                    totals["remaining_issue"] += 1
+                    self._record(
+                        item,
+                        ReconcileClassification.ATTENTION,
+                        ReconcileDisposition.REMAINING_ATTENTION,
+                        None,
+                        "enqueue_unavailable",
+                        None,
+                    )
+                elif enqueue_candidate(value, decision.rule):
+                    totals["queued"] += 1
+                    self._record(
+                        item,
+                        ReconcileClassification.QUEUED,
+                        ReconcileDisposition.QUEUED_PROJECTION,
+                        None,
+                        "queued",
+                        None,
+                    )
+                else:
+                    totals["remaining_issue"] += 1
+                    self._record(
+                        item,
+                        ReconcileClassification.ATTENTION,
+                        ReconcileDisposition.REMAINING_ATTENTION,
+                        None,
+                        "enqueue_rejected",
+                        None,
+                    )
+            page = response.next_page_token
+            with self.owner.session.transaction() as uow:
+                self._update_run(
+                    uow,
+                    {f"{name}_count": value for name, value in totals.items()},
+                    token=page,
+                )
+            if page is None:
+                break
+        with self.owner.session.transaction() as uow:
+            uow._execute(
+                "UPDATE reconcile_runs SET state='draining',revision=revision+1 "
+                "WHERE projection_id=? AND run_id=?",
+                (self.owner.projection_id.value, self.run_id.value),
+            )
+        self._scan_legacy_source_missing(totals)
+        self._scan_tracked_threads(totals, enqueue_candidate)
+        self._finish(totals, with_issues=totals["remaining_issue"] > 0)
+        return ReconcileResult(self.run_id, **totals)
+
+    def _assert_scope_revision(self):
+        with self.owner.session.transaction() as uow:
+            row = uow._execute(
+                "SELECT ruleset_revision FROM projections WHERE projection_id=?",
+                (self.owner.projection_id.value,),
+            ).fetchone()
+        if row is None or int(row[0]) != self.scope.ruleset_revision.value:
+            raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
+
+    def _scan_legacy_source_missing(self, totals):
+        with self.owner.session.transaction() as uow:
+            rows = uow._execute(
+                "SELECT source_message_id,source_thread_id FROM source_events "
+                "WHERE projection_id=? AND tag='message_added' "
+                "AND processing='source_missing' AND source_message_id IS NOT NULL",
+                (self.owner.projection_id.value,),
+            ).fetchall()
+        for message_id, thread_id in rows:
+            item = DiscoveryItem(ProviderId(message_id), ProviderId(thread_id))
+            try:
+                read_candidate = getattr(
+                    self.source, "reconcile_candidate", self.source.candidate
+                )
+                result = read_candidate(item)
+            except ProviderFailure as error:
+                stage, reason, status = _provider_details(error)
+                if status == 404:
+                    totals["metadata_404"] += 1
+                    totals["remaining_issue"] += 1
+                    self._record(
+                        item,
+                        ReconcileClassification.METADATA_UNAVAILABLE,
+                        ReconcileDisposition.RECHECK_SCHEDULED,
+                        stage,
+                        reason,
+                        status,
+                    )
+                else:
+                    totals["remaining_issue"] += 1
+                    self._record(
+                        item,
+                        ReconcileClassification.ATTENTION,
+                        ReconcileDisposition.REMAINING_ATTENTION,
+                        stage,
+                        reason,
+                        status,
+                    )
+                continue
+            if result.attention is not None:
+                totals["remaining_issue"] += 1
+                self._record(
+                    item,
+                    ReconcileClassification.ATTENTION,
+                    ReconcileDisposition.REMAINING_ATTENTION,
+                    "message_get",
+                    result.attention.reason.value,
+                    None,
+                )
+            else:
+                totals["metadata_success"] += 1
+
+    def _scan_tracked_threads(self, totals, enqueue_candidate):
+        """Read complete available history for each active tracked thread."""
+        with self.owner.session.transaction() as uow:
+            rows = uow._execute(
+                "SELECT source_thread_id FROM tracked_threads "
+                "WHERE projection_id=? AND active=1",
+                (self.owner.projection_id.value,),
+            ).fetchall()
+        for (thread_id,) in rows:
+            try:
+                history = self.source.thread_metadata(
+                    ProviderId(thread_id), include_spam_trash=True
+                )
+            except ProviderFailure as error:
+                stage, reason, status = _provider_details(error)
+                totals["remaining_issue"] += 1
+                totals["metadata_404"] += status == 404
+                item = DiscoveryItem(ProviderId(thread_id), ProviderId(thread_id))
+                self._record(
+                    item,
+                    ReconcileClassification.MANAGED_SOURCE_MISSING
+                    if status == 404
+                    else ReconcileClassification.ATTENTION,
+                    ReconcileDisposition.REMAINING_ATTENTION,
+                    stage,
+                    reason,
+                    status,
+                )
+                continue
+            for message in history.messages:
+                if "DRAFT" in message.labels:
+                    continue
+                totals["metadata_success"] += 1
+                item = DiscoveryItem(message.message_id, message.thread_id)
+                with self.owner.session.transaction() as uow:
+                    mapped = uow._execute(
+                        "SELECT 1 FROM message_mappings "
+                        "WHERE projection_id=? AND source_message_id=? LIMIT 1",
+                        (self.owner.projection_id.value, message.message_id.value),
+                    ).fetchone()
+                if mapped is not None:
+                    totals["mapped"] += 1
+                    self._record(
+                        item,
+                        ReconcileClassification.MAPPED,
+                        ReconcileDisposition.ALREADY_CONVERGED,
+                        None,
+                        "mapping",
+                        None,
+                    )
+                elif enqueue_candidate is not None and enqueue_candidate(message, None):
+                    totals["matched"] += 1
+                    totals["queued"] += 1
+                    self._record(
+                        item,
+                        ReconcileClassification.QUEUED,
+                        ReconcileDisposition.QUEUED_PROJECTION,
+                        None,
+                        "tracked_history",
+                        None,
+                    )
+                else:
+                    totals["remaining_issue"] += 1
+                    self._record(
+                        item,
+                        ReconcileClassification.ATTENTION,
+                        ReconcileDisposition.REMAINING_ATTENTION,
+                        None,
+                        "enqueue_unavailable",
+                        None,
+                    )
+
+    def _record(self, item, classification, disposition, stage, reason, status):
+        now = timestamp_to_sql(_now())
+        with self.owner.session.transaction() as uow:
+            previous = uow._execute(
+                "SELECT recheck_count FROM reconcile_candidates "
+                "WHERE projection_id=? AND source_message_id=? "
+                "ORDER BY last_seen_at DESC LIMIT 1",
+                (self.owner.projection_id.value, item.message_id.value),
+            ).fetchone()
+            rechecks = int(previous[0]) if previous is not None else 0
+            if classification is ReconcileClassification.METADATA_UNAVAILABLE:
+                rechecks += 1
+                if rechecks > 1:
+                    disposition = ReconcileDisposition.TERMINAL_UNKNOWN
+            uow._execute(
+                "INSERT OR REPLACE INTO reconcile_candidates(projection_id,run_id,"
+                "source_message_id,source_thread_id,classification,recheck_count,"
+                "first_seen_at,last_seen_at,job_id,provider_stage,provider_reason,"
+                "http_status,disposition,revision) "
+                "VALUES(?,?,?,?,?,?,?,? ,NULL,?,?,?, ?,0)",
+                (
+                    self.owner.projection_id.value,
+                    self.run_id.value,
+                    item.message_id.value,
+                    item.thread_id.value,
+                    classification.value,
+                    rechecks,
+                    now,
+                    now,
+                    stage,
+                    reason,
+                    status,
+                    disposition.value,
+                ),
+            )
+
+    def _finish(self, totals, *, with_issues):
+        with self.owner.session.transaction() as uow:
+            uow._execute(
+                "UPDATE reconcile_runs SET state=?,completed_at=?,"
+                "remaining_issue_count=?,"
+                "revision=revision+1 WHERE projection_id=? AND run_id=?",
+                (
+                    "completed_with_issues" if with_issues else "completed",
+                    timestamp_to_sql(_now()),
+                    totals["remaining_issue"],
+                    self.owner.projection_id.value,
+                    self.run_id.value,
+                ),
+            )

@@ -351,6 +351,18 @@ def build_parser() -> _Parser:
         help="show aggregate backfill progress",
     )
     _common(backfill_status)
+    reconcile = commands.add_parser(
+        "reconcile",
+        add_help=False,
+        allow_abbrev=False,
+        help="run or inspect an explicit source-only full reconcile",
+    )
+    _common(reconcile)
+    reconcile.add_argument("--source", action="store_true")
+    reconcile.add_argument("--full", action="store_true")
+    reconcile.add_argument("--yes", action="store_true")
+    reconcile.add_argument("--request-id")
+    reconcile.add_argument("action", nargs="?", choices=("status",))
     queue = commands.add_parser(
         "queue",
         add_help=False,
@@ -2292,6 +2304,16 @@ def main(argv: list[str] | None = None) -> int:
             from facet.cli.target_cleanup import run_cleanup
 
             data, warnings = run_cleanup(options)
+            return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
+        if options.family == "reconcile":
+            command = (
+                "reconcile.status"
+                if options.action == "status"
+                else "reconcile.source.full"
+            )
+            from facet.cli.reconcile import run_reconcile
+
+            data, warnings = run_reconcile(options)
             return _emit(command, data=data, warnings=warnings, json_mode=json_mode)
         if options.family == "web":
             command = "web"

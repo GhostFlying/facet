@@ -8,7 +8,7 @@ from .jobs import _ready, _thread_guard
 
 
 def enabled(uow):
-    return _query(uow, "PRAGMA user_version", maximum=1)[0][0] == 5
+    return _query(uow, "PRAGMA user_version", maximum=1)[0][0] in {5, 6}
 
 
 def exclusion(uow):

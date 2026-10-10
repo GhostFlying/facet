@@ -115,6 +115,12 @@ bounded pagination 和受控失败；涉及对象的 `list/show` 只显示持久
 | `facet maintenance inspect/check`；`facet migrate plan/apply/status` | 离线 metadata/schema/迁移兼容性检查；apply 先 backup、停机持锁；O/M | M1-02/03、M6-01/02；G1/G6 |
 | `facet backup create/verify/list`；`facet restore plan/apply` | SQLite backup API + config/binding/credentials 成套保存；离线验证/恢复；M/O | M6-01/02；G6 |
 
+当前 source-only 校对路径已提供 `facet reconcile --source --full --yes
+--request-id <uuid>` 与 `facet reconcile status`。它冻结当前 ruleset 和六个月
+窗口，另行记录可恢复的扫描/候选事实；只读 source、可为普通投影队列排入候选，
+不会构造 Target service、直接 insert、删除邮件或把 404 当作成功。重复 request-id
+返回原 run 状态；不可证明收敛的候选保持 attention/terminal unknown。
+
 Existing planned aliases `backfill stop`→`backfill pause`、`backup <destination>`→
 `backup create --destination` 可保留明确 deprecation 信息。旧
 `reconcile --target --repair-missing` 只能作为 bounded repair 的 alias，缺 audit/

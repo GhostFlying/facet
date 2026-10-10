@@ -533,12 +533,18 @@ class StateOwner:
         self.ensure_current_action_schema(request_id, config_bytes)
         self._ensure_label_schema(request_id, config_bytes, 5)
 
+    def ensure_reconcile_schema(self, request_id: LocalId, config_bytes: bytes) -> None:
+        """Back up owned state before enabling source reconcile facts."""
+        self.ensure_insert_absence_schema(request_id, config_bytes)
+        self._ensure_label_schema(request_id, config_bytes, 6)
+
     def _ensure_label_schema(self, request_id, config_bytes, target_version):
         from facet.db.migrations import (
             _FRESH_V2_MANIFEST,
             _FRESH_V3_MANIFEST,
             _FRESH_V4_MANIFEST,
             _FRESH_V5_MANIFEST,
+            _FRESH_V6_MANIFEST,
             FRESH_V3_CHECKSUMS,
             FRESH_V3_REGISTRY,
             FRESH_V3_REGISTRY_DIGEST,
@@ -548,6 +554,9 @@ class StateOwner:
             FRESH_V5_CHECKSUMS,
             FRESH_V5_REGISTRY,
             FRESH_V5_REGISTRY_DIGEST,
+            FRESH_V6_CHECKSUMS,
+            FRESH_V6_REGISTRY,
+            FRESH_V6_REGISTRY_DIGEST,
         )
         from facet.db.schema import _inspect_manifest
 
@@ -563,6 +572,7 @@ class StateOwner:
             3: _FRESH_V3_MANIFEST,
             4: _FRESH_V4_MANIFEST,
             5: _FRESH_V5_MANIFEST,
+            6: _FRESH_V6_MANIFEST,
         }
         if version in manifests and version >= target_version:
             _inspect_manifest(connection, manifests[version])
@@ -574,10 +584,17 @@ class StateOwner:
             3: (FRESH_V3_REGISTRY, FRESH_V3_CHECKSUMS, FRESH_V3_REGISTRY_DIGEST),
             4: (FRESH_V4_REGISTRY, FRESH_V4_CHECKSUMS, FRESH_V4_REGISTRY_DIGEST),
             5: (FRESH_V5_REGISTRY, FRESH_V5_CHECKSUMS, FRESH_V5_REGISTRY_DIGEST),
+            6: (FRESH_V6_REGISTRY, FRESH_V6_CHECKSUMS, FRESH_V6_REGISTRY_DIGEST),
         }[target_version]
         _inspect_manifest(connection, source_manifest)
         backup_root = self._state_dir / "backups"
-        feature = "insert-absence" if target_version == 5 else "action-label"
+        feature = (
+            "reconcile"
+            if target_version == 6
+            else "insert-absence"
+            if target_version == 5
+            else "action-label"
+        )
         bundle = backup_root / f"{feature}-v{target_version}-{request_id.value}"
         temporary = backup_root / f".{feature}-v{target_version}-{request_id.value}.tmp"
         created_temporary = False

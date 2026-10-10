@@ -8,6 +8,19 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Full source reconcile — implementation candidate in progress
+
+The implementation plan is [full-source-reconcile](implementation-plans/full-source-reconcile.md).
+Schema v6 now has private `reconcile_runs` and candidate facts with resumable page
+state, bounded classifications, and no raw mail. `facet reconcile status` and the
+explicit `facet reconcile --source --full --yes` command are wired to a source-only
+provider path; it never constructs a Target adapter. The source adapter preserves
+metadata 404s for reconcile and can request `includeSpamTrash` for tracked-thread
+history. Focused schema/CLI checks pass. Candidate enqueue integration, durable
+per-candidate recheck/legacy-217 convergence, Dashboard aggregation, fake source
+coverage, and real source-only read validation remain incomplete; no live DB has
+been changed by this unit.
+
 ### Dashboard activity stream — layout refinement in progress
 
 The activity stream keeps server-local time ordering, renders timestamps to

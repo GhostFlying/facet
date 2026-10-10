@@ -413,6 +413,15 @@ class SourceAdapter:
             raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
         return self._candidate_result(item, self._source_account, history=True)
 
+    def reconcile_candidate(self, item: DiscoveryItem) -> CandidateResult:
+        """Read metadata for reconcile while preserving provider 404 status."""
+        if (
+            type(item) is not DiscoveryItem
+            or type(self._source_account) is not PrivateAddress
+        ):
+            raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
+        return self._candidate_result(item, self._source_account, history=True)
+
     def _candidate_result(
         self,
         item: DiscoveryItem,
@@ -528,11 +537,20 @@ class SourceAdapter:
         except (KeyError, TypeError, ValueError, OverflowError, OSError):
             raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
 
-    def thread_metadata(self, thread_id: ProviderId) -> ThreadMetadata:
+    def thread_metadata(
+        self, thread_id: ProviderId, *, include_spam_trash: bool = False
+    ) -> ThreadMetadata:
+        if type(include_spam_trash) is not bool:
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
         value = execute(
             self._service.users()
             .threads()
-            .get(userId="me", id=thread_id.value, format="metadata"),
+            .get(
+                userId="me",
+                id=thread_id.value,
+                format="metadata",
+                **({"includeSpamTrash": True} if include_spam_trash else {}),
+            ),
             self.role,
             provider_stage=ProviderStage.MESSAGE_GET,
         )

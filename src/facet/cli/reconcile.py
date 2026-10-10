@@ -1,0 +1,275 @@
+"""CLI entry points for explicit, source-only full reconcile."""
+
+import sqlite3
+from datetime import UTC, datetime
+from uuid import uuid4
+
+from facet.config import load_config
+from facet.contracts import (
+    BindingState,
+    Count,
+    Generation,
+    JobKind,
+    JobState,
+    LocalId,
+    Priority,
+    ProviderId,
+    Revision,
+    Role,
+    Timestamp,
+)
+from facet.contracts.records import (
+    AdmissionRefFutureRule,
+    JobSubjectExpandThread,
+    JobSubjectProjectMessage,
+    ThreadGenerationGuardUntracked,
+)
+from facet.db.codecs import PrivateAddress
+from facet.db.keys import job_key
+from facet.db.models import SyncJobRow, ThreadAdmissionRow, TrackedThreadRow
+from facet.db.repositories import jobs, policy
+from facet.db.repositories.base import _get
+from facet.gmail.credentials import CredentialManager
+from facet.gmail.service_factory import GoogleGmailServiceFactory
+from facet.gmail.source import SourceAdapter
+from facet.private_paths import read_managed_config, select_paths
+from facet.reconcile import ReconcileScope, SourceReconciler
+from facet.runtime.foreground_runtime import load_persisted_admission
+from facet.runtime.state_owner import StateOwner
+
+
+def _timestamp(value):
+    return Timestamp(value)
+
+
+def _scope(owner, config):
+    from facet.projection.backfill import six_calendar_month_start
+
+    end = datetime.now(UTC)
+    revision = owner._connection.execute(
+        "SELECT ruleset_revision FROM projections WHERE projection_id=?",
+        (owner.projection_id.value,),
+    ).fetchone()[0]
+    return ReconcileScope(
+        Revision(revision),
+        six_calendar_month_start(end),
+        _timestamp(end),
+        _timestamp(end.replace(day=1, hour=0, minute=0, second=0, microsecond=0)),
+    )
+
+
+def _source_service(owner, config):
+    from facet.gmail.credential_models import policy_scopes
+    from facet.gmail.credentials import ProfileEvidence
+    from facet.gmail.refresh_exchange import refresh_google
+    from facet.runtime.foreground_runtime import _policy, _request_token_provider
+
+    manager = CredentialManager(owner.state_dir, config, owner)
+    factory = GoogleGmailServiceFactory()
+
+    def exchange(role, old):
+        return refresh_google(role, old, policy_scopes(_policy(config, role), role))
+
+    def profile(role, secret, scopes):
+        return ProfileEvidence(factory.profile_account(role, secret), scopes)
+
+    manager.reconcile_interrupted_refresh(Role.SOURCE)
+    manager.ensure_current(Role.SOURCE, exchange, profile)
+    snapshot = manager.snapshot(Role.SOURCE)
+    build = getattr(factory, "service_with_refresh", None)
+    if callable(build):
+        return build(
+            Role.SOURCE,
+            snapshot,
+            _request_token_provider(owner, config, factory, snapshot),
+        )
+    return factory.service(Role.SOURCE, snapshot)
+
+
+def _status(owner):
+    row = owner._connection.execute(
+        "SELECT state,run_id,ruleset_revision,window_start,window_end,listed_count,"
+        "metadata_success_count,metadata_404_count,matched_count,mapped_count,"
+        "queued_count,reset_count,remaining_issue_count,created_at,completed_at "
+        "FROM reconcile_runs WHERE projection_id=? ORDER BY created_at DESC LIMIT 1",
+        (owner.projection_id.value,),
+    ).fetchone()
+    if row is None:
+        return {"state": "never_run"}
+    return {
+        "state": row[0],
+        "ruleset_revision": row[2],
+        "window_start": row[3],
+        "window_end": row[4],
+        "listed": row[5],
+        "metadata_success": row[6],
+        "metadata_404": row[7],
+        "matched": row[8],
+        "mapped": row[9],
+        "queued": row[10],
+        "reset": row[11],
+        "remaining_issue": row[12],
+        "created_at": row[13],
+        "completed_at": row[14],
+    }
+
+
+def _enqueue(owner, run_id):
+    def enqueue(candidate, rule):
+        message_id = ProviderId(candidate.message_id.value)
+        thread_id = ProviderId(candidate.thread_id.value)
+        now = Timestamp(datetime.now(UTC))
+        with owner.session.transaction() as uow:
+            existing = _get(
+                uow,
+                owner.projection_id,
+                "tracked_threads",
+                (("source_thread_id", thread_id),),
+            )
+            if existing is not None and not existing.active:
+                return False
+            if existing is not None:
+                subject = JobSubjectProjectMessage(
+                    "project_message", message_id, thread_id, existing.generation
+                )
+                row = SyncJobRow(
+                    owner.projection_id,
+                    LocalId(uuid4().hex),
+                    JobKind.PROJECT_MESSAGE,
+                    Count(1),
+                    job_key(owner.projection_id, subject),
+                    Priority.BACKFILL,
+                    JobState.QUEUED,
+                    Revision(0),
+                    now,
+                    now,
+                    None,
+                    Count(0),
+                    None,
+                    None,
+                    subject,
+                )
+                jobs.enqueue(uow, owner.projection_id, row)
+                return True
+            if rule is None:
+                return False
+            rule_revision = _get(
+                uow,
+                owner.projection_id,
+                "rule_revisions",
+                (("rule_id", rule.rule_id), ("revision", rule.revision)),
+            )
+            if rule_revision is None or not rule_revision.enabled:
+                return False
+            thread = TrackedThreadRow(
+                owner.projection_id,
+                thread_id,
+                True,
+                Generation(1),
+                now,
+                None,
+                None,
+                Revision(1),
+            )
+            admission = ThreadAdmissionRow(
+                owner.projection_id,
+                thread_id,
+                Revision(1),
+                Generation(1),
+                now,
+                AdmissionRefFutureRule(
+                    "future_rule", rule, rule_revision.policy_version
+                ),
+            )
+            subject = JobSubjectExpandThread(
+                "expand_thread", thread_id, run_id, Generation(1)
+            )
+            row = SyncJobRow(
+                owner.projection_id,
+                LocalId(uuid4().hex),
+                JobKind.EXPAND_THREAD,
+                Count(1),
+                job_key(owner.projection_id, subject),
+                Priority.BACKFILL,
+                JobState.QUEUED,
+                Revision(0),
+                now,
+                now,
+                None,
+                Count(0),
+                None,
+                None,
+                subject,
+            )
+            policy.admit_thread(
+                uow,
+                owner.projection_id,
+                thread,
+                admission,
+                (row,),
+                ThreadGenerationGuardUntracked("untracked"),
+            )
+            return True
+
+    return enqueue
+
+
+def run_reconcile(options):
+    paths = select_paths(
+        getattr(options, "state_dir", None), getattr(options, "config_path", None)
+    )
+    raw = read_managed_config(paths)
+    config = load_config(raw)
+    owner = StateOwner.open(paths.root, config)
+    request_id = LocalId(getattr(options, "request_id", None) or uuid4().hex)
+    try:
+        owner.verify_config_artifact(raw)
+        if getattr(options, "action", None) == "status":
+            try:
+                return _status(owner), ()
+            except sqlite3.OperationalError:
+                return {"state": "unavailable", "schema_ready": False}, ()
+        if not getattr(options, "source", False) or not getattr(options, "full", False):
+            raise ValueError("invalid_input")
+        if not getattr(options, "yes", False):
+            raise ValueError("scope_required")
+        owner.ensure_reconcile_schema(request_id, raw)
+        request_key = getattr(options, "request_id", None) or request_id.value
+        bindings = owner.bindings()
+        if any(
+            binding is None or binding.state is not BindingState.VERIFIED
+            for binding in bindings.values()
+        ):
+            raise ValueError("binding_pending")
+        scope = _scope(owner, config)
+        admission = load_persisted_admission(owner, config, scope=None)
+        service = _source_service(owner, config)
+        try:
+            source = SourceAdapter(
+                service, source_account=PrivateAddress(config.projection.source_email)
+            )
+            from facet.sync import SourceCandidateAdmission
+
+            result = SourceReconciler(
+                owner,
+                source,
+                SourceCandidateAdmission(source, admission),
+                scope,
+            ).run(request_key, enqueue_candidate=_enqueue(owner, request_id))
+            return {
+                "run_id": result.run_id.value,
+                "listed": result.listed,
+                "metadata_success": result.metadata_success,
+                "metadata_404": result.metadata_404,
+                "matched": result.matched,
+                "mapped": result.mapped,
+                "queued": result.queued,
+                "reset": result.reset,
+                "remaining_issue": result.remaining_issue,
+            }, ()
+        finally:
+            close = getattr(service, "close", None)
+            if callable(close):
+                close()
+    finally:
+        owner.close()
