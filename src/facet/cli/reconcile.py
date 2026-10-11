@@ -376,9 +376,7 @@ def run_reconcile(options):
                 with owner.session.transaction() as uow:
                     totals = getattr(reconciler, "totals", {})
                     if totals:
-                        assignments = ",".join(
-                            f"{name}_count=?" for name in totals
-                        )
+                        assignments = ",".join(f"{name}_count=?" for name in totals)
                         uow._execute(
                             f"UPDATE reconcile_runs SET {assignments},"
                             "revision=revision+1 "
@@ -425,4 +423,3 @@ def run_reconcile(options):
             owner.close()
         if marker is not None:
             release(paths.root)
-

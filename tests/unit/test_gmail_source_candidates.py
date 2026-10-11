@@ -439,6 +439,8 @@ def test_action_label_map_rejects_duplicate_custom_names(gmail_controller):
     with pytest.raises(ProviderFailure) as error:
         _adapter(gmail_controller).action_label_map(names)
     assert error.value.code is ErrorCode.CONSISTENCY_FAILURE
+
+
 def test_tracked_thread_metadata_uses_real_discovery_parameters():
     import json
 

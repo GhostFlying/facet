@@ -81,7 +81,13 @@ class SourceReconciler:
     """Run one frozen source scan against an owner and admission evaluator."""
 
     def __init__(
-        self, owner, source, admission, scope: ReconcileScope, *, run_id=None,
+        self,
+        owner,
+        source,
+        admission,
+        scope: ReconcileScope,
+        *,
+        run_id=None,
         source_binding_revision=None,
     ):
         self.owner = owner
