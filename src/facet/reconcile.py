@@ -277,17 +277,6 @@ class SourceReconciler:
             for item in response.items:
                 if item.message_id.value in self._seen:
                     continue
-                with self.owner.session.transaction() as uow:
-                    if uow._execute(
-                        "SELECT 1 FROM reconcile_candidates WHERE projection_id=? "
-                        "AND run_id=? AND source_message_id=? LIMIT 1",
-                        (
-                            self.owner.projection_id.value,
-                            self.run_id.value,
-                            item.message_id.value,
-                        ),
-                    ).fetchone():
-                        continue
                 self._seen.add(item.message_id.value)
                 totals["listed"] += 1
                 try:
