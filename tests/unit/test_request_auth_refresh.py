@@ -68,6 +68,11 @@ def test_unstructured_or_unknown_reason_is_closed(payload):
     )
 
 
+def test_message_404_is_role_specific_missing():
+    assert classify_http_status(404, Role.SOURCE) is ErrorCode.SOURCE_MISSING
+    assert classify_http_status(404, Role.TARGET) is ErrorCode.TARGET_MISSING
+
+
 def test_known_reason_among_unknown_entries():
     assert (
         provider_reason(

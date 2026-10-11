@@ -167,6 +167,12 @@ class ProviderFailure(Exception):
 def classify_http_status(status: int, role: Role, *, body: bytes = b"") -> ErrorCode:
     if type(status) is not int or type(role) is not Role:
         raise ValueError("invalid_input")
+    if status == 404:
+        return (
+            ErrorCode.SOURCE_MISSING
+            if role is Role.SOURCE
+            else ErrorCode.TARGET_MISSING
+        )
     if status == 401:
         return (
             ErrorCode.SOURCE_AUTH_REQUIRED

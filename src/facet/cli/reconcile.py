@@ -375,7 +375,8 @@ def run_reconcile(options):
                         "UPDATE reconcile_runs SET state='completed_with_issues',"
                         "completed_at=?,last_error_code=?,last_provider_stage=?,"
                         "last_provider_reason=?,last_http_status=?,revision=revision+1 "
-                        "WHERE projection_id=? AND state IN('prepared','running')",
+                        "WHERE projection_id=? "
+                        "AND state IN('prepared','running','draining')",
                         (
                             timestamp_to_sql(Timestamp(datetime.now(UTC))),
                             code.value if hasattr(code, "value") else None,
