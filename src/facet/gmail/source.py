@@ -652,7 +652,6 @@ class SourceAdapter:
                 userId="me",
                 id=thread_id.value,
                 format="metadata",
-                **({"includeSpamTrash": True} if include_spam_trash else {}),
             ),
             self.role,
             provider_stage=ProviderStage.MESSAGE_GET,
