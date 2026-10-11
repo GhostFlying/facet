@@ -11,7 +11,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 ### Full source reconcile — source-only live measurement complete; hardening in progress
 
 The implementation plan is [full-source-reconcile](implementation-plans/full-source-reconcile.md).
-Schema v6 now has private `reconcile_runs` and candidate facts with bounded
+Schema v7 now has private `reconcile_runs` and candidate facts with bounded
 classifications and no raw mail. `facet reconcile status` and the explicit
 `facet reconcile --source --full --yes` command use a source-only provider path
 and never construct a Target adapter. Reconcile is a foreground maintenance
