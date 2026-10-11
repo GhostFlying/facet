@@ -20,7 +20,7 @@ def test_reconcile_schema_upgrade_creates_private_run_tables_and_backup():
         with StateOwner.create(state, config, raw) as owner:
             request = LocalId(uuid4().hex)
             owner.ensure_reconcile_schema(request, raw)
-            assert owner._connection.execute("PRAGMA user_version").fetchone() == (6,)
+            assert owner._connection.execute("PRAGMA user_version").fetchone() == (7,)
             for table in ("reconcile_runs", "reconcile_candidates"):
                 assert owner._connection.execute(
                     "SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?",

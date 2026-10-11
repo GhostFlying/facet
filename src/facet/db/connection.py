@@ -649,6 +649,7 @@ def _begin_owner_session_v2(
         _FRESH_V4_MANIFEST,
         _FRESH_V5_MANIFEST,
         _FRESH_V6_MANIFEST,
+        _FRESH_V7_MANIFEST,
     )
     from .schema import _inspect_manifest
 
@@ -673,6 +674,7 @@ def _begin_owner_session_v2(
             4: _FRESH_V4_MANIFEST,
             5: _FRESH_V5_MANIFEST,
             6: _FRESH_V6_MANIFEST,
+            7: _FRESH_V7_MANIFEST,
         }.get(version)
         if manifest is None:
             raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
