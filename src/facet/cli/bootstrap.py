@@ -824,6 +824,12 @@ def _run_foreground_service(
                 provider.invalidate()
 
         while not stop.is_set():
+            from facet.runtime.maintenance import active as maintenance_active
+
+            if maintenance_active(owner._state_dir):
+                # A foreground reconcile owns the maintenance window. Exit
+                # cleanly so Compose can restart us after its marker clears.
+                break
             try:
                 ready, gate_error = _foreground_gate(owner)
             except Exception:

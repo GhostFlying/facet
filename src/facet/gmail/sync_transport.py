@@ -58,7 +58,10 @@ class SyncHttp:
             or parsed.scheme != "https"
             or parsed.hostname not in {"gmail.googleapis.com", "www.googleapis.com"}
             or parsed.port not in {None, 443}
-            or not parsed.path.startswith("/gmail/v1/users/me/")
+            or not (
+                parsed.path.startswith("/gmail/v1/users/me/")
+                or parsed.path == "/batch/gmail/v1"
+            )
         ):
             raise StorageFailure(ErrorCode.INVALID_INPUT)
         self._prepare_token(force=False)

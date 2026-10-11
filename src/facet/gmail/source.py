@@ -31,6 +31,7 @@ from .retry import (
     ProviderFailure,
     ProviderStage,
     blocks_sync,
+    classify_http_status,
     execute,
     provider_failure,
 )
@@ -469,6 +470,10 @@ class SourceAdapter:
                 if status is None:
                     response = getattr(exception, "resp", None)
                     status = response.get("status") if response is not None else None
+                try:
+                    status = int(status) if status is not None else None
+                except (TypeError, ValueError):
+                    status = None
                 if status == 404:
                     results[request_id] = ProviderFailure(
                         ErrorCode.SOURCE_MISSING,
@@ -476,12 +481,17 @@ class SourceAdapter:
                         status=404,
                         provider_stage=ProviderStage.MESSAGE_GET,
                     )
-                results[request_id] = ProviderFailure(
-                    ErrorCode.NETWORK_UNAVAILABLE,
-                    self.role,
-                    status=int(status) if status is not None else None,
-                    provider_stage=ProviderStage.MESSAGE_GET,
-                )
+                else:
+                    results[request_id] = ProviderFailure(
+                        classify_http_status(
+                            status, self.role
+                        )
+                        if status is not None
+                        else ErrorCode.NETWORK_UNAVAILABLE,
+                        self.role,
+                        status=status,
+                        provider_stage=ProviderStage.MESSAGE_GET,
+                    )
                 return
             results[request_id] = self._candidate_from_value(
                 item, self._source_account, response, history=True

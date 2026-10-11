@@ -107,6 +107,28 @@ class SourceReconciler:
             ),
         )
 
+    def prepare(self, request_key: str) -> LocalId:
+        """Persist the scope before OAuth/provider work begins."""
+        with self.owner.session.transaction() as uow:
+            row = uow._execute(
+                "SELECT run_id,state,ruleset_revision FROM reconcile_runs "
+                "WHERE projection_id=? AND request_key=?",
+                (self.owner.projection_id.value, request_key),
+            ).fetchone()
+            if row is None:
+                self._insert_run(uow, request_key)
+            elif int(row[2]) != self.scope.ruleset_revision.value:
+                raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
+            else:
+                self.run_id = LocalId(row[0])
+                if row[1] == "abandoned":
+                    uow._execute(
+                        "UPDATE reconcile_runs SET state='prepared',completed_at=NULL,"
+                        "revision=revision+1 WHERE projection_id=? AND run_id=?",
+                        (self.owner.projection_id.value, self.run_id.value),
+                    )
+        return self.run_id
+
     def _update_run(
         self, uow, values: dict[str, int | str | None], *, token=None
     ) -> None:
@@ -161,30 +183,59 @@ class SourceReconciler:
                     (self.owner.projection_id.value, self.run_id.value),
                 )
             else:
-                if int(existing[11]) != self.scope.ruleset_revision.value:
+                if existing[1] == "abandoned":
+                    self.run_id = LocalId(existing[0])
+                    uow._execute(
+                        "DELETE FROM reconcile_candidates WHERE projection_id=? "
+                        "AND run_id=?",
+                        (self.owner.projection_id.value, self.run_id.value),
+                    )
+                    uow._execute(
+                        "UPDATE reconcile_runs SET state='running',completed_at=NULL,"
+                        "page_token=NULL,listed_count=0,metadata_success_count=0,"
+                        "metadata_404_count=0,matched_count=0,mapped_count=0,"
+                        "queued_count=0,reset_count=0,remaining_issue_count=0,"
+                        "last_error_code=NULL,last_provider_stage=NULL,"
+                        "last_provider_reason=NULL,last_http_status=NULL,"
+                        "revision=revision+1 WHERE projection_id=? AND run_id=?",
+                        (self.owner.projection_id.value, self.run_id.value),
+                    )
+                    existing = None
+                elif existing[1] == "prepared":
+                    self.run_id = LocalId(existing[0])
+                    uow._execute(
+                        "UPDATE reconcile_runs SET state='running',revision=revision+1 "
+                        "WHERE projection_id=? AND run_id=?",
+                        (self.owner.projection_id.value, self.run_id.value),
+                    )
+                    existing = None
+                if existing is None:
+                    pass
+                elif int(existing[11]) != self.scope.ruleset_revision.value:
                     raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
-                if existing[1] in {"completed", "completed_with_issues"}:
+                elif existing[1] in {"completed", "completed_with_issues"}:
                     return ReconcileResult(
                         LocalId(existing[0]),
                         *[int(existing[index] or 0) for index in range(3, 11)],
                     )
-                uow._execute(
-                    "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
-                    "revision=revision+1 WHERE projection_id=? AND run_id=?",
-                    (
-                        timestamp_to_sql(_now()),
-                        self.owner.projection_id.value,
-                        existing[0],
-                    ),
-                )
-                request_key = f"{request_key}:retry:{uuid4().hex}"
-                self.run_id = LocalId(uuid4().hex)
-                self._insert_run(uow, request_key)
-                uow._execute(
-                    "UPDATE reconcile_runs SET state='running',revision=revision+1 "
-                    "WHERE projection_id=? AND run_id=?",
-                    (self.owner.projection_id.value, self.run_id.value),
-                )
+                if existing is not None:
+                    uow._execute(
+                        "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
+                        "revision=revision+1 WHERE projection_id=? AND run_id=?",
+                        (
+                            timestamp_to_sql(_now()),
+                            self.owner.projection_id.value,
+                            existing[0],
+                        ),
+                    )
+                    request_key = f"{request_key}:retry:{uuid4().hex}"
+                    self.run_id = LocalId(uuid4().hex)
+                    self._insert_run(uow, request_key)
+                    uow._execute(
+                        "UPDATE reconcile_runs SET state='running',revision=revision+1 "
+                        "WHERE projection_id=? AND run_id=?",
+                        (self.owner.projection_id.value, self.run_id.value),
+                    )
         query = self.admission.discovery_query(None)
         if query is None:
             with self.owner.session.transaction() as uow:

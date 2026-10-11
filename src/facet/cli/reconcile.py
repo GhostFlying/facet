@@ -203,10 +203,10 @@ def _enqueue(owner, run_id):
                     Revision(0),
                     now,
                     now,
-                    run_id,
+                    None,
                     Count(0),
                     None,
-                    None,
+                    run_id,
                     subject,
                 )
                 jobs.enqueue(uow, owner.projection_id, row)
@@ -330,8 +330,17 @@ def run_reconcile(options):
             owner, config, ruleset_revision=scope.ruleset_revision
         )
         _prepare_epoch(owner, scope, request_id)
+        reconciler = SourceReconciler(
+            owner,
+            None,
+            None,
+            scope,
+        )
+        reconciler.prepare(request_key)
         service = _source_service(owner, config)
         try:
+            from facet.sync import SourceCandidateAdmission
+
             source = SourceAdapter(
                 service, source_account=PrivateAddress(config.projection.source_email)
             )
@@ -339,22 +348,40 @@ def run_reconcile(options):
             # mailbox scan.  This is deliberately source-only; target OAuth
             # is not needed for a read-only reconcile.
             source.profile()
-            from facet.sync import SourceCandidateAdmission
-
             try:
-                result = SourceReconciler(
-                    owner,
-                    source,
-                    SourceCandidateAdmission(source, admission),
-                    scope,
-                ).run(request_key, enqueue_candidate=_enqueue(owner, request_id))
-            except Exception:
+                reconciler.source = source
+                reconciler.admission = SourceCandidateAdmission(source, admission)
+                result = reconciler.run(
+                    request_key, enqueue_candidate=_enqueue(owner, request_id)
+                )
+            except KeyboardInterrupt:
                 with owner.session.transaction() as uow:
                     uow._execute(
                         "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
-                        "revision=revision+1 WHERE projection_id=? AND state='running'",
+                        "revision=revision+1 WHERE projection_id=? "
+                        "AND state IN('prepared','running')",
                         (
                             timestamp_to_sql(Timestamp(datetime.now(UTC))),
+                            owner.projection_id.value,
+                        ),
+                    )
+                raise
+            except Exception as error:
+                code = getattr(error, "code", None)
+                stage = getattr(error, "provider_stage", None)
+                reason = getattr(error, "reason", None)
+                with owner.session.transaction() as uow:
+                    uow._execute(
+                        "UPDATE reconcile_runs SET state='completed_with_issues',"
+                        "completed_at=?,last_error_code=?,last_provider_stage=?,"
+                        "last_provider_reason=?,last_http_status=?,revision=revision+1 "
+                        "WHERE projection_id=? AND state IN('prepared','running')",
+                        (
+                            timestamp_to_sql(Timestamp(datetime.now(UTC))),
+                            code.value if hasattr(code, "value") else None,
+                            stage.value if hasattr(stage, "value") else None,
+                            reason.value if hasattr(reason, "value") else None,
+                            getattr(error, "status", None),
                             owner.projection_id.value,
                         ),
                     )
@@ -379,3 +406,4 @@ def run_reconcile(options):
             owner.close()
         if marker is not None:
             release(paths.root)
+
