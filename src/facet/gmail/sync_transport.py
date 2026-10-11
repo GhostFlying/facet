@@ -39,10 +39,19 @@ class SyncHttp:
             None,
         )
         messages = parsed.path == "/gmail/v1/users/me/messages"
+        batch = parsed.path == "/batch/gmail/v1"
         allowed = method == "GET" or (
             method == "POST"
-            and messages
-            and (override == "GET" or (self._role is Role.TARGET and override is None))
+            and (
+                (
+                    messages
+                    and (
+                        override == "GET"
+                        or (self._role is Role.TARGET and override is None)
+                    )
+                )
+                or batch
+            )
         )
         if (
             not allowed
@@ -56,7 +65,7 @@ class SyncHttp:
         response = self._request(uri, method, body, supplied)
         if (
             response.status_code == 401
-            and (method == "GET" or override == "GET")
+            and (method == "GET" or override == "GET" or batch)
             and self._token_provider is not None
         ):
             response.close()

@@ -8,7 +8,7 @@ STATEMENTS = (
 projection_id TEXT NOT NULL,
 run_id TEXT NOT NULL,
 request_key TEXT NOT NULL,
-state TEXT NOT NULL CHECK(state IN('prepared','scanning','draining','completed','completed_with_issues')),
+state TEXT NOT NULL CHECK(state IN('prepared','running','draining','completed','completed_with_issues','abandoned')),
 ruleset_revision INTEGER NOT NULL CHECK(ruleset_revision>=0),
 window_start INTEGER NOT NULL,
 window_end INTEGER NOT NULL,

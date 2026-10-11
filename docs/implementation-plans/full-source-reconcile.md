@@ -7,7 +7,7 @@ replace those gates.
 
 ## Goal
 
-Add an explicit, resumable `facet reconcile --source --full` path and
+Add an explicit, repeatable `facet reconcile --source --full` path and
 `facet reconcile status` command.  The operation scans the current enabled
 sender/domain rules over the fixed six-month window plus complete available
 history for tracked threads, compares source candidates with durable mappings
@@ -17,13 +17,18 @@ directly, reset cursors, delete rows, or claim unresolved work succeeded.
 
 ## Scope
 
-- Implement the existing `reconcile_source` job/epoch contract and CLI
-  dispatch, including durable page progress and restart continuation.
-- Add a typed reconcile preview/start operation (stable request key, explicit
-  confirmation, binding/config/ruleset lineage and immutable window/fence);
-  do not reuse the backfill operation payload or accept a bare UUID as proof.
+- Keep reconcile as a foreground, single-writer maintenance command. It owns a
+  durable run summary, but does not require a `reconcile_source` worker,
+  background scheduler, or page-token continuation; an interrupted run is
+  marked abandoned and a later invocation may scan the frozen scope again.
+- Keep explicit CLI scope confirmation and a stable request key; no separate
+  preview/start protocol is required for this foreground maintenance command.
 - Reuse the Gmail source adapter's rule query, pagination, metadata parsing,
   candidate matching, and existing projection/recovery pipeline.
+- Read source metadata through Gmail batch requests of at most 50 subrequests
+  first. Measure the serial-batch path before adding concurrency; if it remains
+  too slow, run at most four independent batches concurrently with separate
+  transports. Each subrequest keeps independent error classification.
 - Add a new controlled `source_metadata_unavailable` classification for an
   unadmitted History candidate whose metadata remains unavailable after the
   bounded recheck.  Keep managed source loss as `source_missing`.
@@ -34,10 +39,9 @@ directly, reset cursors, delete rows, or claim unresolved work succeeded.
 - Apply the same reconcile closeout to the existing 217 legacy
   `source_missing` events; do not add a separate blind cleanup/reset path.
 - Use a stable request key and explicit `--yes`/scope confirmation for starting
-  a live source reconcile. A preview records the immutable ruleset revision,
-  fixed window, tracked-thread selector and binding/config revisions before
-  any remote read or local enqueue.
-- Recheck the frozen ruleset and generation before each durable page commit;
+  a live source reconcile. The run records the immutable ruleset revision,
+  fixed window and tracked-thread selector before remote reads.
+- Recheck the frozen ruleset and generation before each durable batch commit;
   rule changes do not widen the run. If the binding, scope, or generation
   changes, stop the run with a controlled maintenance attention state.
 - Use exact sender/domain query clauses and the provider's advertised domain
@@ -61,7 +65,8 @@ directly, reset cursors, delete rows, or claim unresolved work succeeded.
 ## Acceptance
 
 1. Fake Gmail can run a full reconcile across multiple rule pages, deduplicate
-   a message returned by multiple rules, resume after a restart, and include
+   a message returned by multiple rules, rerun after an interruption without
+   duplicate jobs, and include
    tracked-thread history older than the six-month window.
 2. An eligible untracked candidate creates the normal authorization path
    (`tracked_thread` + `expand_thread`); an active tracked generation may create
@@ -77,11 +82,14 @@ directly, reset cursors, delete rows, or claim unresolved work succeeded.
    legacy records are processed by this same path with no Gmail writes and no
    row deletion; a still-unreadable record is recorded as terminal unknown, not
    called a successful resolution.
-5. Reconcile facts include run/scope/rule revision, page progress, aggregate
+5. Reconcile facts include run/scope/rule revision, aggregate
    counts, provider stage/status/reason, and a local diagnostic reference.
    Logs, DB public projections, Dashboard, and CLI public output pass the
    repository privacy tests.
-6. Targeted tests, the complete offline baseline, repository safety, and CI
+6. A reconcile maintenance marker prevents ordinary sync from reading History
+   or advancing its cursor while the foreground reconcile owns the writer; an
+   abandoned marker is recoverable and ordinary sync resumes after completion.
+7. Targeted tests, the complete offline baseline, repository safety, and CI
    pass before any real Gmail validation. Real validation is source-only first;
    no deployment or target write is implied by this plan.
 
@@ -96,7 +104,7 @@ not approve live Gmail reads or deployment.
 ## Stop gates
 
 - Stop without resetting state if the ruleset, binding, generation, writer
-  owner, page cursor, or reconcile snapshot is inconsistent.
+  owner, or reconcile snapshot is inconsistent.
 - Stop the run as `completed_with_issues` on provider pagination failure,
   incomplete persistence, unresolved recovery, or ambiguous candidate
   attribution.
@@ -105,7 +113,7 @@ not approve live Gmail reads or deployment.
 
 ## Compatibility and state rules
 
-- Add the new classification to the typed error catalogue and fresh/upgrade
+- Add the new classification to the reconcile candidate table and fresh/upgrade
   schema manifests. Existing v5 state must migrate through a reviewed v6 step;
   opening an older state must never silently initialize an empty database.
 - Store per-candidate recheck/terminal facts in a private durable table keyed by

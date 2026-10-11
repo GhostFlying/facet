@@ -8,18 +8,18 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Full source reconcile — implementation candidate in progress
+### Full source reconcile — foreground maintenance candidate in progress
 
 The implementation plan is [full-source-reconcile](implementation-plans/full-source-reconcile.md).
-Schema v6 now has private `reconcile_runs` and candidate facts with resumable page
-state, bounded classifications, and no raw mail. `facet reconcile status` and the
-explicit `facet reconcile --source --full --yes` command use a source-only provider
-path and never construct a Target adapter. Epoch lineage, source profile checking,
-legacy source-loss convergence, and the aggregate `/api/v1/reconcile` dashboard
-endpoint are wired; focused schema/CLI/dashboard checks pass. This remains an
-implementation candidate: the scan currently executes synchronously in the CLI
-instead of through a worker `reconcile_source` consumer, full fake-source fault
-coverage and preview/start lineage are still incomplete, and no live DB has been
+Schema v6 now has private `reconcile_runs` and candidate facts with bounded
+classifications and no raw mail. `facet reconcile status` and the explicit
+`facet reconcile --source --full --yes` command use a source-only provider path
+and never construct a Target adapter. Reconcile is a foreground maintenance
+window: a private marker makes ordinary sync pause before Gmail History work,
+and an interrupted run may be abandoned and safely rerun from the beginning.
+Source metadata now has a Gmail batch-read path capped at 50 subrequests; the
+serial-batch speed decision and fake-provider batch coverage are still pending.
+The aggregate `/api/v1/reconcile` endpoint is read-only. No live DB has been
 changed by this unit.
 
 ### Dashboard activity stream — layout refinement in progress

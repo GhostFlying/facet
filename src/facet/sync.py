@@ -644,6 +644,10 @@ class ForegroundSync:
 
     def _require_ready(self) -> None:
         """Reject a cycle before it can read Gmail or mutate queue state."""
+        from facet.runtime.maintenance import active
+
+        if active(self._owner._state_dir):
+            raise StorageFailure(ErrorCode.MAINTENANCE_REQUIRED)
         with self._owner.session.transaction() as uow:
             projection = reads.get_projection(uow, self._projection)
             if projection is None:

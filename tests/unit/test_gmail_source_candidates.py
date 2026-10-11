@@ -2,10 +2,15 @@ from datetime import UTC, datetime
 
 import pytest
 
-from facet.contracts import ErrorCode
+from facet.contracts import ErrorCode, ProviderId
 from facet.db.codecs import ActionKind, PrivateAddress
 from facet.gmail.retry import ProviderFailure
-from facet.gmail.source import CandidateAttentionReason, DiscoveryQuery, SourceAdapter
+from facet.gmail.source import (
+    CandidateAttentionReason,
+    DiscoveryItem,
+    DiscoveryQuery,
+    SourceAdapter,
+)
 
 
 def _list_args():
@@ -90,6 +95,25 @@ def test_matching_metadata_candidate_does_not_fetch_raw_or_expose_headers(
     assert item.candidate.sender.value == "Sender@example.com"
     assert result.next_page_token is None
     assert "Sender" not in repr(item)
+
+
+def test_batch_reader_falls_back_for_synthetic_transport(gmail_controller):
+    metadata = _metadata(headers=({"name": "From", "value": "sender@example.com"},))
+    for message_id in ("m-1", "m-2"):
+        gmail_controller.script(
+            "source",
+            "messages.get",
+            {"userId": "me", "id": message_id, "format": "metadata"},
+            {**metadata, "id": message_id},
+        )
+    result = _adapter(gmail_controller).reconcile_candidates_batch(
+        (
+            DiscoveryItem(ProviderId("m-1"), ProviderId("t-1")),
+            DiscoveryItem(ProviderId("m-2"), ProviderId("t-1")),
+        )
+    )
+    assert set(result) == {"m-1", "m-2"}
+    assert all(item.candidate is not None for item in result.values())
 
 
 def test_constructor_binding_cannot_be_overridden(gmail_controller):

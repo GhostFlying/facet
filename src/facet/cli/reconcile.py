@@ -1,6 +1,7 @@
 """CLI entry points for explicit, source-only full reconcile."""
 
 import sqlite3
+import time
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -10,6 +11,7 @@ from facet.contracts import (
     Count,
     EpochKind,
     EpochState,
+    ErrorCode,
     Generation,
     JobKind,
     JobState,
@@ -30,7 +32,7 @@ from facet.contracts.records import (
     PartitionRefSourceWindow,
     ThreadGenerationGuardUntracked,
 )
-from facet.db.codecs import PrivateAddress, timestamp_from_sql
+from facet.db.codecs import PrivateAddress, timestamp_from_sql, timestamp_to_sql
 from facet.db.keys import job_key, partition_key
 from facet.db.models import (
     EpochPartitionRow,
@@ -47,6 +49,8 @@ from facet.gmail.source import SourceAdapter
 from facet.private_paths import read_managed_config, select_paths
 from facet.reconcile import ReconcileScope, SourceReconciler
 from facet.runtime.foreground_runtime import load_persisted_admission
+from facet.runtime.maintenance import acquire_marker, release
+from facet.runtime.private_root import LockFailure
 from facet.runtime.state_owner import StateOwner
 
 
@@ -276,9 +280,22 @@ def run_reconcile(options):
     )
     raw = read_managed_config(paths)
     config = load_config(raw)
-    owner = StateOwner.open(paths.root, config)
     request_id = LocalId(getattr(options, "request_id", None) or uuid4().hex)
+    marker = None
+    if getattr(options, "action", None) != "status":
+        try:
+            marker = acquire_marker(paths.root, request_id.value)
+        except RuntimeError as error:
+            raise ValueError(str(error)) from None
+    owner = None
     try:
+        while owner is None:
+            try:
+                owner = StateOwner.open(paths.root, config)
+            except LockFailure as error:
+                if error.code is not ErrorCode.OWNER_BUSY:
+                    raise
+                time.sleep(1)
         owner.verify_config_artifact(raw)
         if getattr(options, "action", None) == "status":
             try:
@@ -324,12 +341,24 @@ def run_reconcile(options):
             source.profile()
             from facet.sync import SourceCandidateAdmission
 
-            result = SourceReconciler(
-                owner,
-                source,
-                SourceCandidateAdmission(source, admission),
-                scope,
-            ).run(request_key, enqueue_candidate=_enqueue(owner, request_id))
+            try:
+                result = SourceReconciler(
+                    owner,
+                    source,
+                    SourceCandidateAdmission(source, admission),
+                    scope,
+                ).run(request_key, enqueue_candidate=_enqueue(owner, request_id))
+            except Exception:
+                with owner.session.transaction() as uow:
+                    uow._execute(
+                        "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
+                        "revision=revision+1 WHERE projection_id=? AND state='running'",
+                        (
+                            timestamp_to_sql(Timestamp(datetime.now(UTC))),
+                            owner.projection_id.value,
+                        ),
+                    )
+                raise
             return {
                 "run_id": result.run_id.value,
                 "listed": result.listed,
@@ -346,4 +375,7 @@ def run_reconcile(options):
             if callable(close):
                 close()
     finally:
-        owner.close()
+        if owner is not None:
+            owner.close()
+        if marker is not None:
+            release(paths.root)

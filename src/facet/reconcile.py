@@ -17,7 +17,6 @@ from facet.contracts import (
     ErrorCode,
     LocalId,
     ProviderId,
-    ProviderPageToken,
     Revision,
     Timestamp,
 )
@@ -157,24 +156,35 @@ class SourceReconciler:
             if existing is None:
                 self._insert_run(uow, request_key)
                 uow._execute(
-                    "UPDATE reconcile_runs SET state='scanning',revision=revision+1 "
+                    "UPDATE reconcile_runs SET state='running',revision=revision+1 "
                     "WHERE projection_id=? AND run_id=?",
                     (self.owner.projection_id.value, self.run_id.value),
                 )
             else:
-                self.run_id = LocalId(existing[0])
                 if int(existing[11]) != self.scope.ruleset_revision.value:
                     raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
                 if existing[1] in {"completed", "completed_with_issues"}:
                     return ReconcileResult(
-                        self.run_id,
+                        LocalId(existing[0]),
                         *[int(existing[index] or 0) for index in range(3, 11)],
                     )
-                page = (
-                    ProviderPageToken(existing[2]) if existing[2] is not None else None
+                uow._execute(
+                    "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
+                    "revision=revision+1 WHERE projection_id=? AND run_id=?",
+                    (
+                        timestamp_to_sql(_now()),
+                        self.owner.projection_id.value,
+                        existing[0],
+                    ),
                 )
-                for name, index in zip(totals, range(3, 11), strict=True):
-                    totals[name] = int(existing[index] or 0)
+                request_key = f"{request_key}:retry:{uuid4().hex}"
+                self.run_id = LocalId(uuid4().hex)
+                self._insert_run(uow, request_key)
+                uow._execute(
+                    "UPDATE reconcile_runs SET state='running',revision=revision+1 "
+                    "WHERE projection_id=? AND run_id=?",
+                    (self.owner.projection_id.value, self.run_id.value),
+                )
         query = self.admission.discovery_query(None)
         if query is None:
             with self.owner.session.transaction() as uow:
@@ -195,6 +205,18 @@ class SourceReconciler:
                 page_token=page,
                 query=query,
             )
+            batch_results = {}
+            batch_reader = getattr(self.source, "reconcile_candidates_batch", None)
+            if callable(batch_reader):
+                pending_items = tuple(
+                    item
+                    for item in response.items
+                    if item.message_id.value not in self._seen
+                )
+                for offset in range(0, len(pending_items), 50):
+                    batch_results.update(
+                        batch_reader(pending_items[offset : offset + 50])
+                    )
             for item in response.items:
                 if item.message_id.value in self._seen:
                     continue
@@ -212,10 +234,14 @@ class SourceReconciler:
                 self._seen.add(item.message_id.value)
                 totals["listed"] += 1
                 try:
-                    read_candidate = getattr(
-                        self.source, "reconcile_candidate", self.source.candidate
-                    )
-                    candidate = read_candidate(item)
+                    candidate = batch_results.get(item.message_id.value)
+                    if candidate is None:
+                        read_candidate = getattr(
+                            self.source, "reconcile_candidate", self.source.candidate
+                        )
+                        candidate = read_candidate(item)
+                    if isinstance(candidate, ProviderFailure):
+                        raise candidate
                 except ProviderFailure as error:
                     stage, reason, status = _provider_details(error)
                     if status == 404:
