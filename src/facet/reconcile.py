@@ -80,12 +80,16 @@ def _provider_details(error: ProviderFailure) -> tuple[str, str, int | None]:
 class SourceReconciler:
     """Run one frozen source scan against an owner and admission evaluator."""
 
-    def __init__(self, owner, source, admission, scope: ReconcileScope, *, run_id=None):
+    def __init__(
+        self, owner, source, admission, scope: ReconcileScope, *, run_id=None,
+        source_binding_revision=None,
+    ):
         self.owner = owner
         self.source = source
         self.admission = admission
         self.scope = scope
         self.run_id = run_id or LocalId(uuid4().hex)
+        self.source_binding_revision = source_binding_revision
         self._seen: set[str] = set()
 
     def _insert_run(self, uow, request_key: str) -> None:
@@ -166,6 +170,7 @@ class SourceReconciler:
                 "remaining_issue",
             )
         }
+        self.totals = totals
         with self.owner.session.transaction() as uow:
             existing = uow._execute(
                 "SELECT run_id,state,page_token,listed_count,metadata_success_count,"
@@ -185,11 +190,6 @@ class SourceReconciler:
             else:
                 if existing[1] == "abandoned":
                     self.run_id = LocalId(existing[0])
-                    uow._execute(
-                        "DELETE FROM reconcile_candidates WHERE projection_id=? "
-                        "AND run_id=?",
-                        (self.owner.projection_id.value, self.run_id.value),
-                    )
                     uow._execute(
                         "UPDATE reconcile_runs SET state='running',completed_at=NULL,"
                         "page_token=NULL,listed_count=0,metadata_success_count=0,"
@@ -244,8 +244,8 @@ class SourceReconciler:
                     "WHERE projection_id=? AND run_id=?",
                     (self.owner.projection_id.value, self.run_id.value),
                 )
-            self._scan_legacy_source_missing(totals, enqueue_candidate)
             self._scan_tracked_threads(totals, enqueue_candidate)
+            self._scan_legacy_source_missing(totals, enqueue_candidate)
             self._finish(totals, with_issues=totals["remaining_issue"] > 0)
             return ReconcileResult(self.run_id, **totals)
         while True:
@@ -431,18 +431,26 @@ class SourceReconciler:
                 "WHERE projection_id=? AND run_id=?",
                 (self.owner.projection_id.value, self.run_id.value),
             )
-        self._scan_legacy_source_missing(totals, enqueue_candidate)
         self._scan_tracked_threads(totals, enqueue_candidate)
+        self._scan_legacy_source_missing(totals, enqueue_candidate)
         self._finish(totals, with_issues=totals["remaining_issue"] > 0)
         return ReconcileResult(self.run_id, **totals)
 
     def _assert_scope_revision(self):
         with self.owner.session.transaction() as uow:
             row = uow._execute(
-                "SELECT ruleset_revision FROM projections WHERE projection_id=?",
+                "SELECT p.ruleset_revision,b.binding_revision,b.state "
+                "FROM projections p JOIN bindings b ON b.projection_id=p.projection_id "
+                "AND b.role='source' WHERE p.projection_id=?",
                 (self.owner.projection_id.value,),
             ).fetchone()
-        if row is None or int(row[0]) != self.scope.ruleset_revision.value:
+        if (
+            row is None
+            or int(row[0]) != self.scope.ruleset_revision.value
+            or self.source_binding_revision is not None
+            and int(row[1]) != self.source_binding_revision.value
+            or row[2] != "verified"
+        ):
             raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
 
     def _scan_legacy_source_missing(self, totals, enqueue_candidate):
@@ -661,6 +669,7 @@ class SourceReconciler:
                     )
 
     def _record(self, item, classification, disposition, stage, reason, status):
+        self._assert_scope_revision()
         now = timestamp_to_sql(_now())
         with self.owner.session.transaction() as uow:
             previous = uow._execute(
@@ -698,6 +707,9 @@ class SourceReconciler:
 
     def _finish(self, totals, *, with_issues):
         with self.owner.session.transaction() as uow:
+            self._update_run(
+                uow, {f"{name}_count": value for name, value in totals.items()}
+            )
             uow._execute(
                 "UPDATE reconcile_runs SET state=?,completed_at=?,"
                 "remaining_issue_count=?,"

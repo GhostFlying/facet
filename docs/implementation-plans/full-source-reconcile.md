@@ -103,6 +103,13 @@ not approve live Gmail reads or deployment.
 
 ## Stop gates
 
+Live verification follow-up: investigate the tracked-history drain failure using
+the production Gmail discovery schema; `threads.get` must use only supported
+parameters (Spam/Trash visibility is intrinsic to get-by-ID, not a list filter).
+Record provider throttling as incomplete coverage, not terminal source loss.
+Persist final counters including legacy reads and do not close the legacy
+events until the full scan and tracked-history stage have completed safely.
+
 - Stop without resetting state if the ruleset, binding, generation, writer
   owner, or reconcile snapshot is inconsistent.
 - Stop the run as `completed_with_issues` on provider pagination failure,

@@ -439,3 +439,25 @@ def test_action_label_map_rejects_duplicate_custom_names(gmail_controller):
     with pytest.raises(ProviderFailure) as error:
         _adapter(gmail_controller).action_label_map(names)
     assert error.value.code is ErrorCode.CONSISTENCY_FAILURE
+def test_tracked_thread_metadata_uses_real_discovery_parameters():
+    import json
+
+    from googleapiclient.discovery import build_from_document
+    from googleapiclient.discovery_cache import get_static_doc
+
+    from facet.contracts import ProviderId
+    from facet.gmail.source import SourceAdapter
+
+    class Http:
+        def request(self, uri, method="GET", body=None, headers=None, **kwargs):
+            import httplib2
+
+            return httplib2.Response({"status": "200"}), json.dumps(
+                {"id": "synthetic-thread", "messages": []}
+            ).encode()
+
+    service = build_from_document(get_static_doc("gmail", "v1"), http=Http())
+    result = SourceAdapter(service).thread_metadata(
+        ProviderId("synthetic-thread"), include_spam_trash=True
+    )
+    assert result.messages == ()

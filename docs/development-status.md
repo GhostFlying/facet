@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Full source reconcile — foreground maintenance candidate in progress
+### Full source reconcile — source-only live measurement complete; tracked-history fix pending integration
 
 The implementation plan is [full-source-reconcile](implementation-plans/full-source-reconcile.md).
 Schema v6 now has private `reconcile_runs` and candidate facts with bounded
@@ -17,10 +17,16 @@ classifications and no raw mail. `facet reconcile status` and the explicit
 and never construct a Target adapter. Reconcile is a foreground maintenance
 window: a private marker makes ordinary sync pause before Gmail History work,
 and an interrupted run may be abandoned and safely rerun from the beginning.
-Source metadata now has a Gmail batch-read path capped at 50 subrequests; the
-serial-batch speed decision and fake-provider batch coverage are still pending.
-The aggregate `/api/v1/reconcile` endpoint is read-only. No live DB has been
-changed by this unit.
+Source metadata now has a Gmail batch-read path capped at 50 subrequests. On
+the real source, a 50-message sample took 20.019s with serial `message.get`
+versus 1.266s with one Gmail multipart batch. A source-only full run listed
+4,742 items, confirmed 4,495 existing mappings, and classified 217 legacy
+records as `source_metadata_unavailable` after provider 404s; 247 provider
+429s remain attention. No Target write was performed. The tracked-thread
+adapter had been sending an unsupported `includeSpamTrash` parameter; the
+candidate fix removes it and adds a discovery-schema test. The aggregate
+`/api/v1/reconcile` endpoint remains read-only. A repeat live run is required
+after this fix before closing the reconcile maintenance unit.
 
 ### Dashboard activity stream — layout refinement in progress
 

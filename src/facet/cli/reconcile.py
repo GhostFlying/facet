@@ -295,6 +295,8 @@ def run_reconcile(options):
             except LockFailure as error:
                 if error.code is not ErrorCode.OWNER_BUSY:
                     raise
+                if getattr(options, "action", None) == "status":
+                    return {"state": "maintenance", "schema_ready": True}, ()
                 time.sleep(1)
         owner.verify_config_artifact(raw)
         if getattr(options, "action", None) == "status":
@@ -335,6 +337,7 @@ def run_reconcile(options):
             None,
             None,
             scope,
+            source_binding_revision=source_binding.binding_revision,
         )
         reconciler.prepare(request_key)
         service = _source_service(owner, config)
@@ -371,6 +374,21 @@ def run_reconcile(options):
                 stage = getattr(error, "provider_stage", None)
                 reason = getattr(error, "reason", None)
                 with owner.session.transaction() as uow:
+                    totals = getattr(reconciler, "totals", {})
+                    if totals:
+                        assignments = ",".join(
+                            f"{name}_count=?" for name in totals
+                        )
+                        uow._execute(
+                            f"UPDATE reconcile_runs SET {assignments},"
+                            "revision=revision+1 "
+                            "WHERE projection_id=? AND run_id=?",
+                            [
+                                *totals.values(),
+                                owner.projection_id.value,
+                                reconciler.run_id.value,
+                            ],
+                        )
                     uow._execute(
                         "UPDATE reconcile_runs SET state='completed_with_issues',"
                         "completed_at=?,last_error_code=?,last_provider_stage=?,"
