@@ -73,7 +73,7 @@ def _now() -> Timestamp:
 
 def _provider_details(error: ProviderFailure) -> tuple[str, str, int | None]:
     stage = error.provider_stage.value if error.provider_stage else "unknown"
-    reason = error.code.value
+    reason = error.reason.value
     return stage, reason, error.status
 
 
@@ -101,15 +101,18 @@ class SourceReconciler:
     def _insert_run(self, uow, request_key: str) -> None:
         uow._execute(
             "INSERT INTO reconcile_runs(projection_id,run_id,request_key,state,"
-            "ruleset_revision,window_start,window_end,discovery_cutoff,created_at,"
+            "ruleset_revision,source_binding_revision,window_start,window_end,discovery_cutoff,created_at,"
             "page_token,listed_count,metadata_success_count,metadata_404_count,"
             "matched_count,mapped_count,queued_count,reset_count,remaining_issue_count,"
-            "revision) VALUES(?,?,?,'prepared',?,?,?,?,?,NULL,0,0,0,0,0,0,0,0,0)",
+            "revision) VALUES(?,?,?,'prepared',?,?,?,?,?,?,NULL,0,0,0,0,0,0,0,0,0)",
             (
                 self.owner.projection_id.value,
                 self.run_id.value,
                 request_key,
                 self.scope.ruleset_revision.value,
+                self.source_binding_revision.value
+                if self.source_binding_revision
+                else 0,
                 timestamp_to_sql(self.scope.window_start),
                 timestamp_to_sql(self.scope.window_end),
                 timestamp_to_sql(self.scope.discovery_cutoff),
@@ -121,13 +124,18 @@ class SourceReconciler:
         """Persist the scope before OAuth/provider work begins."""
         with self.owner.session.transaction() as uow:
             row = uow._execute(
-                "SELECT run_id,state,ruleset_revision FROM reconcile_runs "
+                "SELECT run_id,state,ruleset_revision,source_binding_revision "
+                "FROM reconcile_runs "
                 "WHERE projection_id=? AND request_key=?",
                 (self.owner.projection_id.value, request_key),
             ).fetchone()
             if row is None:
                 self._insert_run(uow, request_key)
-            elif int(row[2]) != self.scope.ruleset_revision.value:
+            elif (
+                int(row[2]) != self.scope.ruleset_revision.value
+                or self.source_binding_revision is not None
+                and int(row[3]) != self.source_binding_revision.value
+            ):
                 raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
             else:
                 self.run_id = LocalId(row[0])

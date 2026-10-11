@@ -537,6 +537,22 @@ class StateOwner:
         """Back up owned state before enabling source reconcile facts."""
         self.ensure_insert_absence_schema(request_id, config_bytes)
         self._ensure_label_schema(request_id, config_bytes, 6)
+        if not any(
+            row[1] == "source_binding_revision"
+            for row in self._connection.execute(
+                "PRAGMA table_info(reconcile_runs)"
+            ).fetchall()
+        ):
+            with self.session.transaction() as uow:
+                uow._execute(
+                    "ALTER TABLE reconcile_runs ADD COLUMN "
+                    "source_binding_revision INTEGER NOT NULL DEFAULT 0"
+                )
+                uow._execute(
+                    "UPDATE reconcile_runs SET source_binding_revision=("
+                    "SELECT binding_revision FROM bindings WHERE projection_id="
+                    "reconcile_runs.projection_id AND role='source')"
+                )
 
     def _ensure_label_schema(self, request_id, config_bytes, target_version):
         from facet.db.migrations import (
@@ -673,6 +689,12 @@ class StateOwner:
             _inspect_manifest(connection, source_manifest)
             for statement in registry[-1][2]:
                 connection.execute(statement)
+            if target_version == 7:
+                connection.execute(
+                    "UPDATE reconcile_runs SET source_binding_revision=("
+                    "SELECT binding_revision FROM bindings WHERE projection_id="
+                    "reconcile_runs.projection_id AND role='source')"
+                )
             created = connection.execute(
                 "SELECT created_at FROM schema_metadata WHERE singleton=1"
             ).fetchone()[0]

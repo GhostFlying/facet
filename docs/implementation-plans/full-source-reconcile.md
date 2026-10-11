@@ -64,6 +64,23 @@ directly, reset cursors, delete rows, or claim unresolved work succeeded.
 
 ## Acceptance
 
+### Post-run hardening follow-up
+
+Before treating the source-only live measurement as a release candidate, the
+implementation must also:
+
+- propagate `KeyboardInterrupt`/`SystemExit` from Gmail batch execution;
+- retain the allowlisted provider reason (for example `rateLimitExceeded`)
+  separately from the normalized error code;
+- bind a persisted reconcile request to the source binding revision so a
+  request key cannot reuse a frozen scope after source rebind;
+- scope interruption and provider-error terminal updates to the current run;
+- leave a prepared run explicitly abandoned when profile/provider setup is
+  interrupted or fails.
+
+These are bounded correctness fixes for the existing reconcile path, not a
+new maintenance protocol.
+
 1. Fake Gmail can run a full reconcile across multiple rule pages, deduplicate
    a message returned by multiple rules, rerun after an interruption without
    duplicate jobs, and include

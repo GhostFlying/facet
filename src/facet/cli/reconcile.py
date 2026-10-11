@@ -315,7 +315,8 @@ def run_reconcile(options):
         if source_binding is None or source_binding.state is not BindingState.VERIFIED:
             raise ValueError("binding_pending")
         existing = owner._connection.execute(
-            "SELECT ruleset_revision,window_start,window_end,discovery_cutoff "
+            "SELECT ruleset_revision,source_binding_revision,window_start,window_end,"
+            "discovery_cutoff "
             "FROM reconcile_runs WHERE projection_id=? AND request_key=?",
             (owner.projection_id.value, request_key),
         ).fetchone()
@@ -324,9 +325,9 @@ def run_reconcile(options):
         else:
             scope = ReconcileScope(
                 Revision(existing[0]),
-                timestamp_from_sql(existing[1]),
                 timestamp_from_sql(existing[2]),
                 timestamp_from_sql(existing[3]),
+                timestamp_from_sql(existing[4]),
             )
         admission = load_persisted_admission(
             owner, config, ruleset_revision=scope.ruleset_revision
@@ -340,18 +341,53 @@ def run_reconcile(options):
             source_binding_revision=source_binding.binding_revision,
         )
         reconciler.prepare(request_key)
-        service = _source_service(owner, config)
+        try:
+            service = _source_service(owner, config)
+        except KeyboardInterrupt:
+            with owner.session.transaction() as uow:
+                uow._execute(
+                    "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
+                    "revision=revision+1 WHERE projection_id=? AND run_id=? "
+                    "AND state='prepared'",
+                    (
+                        timestamp_to_sql(Timestamp(datetime.now(UTC))),
+                        owner.projection_id.value,
+                        reconciler.run_id.value,
+                    ),
+                )
+            raise
+        except Exception as error:
+            code = getattr(error, "code", None)
+            stage = getattr(error, "provider_stage", None)
+            reason = getattr(error, "reason", None)
+            with owner.session.transaction() as uow:
+                uow._execute(
+                    "UPDATE reconcile_runs SET state='completed_with_issues',"
+                    "completed_at=?,last_error_code=?,last_provider_stage=?,"
+                    "last_provider_reason=?,last_http_status=?,revision=revision+1 "
+                    "WHERE projection_id=? AND run_id=? AND state='prepared'",
+                    (
+                        timestamp_to_sql(Timestamp(datetime.now(UTC))),
+                        code.value if hasattr(code, "value") else None,
+                        stage.value if hasattr(stage, "value") else None,
+                        reason.value if hasattr(reason, "value") else None,
+                        getattr(error, "status", None),
+                        owner.projection_id.value,
+                        reconciler.run_id.value,
+                    ),
+                )
+            raise
         try:
             from facet.sync import SourceCandidateAdmission
 
             source = SourceAdapter(
                 service, source_account=PrivateAddress(config.projection.source_email)
             )
-            # Bind the live OAuth token to the configured source before any
-            # mailbox scan.  This is deliberately source-only; target OAuth
-            # is not needed for a read-only reconcile.
-            source.profile()
             try:
+                # Bind the live OAuth token to the configured source before
+                # any mailbox scan. This is source-only; target OAuth is not
+                # needed for a read-only reconcile.
+                source.profile()
                 reconciler.source = source
                 reconciler.admission = SourceCandidateAdmission(source, admission)
                 result = reconciler.run(
@@ -362,10 +398,11 @@ def run_reconcile(options):
                     uow._execute(
                         "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
                         "revision=revision+1 WHERE projection_id=? "
-                        "AND state IN('prepared','running')",
+                        "AND run_id=? AND state IN('prepared','running')",
                         (
                             timestamp_to_sql(Timestamp(datetime.now(UTC))),
                             owner.projection_id.value,
+                            reconciler.run_id.value,
                         ),
                     )
                 raise
@@ -391,7 +428,7 @@ def run_reconcile(options):
                         "UPDATE reconcile_runs SET state='completed_with_issues',"
                         "completed_at=?,last_error_code=?,last_provider_stage=?,"
                         "last_provider_reason=?,last_http_status=?,revision=revision+1 "
-                        "WHERE projection_id=? "
+                        "WHERE projection_id=? AND run_id=? "
                         "AND state IN('prepared','running','draining')",
                         (
                             timestamp_to_sql(Timestamp(datetime.now(UTC))),
@@ -400,6 +437,7 @@ def run_reconcile(options):
                             reason.value if hasattr(reason, "value") else None,
                             getattr(error, "status", None),
                             owner.projection_id.value,
+                            reconciler.run_id.value,
                         ),
                     )
                 raise

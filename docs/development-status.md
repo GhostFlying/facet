@@ -1,6 +1,6 @@
 # Facet development status
 
-Updated: 2026-10-11 (PRC; historical UTC receipts retain their original dates)
+Updated: 2026-10-12 (PRC; historical UTC receipts retain their original dates)
 
 This is the durable handoff for autonomous development. Update it with evidence
 at the end of each coherent implementation unit. Do not store account addresses,
@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Full source reconcile — source-only live measurement complete; tracked-history fix pending integration
+### Full source reconcile — source-only live measurement complete; hardening in progress
 
 The implementation plan is [full-source-reconcile](implementation-plans/full-source-reconcile.md).
 Schema v6 now has private `reconcile_runs` and candidate facts with bounded
@@ -20,13 +20,17 @@ and an interrupted run may be abandoned and safely rerun from the beginning.
 Source metadata now has a Gmail batch-read path capped at 50 subrequests. On
 the real source, a 50-message sample took 20.019s with serial `message.get`
 versus 1.266s with one Gmail multipart batch. A source-only full run listed
-4,742 items, confirmed 4,495 existing mappings, and classified 217 legacy
-records as `source_metadata_unavailable` after provider 404s; 247 provider
-429s remain attention. No Target write was performed. The tracked-thread
-adapter had been sending an unsupported `includeSpamTrash` parameter; the
-candidate fix removes it and adds a discovery-schema test. The aggregate
-`/api/v1/reconcile` endpoint remains read-only. A repeat live run is required
-after this fix before closing the reconcile maintenance unit.
+4,742 items, confirmed 4,444 existing mappings, and classified all 217 legacy
+records as `source_metadata_unavailable` after provider 404s; 419 provider
+429s and 12 provider 403s remain attention. No Target write was performed.
+The tracked-thread adapter no longer sends the unsupported
+`includeSpamTrash` parameter. The candidate now preserves allowlisted provider
+reasons, propagates process interrupts from batch reads, scopes terminal
+updates to the current run, and persists the source binding revision used by a
+request key. The aggregate `/api/v1/reconcile` endpoint remains read-only.
+The run ended `completed_with_issues` because provider rate limits remain
+unresolved; this is expected fail-closed behavior, not a successful full
+coverage claim.
 
 ### Dashboard activity stream — layout refinement in progress
 

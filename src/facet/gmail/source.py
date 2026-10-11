@@ -508,7 +508,9 @@ class SourceAdapter:
             batch.execute(http=http)
         except ProviderFailure:
             raise
-        except BaseException as error:
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as error:
             raise provider_failure(
                 error, self.role, provider_stage=ProviderStage.MESSAGE_GET
             ) from None
