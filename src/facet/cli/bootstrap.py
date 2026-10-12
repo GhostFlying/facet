@@ -826,7 +826,8 @@ def _run_foreground_service(
         while not stop.is_set():
             from facet.runtime.maintenance import active as maintenance_active
 
-            if maintenance_active(owner._state_dir):
+            state_dir = getattr(owner, "_state_dir", None)
+            if state_dir is not None and maintenance_active(state_dir):
                 # A foreground reconcile owns the maintenance window. Exit
                 # cleanly so Compose can restart us after its marker clears.
                 break
