@@ -194,6 +194,12 @@ def _close_epoch(owner, result):
         )
         if epoch is None or partition is None:
             raise ValueError("reconcile_epoch_missing")
+        if epoch.state in {
+            EpochState.COMPLETED,
+            EpochState.COMPLETED_WITH_ISSUES,
+            EpochState.NEEDS_ATTENTION,
+        }:
+            return
         progress = replace(
             partition.progress,
             state=PartitionState.COMPLETE,
