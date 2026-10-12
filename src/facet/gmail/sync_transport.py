@@ -39,24 +39,36 @@ class SyncHttp:
             None,
         )
         messages = parsed.path == "/gmail/v1/users/me/messages"
+        batch = parsed.path == "/batch/gmail/v1"
         allowed = method == "GET" or (
             method == "POST"
-            and messages
-            and (override == "GET" or (self._role is Role.TARGET and override is None))
+            and (
+                (
+                    messages
+                    and (
+                        override == "GET"
+                        or (self._role is Role.TARGET and override is None)
+                    )
+                )
+                or batch
+            )
         )
         if (
             not allowed
             or parsed.scheme != "https"
             or parsed.hostname not in {"gmail.googleapis.com", "www.googleapis.com"}
             or parsed.port not in {None, 443}
-            or not parsed.path.startswith("/gmail/v1/users/me/")
+            or not (
+                parsed.path.startswith("/gmail/v1/users/me/")
+                or parsed.path == "/batch/gmail/v1"
+            )
         ):
             raise StorageFailure(ErrorCode.INVALID_INPUT)
         self._prepare_token(force=False)
         response = self._request(uri, method, body, supplied)
         if (
             response.status_code == 401
-            and (method == "GET" or override == "GET")
+            and (method == "GET" or override == "GET" or batch)
             and self._token_provider is not None
         ):
             response.close()

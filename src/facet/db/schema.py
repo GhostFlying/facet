@@ -11,6 +11,8 @@ from .migrations import (
     _FRESH_V3_MANIFEST,
     _FRESH_V4_MANIFEST,
     _FRESH_V5_MANIFEST,
+    _FRESH_V6_MANIFEST,
+    _FRESH_V7_MANIFEST,
     CHECKSUMS,
     REGISTRY,
     REGISTRY_DIGEST,
@@ -46,6 +48,12 @@ def _inspect(connection: sqlite3.Connection) -> None:
         return
     if version == 5:
         _inspect_manifest(connection, _FRESH_V5_MANIFEST)
+        return
+    if version == 6:
+        _inspect_manifest(connection, _FRESH_V6_MANIFEST)
+        return
+    if version == 7:
+        _inspect_manifest(connection, _FRESH_V7_MANIFEST)
         return
     _inspect_v1(connection)
 

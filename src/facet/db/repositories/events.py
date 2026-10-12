@@ -43,6 +43,36 @@ from .intents import _result_binding
 from .jobs import _thread_guard, complete_noninsert_job, enqueue
 
 
+@_mutating
+def converge_source_missing(uow, projection_id, source_message_id, observed_at):
+    """Consume only unclaimed source-loss resolvers proven by reconcile."""
+    if type(source_message_id) is not ProviderId or type(observed_at) is not Timestamp:
+        _conflict()
+    rows = uow._execute(
+        "SELECT e.event_id,e.revision,j.job_id,j.revision "
+        "FROM source_events e JOIN sync_jobs j ON j.projection_id=e.projection_id "
+        "AND j.kind='resolve_event' AND j.event_id=e.event_id "
+        "WHERE e.projection_id=? AND e.source_message_id=? "
+        "AND e.processing='source_missing' AND j.state='source_missing' "
+        "AND NOT EXISTS (SELECT 1 FROM job_claims c "
+        "WHERE c.projection_id=j.projection_id AND c.job_id=j.job_id)",
+        (projection_id.value, source_message_id.value),
+    ).fetchall()
+    for event_id, event_revision, job_id, job_revision in rows:
+        uow._execute(
+            "UPDATE source_events SET processing='consumed',error_code=NULL,"
+            "revision=? WHERE projection_id=? AND event_id=? AND revision=?",
+            (event_revision + 1, projection_id.value, event_id, event_revision),
+        )
+        uow._execute(
+            "UPDATE sync_jobs SET state='completed',last_error_code=NULL,"
+            "revision=?,next_attempt_at=NULL WHERE projection_id=? AND job_id=? "
+            "AND revision=? AND state='source_missing'",
+            (job_revision + 1, projection_id.value, job_id, job_revision),
+        )
+    return bool(rows)
+
+
 def _event(uow, projection_id, event_id, guard):
     row = _get(uow, projection_id, "source_events", (("event_id", event_id),))
     if row is None:

@@ -1,12 +1,42 @@
 # Facet development status
 
-Updated: 2026-10-10 (PRC; historical UTC receipts retain their original dates)
+Updated: 2026-10-12 (PRC; historical UTC receipts retain their original dates)
 
 This is the durable handoff for autonomous development. Update it with evidence
 at the end of each coherent implementation unit. Do not store account addresses,
 mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
+
+### Full source reconcile — source-only live measurement complete; hardening in progress
+
+The implementation plan is [full-source-reconcile](implementation-plans/full-source-reconcile.md).
+Schema v7 now has private `reconcile_runs` and candidate facts with bounded
+classifications and no raw mail. `facet reconcile status` and the explicit
+`facet reconcile --source --full --yes` command use a source-only provider path
+and never construct a Target adapter. Reconcile is a foreground maintenance
+window: a private marker makes ordinary sync pause before Gmail History work,
+and an interrupted run may be abandoned and safely rerun from the beginning.
+Source metadata now has a Gmail batch-read path capped at 50 subrequests. On
+the real source, a 50-message sample took 20.019s with serial `message.get`
+versus 1.266s with one Gmail multipart batch. A source-only full run listed
+4,742 items, confirmed 4,444 existing mappings, and retained the 217 legacy
+`source_missing` rows outside the current reconcile candidate set; 419 provider
+429s and 12 provider 403s remain attention. No Target write was performed.
+The tracked-thread adapter no longer sends the unsupported
+`includeSpamTrash` parameter. The candidate now preserves allowlisted provider
+reasons, propagates process interrupts from batch reads, scopes terminal
+updates to the current run, and persists the source binding revision used by a
+request key. The aggregate `/api/v1/reconcile` endpoint remains read-only.
+The run ended `completed_with_issues` because provider rate limits remain
+unresolved; this is expected fail-closed behavior, not a successful full
+coverage claim.
+
+After narrowing reconcile to the ordinary initial-backfill scope, a fresh
+source-only run listed 4,750 current candidates, read 4,267 metadata records,
+and produced zero metadata 404s. It retained 480 `429/rateLimitExceeded` and
+3 `403/rateLimitExceeded` attention records. The 217 historical
+`source_missing` events remained unchanged and were not included in this run.
 
 ### Dashboard activity stream — layout refinement in progress
 

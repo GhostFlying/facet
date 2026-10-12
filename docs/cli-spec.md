@@ -115,6 +115,13 @@ bounded pagination 和受控失败；涉及对象的 `list/show` 只显示持久
 | `facet maintenance inspect/check`；`facet migrate plan/apply/status` | 离线 metadata/schema/迁移兼容性检查；apply 先 backup、停机持锁；O/M | M1-02/03、M6-01/02；G1/G6 |
 | `facet backup create/verify/list`；`facet restore plan/apply` | SQLite backup API + config/binding/credentials 成套保存；离线验证/恢复；M/O | M6-01/02；G6 |
 
+当前 source-only 校对路径已提供 `facet reconcile --source --full --yes
+--request-id <uuid>` 与 `facet reconcile status`。它冻结当前 ruleset 和六个月
+窗口，另行记录扫描/候选事实；只读 source、可为普通投影队列排入候选，
+不会构造 Target service、直接 insert、删除邮件或把 404 当作成功。重复 request-id
+返回原 run 状态；中断的 run 可标记 abandoned 并从头重跑；稳定 job key 和 mapping
+保证重复执行不会产生重复投影。不可证明收敛的候选保持 attention/terminal unknown。
+
 Existing planned aliases `backfill stop`→`backfill pause`、`backup <destination>`→
 `backup create --destination` 可保留明确 deprecation 信息。旧
 `reconcile --target --repair-missing` 只能作为 bounded repair 的 alias，缺 audit/
@@ -396,7 +403,7 @@ spool 或内容缓存。Backup 私密 credential 文件是成套备份的一部�
 | CLI-01 / G1 | 新环境 init/config validate、绑定拒绝、auth-status/offline doctor、schema inspect；已有状态不覆盖，JSON/退出码与非 TTY guards 可测；spike 独立 | M1-01/03/04/05/06 |
 | CLI-02 / G2 | 完整同步入口复用细分操作自动完成当前规则的非空历史 discovery/backfill 和 History/action ingestion；细分 preview/start 也可独立完成；真实 CLI subprocess、insert/readback/映射、unknown recovery 和重启去重，不直接填 DB 绕命令；source_missing 可解释 | M2 |
 | CLI-03 / G3 | 规则按处理时生效状态，effective_at 作审计，不保证邮件/规则严格时序；新 sender/domain rule 在下一次同步处理时仅按该规则从固定六个月 anchor 自动创建历史 epoch，且与已有 scope 隔离；普通 run/restart/action/reconcile 不扩大到其他规则或无过滤历史，已知 gap 可覆盖整个停机窗口；pause/resume/History gap range guards、无 scope/过期 preview 拒绝、init/setup/独立 preview 零 insert | M3 |
-| CLI-04 / G4 | 前台 sync/one-off 命令共享唯一 writer lock，status offline/Gmail down；reconcile/audit 可续、bounded repair；pause ingestion 和 mutation 边界正确 | M1-03、M3/M4 |
+| CLI-04 / G4 | 前台 sync/one-off 命令共享唯一 writer lock，status offline/Gmail down；reconcile 是 foreground maintenance，期间 pause ingestion，完成/abandoned 后恢复；bounded repair 边界正确 | M1-03、M3/M4 |
 | CLI-05 / G5 | mode/实际 scope 检查、legacy report、readonly 零 source mutation、blacklist/stop generation、cleanup 重放；resume 不复活 stopped | M4 |
 | CLI-06 / G6 | 全套 CLI 可从 Compose image 执行；stop/one-off DB+credential 协调锁；backup/restore 与 auth/refresh 并发不跨版本；verify/migrate/check offline，invalid_grant 时仍能看 pending；无 host Python | M6-01/02/03/06 |
 | CLI-07 / G6 | 明确 target digest 的 upgrade/rollback、容器重建状态保留；真实 re-auth 后 jobs 继续，unknown intents 先恢复，再恢复写入 | M6-02/07/08 |

@@ -27,7 +27,13 @@ from facet.projection.actions import ActionMessageFact, PrivateActionLabelMap
 from facet.projection.admission import DiscoveryCandidate
 from facet.projection.rules import RuleInputError, normalize_sender
 
-from .retry import ProviderFailure, ProviderStage, blocks_sync, execute
+from .retry import (
+    ProviderFailure,
+    ProviderStage,
+    blocks_sync,
+    execute,
+    provider_failure,
+)
 
 
 def discovery_window(start: datetime, end: datetime, *, precise=False) -> str:
@@ -413,6 +419,103 @@ class SourceAdapter:
             raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
         return self._candidate_result(item, self._source_account, history=True)
 
+    def reconcile_candidate(self, item: DiscoveryItem) -> CandidateResult:
+        """Read metadata for reconcile while preserving provider 404 status."""
+        if (
+            type(item) is not DiscoveryItem
+            or type(self._source_account) is not PrivateAddress
+        ):
+            raise ProviderFailure(ErrorCode.BINDING_PENDING, self.role)
+        return self._candidate_result(item, self._source_account, history=True)
+
+    def reconcile_candidates_batch(
+        self, items: tuple[DiscoveryItem, ...]
+    ) -> dict[str, CandidateResult | ProviderFailure]:
+        """Read metadata candidates through one Gmail multipart batch.
+
+        Gmail still counts every inner request against quota. The batch only
+        removes connection overhead; each callback remains independently
+        classified so one 404 never hides the other candidates.
+        """
+        if (
+            type(items) is not tuple
+            or len(items) > 50
+            or type(self._source_account) is not PrivateAddress
+        ):
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
+        if not items:
+            return {}
+        http = getattr(self._service, "_http", None)
+        if http is None:
+            return {
+                item.message_id.value: self.reconcile_candidate(item) for item in items
+            }
+        try:
+            from googleapiclient.http import BatchHttpRequest
+        except ImportError:
+            return {
+                item.message_id.value: self.reconcile_candidate(item) for item in items
+            }
+        results: dict[str, CandidateResult | ProviderFailure] = {}
+
+        def callback(request_id, response, exception):
+            item = next(
+                candidate
+                for candidate in items
+                if candidate.message_id.value == request_id
+            )
+            if exception is not None:
+                status = getattr(exception, "status_code", None)
+                if status is None:
+                    response = getattr(exception, "resp", None)
+                    status = response.get("status") if response is not None else None
+                try:
+                    status = int(status) if status is not None else None
+                except (TypeError, ValueError):
+                    status = None
+                if status == 404:
+                    results[request_id] = ProviderFailure(
+                        ErrorCode.SOURCE_MISSING,
+                        self.role,
+                        status=404,
+                        provider_stage=ProviderStage.MESSAGE_GET,
+                    )
+                else:
+                    results[request_id] = provider_failure(
+                        exception, self.role, provider_stage=ProviderStage.MESSAGE_GET
+                    )
+                return
+            results[request_id] = self._candidate_from_value(
+                item, self._source_account, response, history=True
+            )
+
+        batch = BatchHttpRequest(
+            callback=callback,
+            batch_uri="https://gmail.googleapis.com/batch/gmail/v1",
+        )
+        for item in items:
+            batch.add(
+                self._service.users()
+                .messages()
+                .get(
+                    userId="me",
+                    id=item.message_id.value,
+                    format="metadata",
+                ),
+                request_id=item.message_id.value,
+            )
+        try:
+            batch.execute(http=http)
+        except ProviderFailure:
+            raise
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as error:
+            raise provider_failure(
+                error, self.role, provider_stage=ProviderStage.MESSAGE_GET
+            ) from None
+        return results
+
     def _candidate_result(
         self,
         item: DiscoveryItem,
@@ -438,6 +541,9 @@ class SourceAdapter:
                     item.thread_id,
                 )
             )
+        return self._candidate_from_value(item, account, value, history=history)
+
+    def _candidate_from_value(self, item, account, value, *, history):
         try:
             metadata = _strict_message(value)
         except (
@@ -528,11 +634,19 @@ class SourceAdapter:
         except (KeyError, TypeError, ValueError, OverflowError, OSError):
             raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role) from None
 
-    def thread_metadata(self, thread_id: ProviderId) -> ThreadMetadata:
+    def thread_metadata(
+        self, thread_id: ProviderId, *, include_spam_trash: bool = False
+    ) -> ThreadMetadata:
+        if type(include_spam_trash) is not bool:
+            raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
         value = execute(
             self._service.users()
             .threads()
-            .get(userId="me", id=thread_id.value, format="metadata"),
+            .get(
+                userId="me",
+                id=thread_id.value,
+                format="metadata",
+            ),
             self.role,
             provider_stage=ProviderStage.MESSAGE_GET,
         )

@@ -2,10 +2,15 @@ from datetime import UTC, datetime
 
 import pytest
 
-from facet.contracts import ErrorCode
+from facet.contracts import ErrorCode, ProviderId
 from facet.db.codecs import ActionKind, PrivateAddress
 from facet.gmail.retry import ProviderFailure
-from facet.gmail.source import CandidateAttentionReason, DiscoveryQuery, SourceAdapter
+from facet.gmail.source import (
+    CandidateAttentionReason,
+    DiscoveryItem,
+    DiscoveryQuery,
+    SourceAdapter,
+)
 
 
 def _list_args():
@@ -90,6 +95,25 @@ def test_matching_metadata_candidate_does_not_fetch_raw_or_expose_headers(
     assert item.candidate.sender.value == "Sender@example.com"
     assert result.next_page_token is None
     assert "Sender" not in repr(item)
+
+
+def test_batch_reader_falls_back_for_synthetic_transport(gmail_controller):
+    metadata = _metadata(headers=({"name": "From", "value": "sender@example.com"},))
+    for message_id in ("m-1", "m-2"):
+        gmail_controller.script(
+            "source",
+            "messages.get",
+            {"userId": "me", "id": message_id, "format": "metadata"},
+            {**metadata, "id": message_id},
+        )
+    result = _adapter(gmail_controller).reconcile_candidates_batch(
+        (
+            DiscoveryItem(ProviderId("m-1"), ProviderId("t-1")),
+            DiscoveryItem(ProviderId("m-2"), ProviderId("t-1")),
+        )
+    )
+    assert set(result) == {"m-1", "m-2"}
+    assert all(item.candidate is not None for item in result.values())
 
 
 def test_constructor_binding_cannot_be_overridden(gmail_controller):
@@ -415,3 +439,27 @@ def test_action_label_map_rejects_duplicate_custom_names(gmail_controller):
     with pytest.raises(ProviderFailure) as error:
         _adapter(gmail_controller).action_label_map(names)
     assert error.value.code is ErrorCode.CONSISTENCY_FAILURE
+
+
+def test_tracked_thread_metadata_uses_real_discovery_parameters():
+    import json
+
+    from googleapiclient.discovery import build_from_document
+    from googleapiclient.discovery_cache import get_static_doc
+
+    from facet.contracts import ProviderId
+    from facet.gmail.source import SourceAdapter
+
+    class Http:
+        def request(self, uri, method="GET", body=None, headers=None, **kwargs):
+            import httplib2
+
+            return httplib2.Response({"status": "200"}), json.dumps(
+                {"id": "synthetic-thread", "messages": []}
+            ).encode()
+
+    service = build_from_document(get_static_doc("gmail", "v1"), http=Http())
+    result = SourceAdapter(service).thread_metadata(
+        ProviderId("synthetic-thread"), include_spam_trash=True
+    )
+    assert result.messages == ()

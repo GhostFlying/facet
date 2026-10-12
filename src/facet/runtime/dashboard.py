@@ -80,7 +80,8 @@ def _latest_epoch(uow, projection_id):
         uow,
         "SELECT "
         + ",".join(COLUMNS["epochs"])
-        + " FROM epochs WHERE projection_id=? ORDER BY created_at DESC LIMIT 1",
+        + " FROM epochs WHERE projection_id=? AND kind<>'source_reconcile' "
+        "ORDER BY created_at DESC LIMIT 1",
         (projection_id.value,),
         maximum=1,
     )
@@ -193,6 +194,35 @@ def _activity(uow, projection_id) -> Activity:
         for kind, value, count, observed in rows
     )
     return Activity(entries)
+
+
+def _reconcile_summary(uow, projection_id):
+    """Return only aggregate source-reconcile facts for the private dashboard."""
+    row = uow._execute(
+        "SELECT state,ruleset_revision,window_start,window_end,listed_count,"
+        "metadata_success_count,metadata_404_count,matched_count,mapped_count,"
+        "queued_count,reset_count,remaining_issue_count,created_at,completed_at "
+        "FROM reconcile_runs WHERE projection_id=? ORDER BY created_at DESC LIMIT 1",
+        (projection_id.value,),
+    ).fetchone()
+    if row is None:
+        return {"state": "never_run"}
+    return {
+        "state": row[0],
+        "ruleset_revision": row[1],
+        "window_start": row[2],
+        "window_end": row[3],
+        "listed": row[4],
+        "metadata_success": row[5],
+        "metadata_404": row[6],
+        "matched": row[7],
+        "mapped": row[8],
+        "queued": row[9],
+        "reset": row[10],
+        "remaining_issue": row[11],
+        "created_at": row[12],
+        "completed_at": row[13],
+    }
 
 
 def _resource_pressure(available, total) -> Pressure:
@@ -502,6 +532,7 @@ class LiveSnapshotProvider:
     def __init__(self, *, stale_after=30.0):
         self._lock = Lock()
         self._snapshots = _unavailable_envelopes()
+        self._reconcile = {"state": "unavailable"}
         self._ready = False
         self._published_at = monotonic()
         self._stale_after = stale_after
@@ -519,7 +550,31 @@ class LiveSnapshotProvider:
             self._published_at = monotonic()
 
     def publish_from_owner(self, owner, config, **kwargs) -> None:
-        self.publish(snapshot_from_owner(owner, config, **kwargs))
+        snapshots = snapshot_from_owner(owner, config, **kwargs)
+        try:
+            with owner.session.transaction() as uow:
+                reconcile = _reconcile_summary(uow, owner.projection_id)
+        except Exception:
+            reconcile = {"state": "unavailable"}
+        self.publish(snapshots)
+        with self._lock:
+            self._reconcile = reconcile
+
+    def reconcile_snapshot(self):
+        with self._lock:
+            age = max(0, int(monotonic() - self._published_at))
+            if self._reconcile.get("state") == "unavailable":
+                freshness = "unavailable"
+            else:
+                freshness = (
+                    "fresh" if self._ready and age < self._stale_after else "stale"
+                )
+            return {
+                "data": dict(self._reconcile),
+                "schema_version": 1,
+                "freshness": freshness,
+                "age_seconds": age,
+            }
 
     def invalidate(self):
         with self._lock:

@@ -131,8 +131,12 @@ def _decision(uow, projection_id, epoch):
     if decision.tag == "backfill_start":
         _backfill_decision(uow, projection_id, epoch)
         return
-    if decision.tag not in {"scheduled_reconcile", "scheduled_target_audit"}:
-        # No preview/operation registry exists in v1; typed UUIDs are not proof.
+    if decision.tag not in {
+        "scheduled_reconcile",
+        "requested_reconcile",
+        "scheduled_target_audit",
+    }:
+        # Reconcile requests are represented by the epoch's stable operation id.
         raise StorageFailure(ErrorCode.OWNER_UNAVAILABLE)
     if epoch.kind is EpochKind.HISTORY_GAP:
         gap = _latest_unresolved_gap(uow, projection_id)
@@ -171,9 +175,13 @@ def _decision(uow, projection_id, epoch):
             )
         ):
             _conflict()
-    elif (
-        epoch.kind not in {EpochKind.SOURCE_RECONCILE, EpochKind.HISTORY_GAP}
-        or decision.tag != "scheduled_reconcile"
+    elif epoch.kind not in {EpochKind.SOURCE_RECONCILE, EpochKind.HISTORY_GAP} or (
+        decision.tag not in {"scheduled_reconcile", "requested_reconcile"}
+    ):
+        _conflict()
+    if (
+        decision.tag == "requested_reconcile"
+        and decision.operation_id != epoch.epoch_id
     ):
         _conflict()
     if hasattr(decision, "ruleset_revision"):

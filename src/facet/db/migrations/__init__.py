@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from facet.contracts import Sha256Hex
 
 from ..codecs import SchemaVersion, invalid
-from . import v0001, v0002, v0003, v0004, v0005
+from . import v0001, v0002, v0003, v0004, v0005, v0006, v0007
 
 # Only an explicit pristine bootstrap can create v1. There is no production v0.
 REGISTRY = ((1, "v0001", v0001.STATEMENTS),)
@@ -255,4 +255,73 @@ _FRESH_V5_MANIFEST = _SchemaManifest(
         )
     ),
     Sha256Hex(FRESH_V5_REGISTRY_DIGEST),
+)
+
+FRESH_V6_REGISTRY = FRESH_V5_REGISTRY + ((6, "v0006", v0006.STATEMENTS),)
+FRESH_V6_CHECKSUMS = FRESH_V5_CHECKSUMS + (
+    hashlib.sha256("\n".join(v0006.STATEMENTS).encode("utf-8")).hexdigest(),
+)
+FRESH_V6_REGISTRY_DIGEST = hashlib.sha256(
+    "\n".join(
+        f"{version}:{name}:{checksum}"
+        for (version, name, _), checksum in zip(
+            FRESH_V6_REGISTRY, FRESH_V6_CHECKSUMS, strict=True
+        )
+    ).encode("ascii")
+).hexdigest()
+_FRESH_V6_MANIFEST = _SchemaManifest(
+    SchemaVersion(6),
+    _FRESH_V5_MANIFEST.catalogue
+    + tuple(
+        (kind.lower(), name, sql)
+        for sql in v0006.STATEMENTS
+        if sql.startswith("CREATE")
+        for kind, name in [
+            re.match(r"CREATE (?:UNIQUE )?(TABLE|INDEX|TRIGGER) (\w+)", sql).groups()
+        ]
+    ),
+    tuple(
+        (version, name, checksum)
+        for (version, name, _), checksum in zip(
+            FRESH_V6_REGISTRY, FRESH_V6_CHECKSUMS, strict=True
+        )
+    ),
+    Sha256Hex(FRESH_V6_REGISTRY_DIGEST),
+)
+
+FRESH_V7_REGISTRY = FRESH_V6_REGISTRY + ((7, "v0007", v0007.STATEMENTS),)
+FRESH_V7_CHECKSUMS = FRESH_V6_CHECKSUMS + (
+    hashlib.sha256("\n".join(v0007.STATEMENTS).encode("utf-8")).hexdigest(),
+)
+FRESH_V7_REGISTRY_DIGEST = hashlib.sha256(
+    "\n".join(
+        f"{version}:{name}:{checksum}"
+        for (version, name, _), checksum in zip(
+            FRESH_V7_REGISTRY, FRESH_V7_CHECKSUMS, strict=True
+        )
+    ).encode("ascii")
+).hexdigest()
+_FRESH_V7_MANIFEST = _SchemaManifest(
+    SchemaVersion(7),
+    tuple(
+        (
+            kind,
+            name,
+            sql.replace(
+                "revision INTEGER NOT NULL CHECK(revision>=0),",
+                "revision INTEGER NOT NULL CHECK(revision>=0), "
+                "source_binding_revision INTEGER NOT NULL DEFAULT 0,",
+            )
+            if name == "reconcile_runs"
+            else sql,
+        )
+        for kind, name, sql in _FRESH_V6_MANIFEST.catalogue
+    ),
+    tuple(
+        (version, name, checksum)
+        for (version, name, _), checksum in zip(
+            FRESH_V7_REGISTRY, FRESH_V7_CHECKSUMS, strict=True
+        )
+    ),
+    Sha256Hex(FRESH_V7_REGISTRY_DIGEST),
 )

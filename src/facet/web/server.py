@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 from facet import __version__
 from facet.contracts import Freshness, PublicHealth, Role, Timestamp
+from facet.db.codecs import timestamp_from_sql
 from facet.status.models import (
     Activity,
     CheckState,
@@ -41,6 +42,7 @@ _ROUTES = {
     "/api/v1/rules": "rules",
     "/api/v1/activity": "activity",
     "/api/v1/diagnostics": "diagnostics",
+    "/api/v1/reconcile": "reconcile",
 }
 _STATIC_ROOT = Path(__file__).with_name("static")
 
@@ -54,9 +56,70 @@ class SnapshotProvider(Protocol):
     def ready(self) -> bool:
         """Return whether a readable aggregate snapshot is available."""
 
+    def reconcile_snapshot(self) -> dict:
+        """Return aggregate source-reconcile facts without mailbox details."""
+
 
 def _timestamp() -> Timestamp:
     return Timestamp(datetime.now(UTC))
+
+
+def serialize_reconcile_public(value: dict) -> dict:
+    """Serialize the aggregate reconcile allowlist, never raw SQL rows."""
+    fields = {
+        "state",
+        "ruleset_revision",
+        "window_start",
+        "window_end",
+        "listed",
+        "metadata_success",
+        "metadata_404",
+        "matched",
+        "mapped",
+        "queued",
+        "reset",
+        "remaining_issue",
+        "created_at",
+        "completed_at",
+    }
+    if type(value) is not dict:
+        raise ValueError("invalid_input")
+    envelope = value
+    value = envelope.get("data", envelope)
+    if type(value) is not dict or not set(value).issubset(fields):
+        raise ValueError("invalid_input")
+    result = {}
+    for key, item in value.items():
+        if key.endswith("_at") or key.startswith("window_"):
+            result[key] = (
+                None
+                if item is None
+                else timestamp_from_sql(item)
+                .value.astimezone()
+                .isoformat(timespec="seconds")
+            )
+        elif key == "state":
+            if type(item) is not str or len(item) > 64:
+                raise ValueError("invalid_input")
+            result[key] = item
+        else:
+            if type(item) is not int or item < 0:
+                raise ValueError("invalid_input")
+            result[key] = item
+    freshness = envelope.get(
+        "freshness", "unavailable" if value.get("state") == "unavailable" else "fresh"
+    )
+    age = envelope.get("age_seconds")
+    if freshness not in {"fresh", "stale", "unavailable"} or (
+        age is not None and (type(age) is not int or age < 0)
+    ):
+        raise ValueError("invalid_input")
+    return {
+        "data": result,
+        "schema_version": 1,
+        "freshness": freshness,
+        "age_seconds": age,
+    }
 
 
 def _unavailable_envelopes() -> dict[str, PublicEnvelope]:
@@ -133,6 +196,9 @@ class UnavailableSnapshotProvider:
 
     def ready(self) -> bool:
         return False
+
+    def reconcile_snapshot(self) -> dict:
+        return {"state": "unavailable"}
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -220,6 +286,12 @@ class _Handler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
             return
         try:
+            if family == "reconcile":
+                self._write_json(
+                    HTTPStatus.OK,
+                    serialize_reconcile_public(self.provider.reconcile_snapshot()),
+                )
+                return
             payload = serialize_public(self.provider.snapshot(family))
         except Exception:
             self._write_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "unavailable"})
