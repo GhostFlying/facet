@@ -72,7 +72,7 @@ def read_recovery_list(options) -> dict:
             "AND certainty='unknown'",
             (projection,),
         ).fetchone()[0]
-        if connection.execute("PRAGMA user_version").fetchone()[0] in {5, 6}:
+        if connection.execute("PRAGMA user_version").fetchone()[0] in {5, 6, 7}:
             assumed_absent = connection.execute(
                 "SELECT COUNT(*) FROM insert_absence_retries WHERE projection_id=?",
                 (projection,),
@@ -253,7 +253,7 @@ def read_recovery_job(options) -> dict:
     try:
         job, attempt = _selected_recovery(connection, config, job_id)
         result = {"job": _job_data(job), "attempt": _attempt_data(attempt)}
-        if connection.execute("PRAGMA user_version").fetchone()[0] in {5, 6}:
+        if connection.execute("PRAGMA user_version").fetchone()[0] in {5, 6, 7}:
             decision = connection.execute(
                 "SELECT checked_at FROM insert_absence_retries WHERE projection_id=? "
                 "AND attempt_id=?",

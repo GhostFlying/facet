@@ -50,6 +50,7 @@ from facet.private_paths import read_managed_config, select_paths
 from facet.reconcile import ReconcileScope, SourceReconciler
 from facet.runtime.foreground_runtime import load_persisted_admission
 from facet.runtime.maintenance import acquire_marker, release
+from facet.runtime.maintenance import active as maintenance_active
 from facet.runtime.private_root import LockFailure
 from facet.runtime.state_owner import StateOwner
 
@@ -301,7 +302,8 @@ def run_reconcile(options):
                 if error.code is not ErrorCode.OWNER_BUSY:
                     raise
                 if getattr(options, "action", None) == "status":
-                    return {"state": "maintenance", "schema_ready": True}, ()
+                    state = "maintenance" if maintenance_active(paths.root) else "busy"
+                    return {"state": state, "schema_ready": True}, ()
                 time.sleep(1)
         owner.verify_config_artifact(raw)
         if getattr(options, "action", None) == "status":
@@ -337,7 +339,6 @@ def run_reconcile(options):
         admission = load_persisted_admission(
             owner, config, ruleset_revision=scope.ruleset_revision
         )
-        _prepare_epoch(owner, scope, request_id)
         reconciler = SourceReconciler(
             owner,
             None,
@@ -348,7 +349,7 @@ def run_reconcile(options):
         reconciler.prepare(request_key)
         try:
             service = _source_service(owner, config)
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, SystemExit):
             with owner.session.transaction() as uow:
                 uow._execute(
                     "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
@@ -367,7 +368,7 @@ def run_reconcile(options):
             reason = getattr(error, "reason", None)
             with owner.session.transaction() as uow:
                 uow._execute(
-                    "UPDATE reconcile_runs SET state='completed_with_issues',"
+                    "UPDATE reconcile_runs SET state='abandoned',"
                     "completed_at=?,last_error_code=?,last_provider_stage=?,"
                     "last_provider_reason=?,last_http_status=?,revision=revision+1 "
                     "WHERE projection_id=? AND run_id=? AND state='prepared'",
@@ -388,6 +389,7 @@ def run_reconcile(options):
             source = SourceAdapter(
                 service, source_account=PrivateAddress(config.projection.source_email)
             )
+            scan_started = False
             try:
                 # Bind the live OAuth token to the configured source before
                 # any mailbox scan. This is source-only; target OAuth is not
@@ -395,10 +397,11 @@ def run_reconcile(options):
                 source.profile()
                 reconciler.source = source
                 reconciler.admission = SourceCandidateAdmission(source, admission)
+                scan_started = True
                 result = reconciler.run(
                     request_key, enqueue_candidate=_enqueue(owner, request_id)
                 )
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, SystemExit):
                 with owner.session.transaction() as uow:
                     uow._execute(
                         "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
@@ -429,8 +432,9 @@ def run_reconcile(options):
                                 reconciler.run_id.value,
                             ],
                         )
+                    state = "completed_with_issues" if scan_started else "abandoned"
                     uow._execute(
-                        "UPDATE reconcile_runs SET state='completed_with_issues',"
+                        f"UPDATE reconcile_runs SET state='{state}',"
                         "completed_at=?,last_error_code=?,last_provider_stage=?,"
                         "last_provider_reason=?,last_http_status=?,revision=revision+1 "
                         "WHERE projection_id=? AND run_id=? "

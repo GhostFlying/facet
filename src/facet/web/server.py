@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 from facet import __version__
 from facet.contracts import Freshness, PublicHealth, Role, Timestamp
+from facet.db.codecs import timestamp_from_sql
 from facet.status.models import (
     Activity,
     CheckState,
@@ -61,6 +62,47 @@ class SnapshotProvider(Protocol):
 
 def _timestamp() -> Timestamp:
     return Timestamp(datetime.now(UTC))
+
+
+def serialize_reconcile_public(value: dict) -> dict:
+    """Serialize the aggregate reconcile allowlist, never raw SQL rows."""
+    fields = {
+        "state",
+        "ruleset_revision",
+        "window_start",
+        "window_end",
+        "listed",
+        "metadata_success",
+        "metadata_404",
+        "matched",
+        "mapped",
+        "queued",
+        "reset",
+        "remaining_issue",
+        "created_at",
+        "completed_at",
+    }
+    if type(value) is not dict or not set(value).issubset(fields):
+        raise ValueError("invalid_input")
+    result = {}
+    for key, item in value.items():
+        if key.endswith("_at") or key.startswith("window_"):
+            result[key] = (
+                None
+                if item is None
+                else timestamp_from_sql(item).value.astimezone().isoformat(
+                    timespec="seconds"
+                )
+            )
+        elif key == "state":
+            if type(item) is not str or len(item) > 64:
+                raise ValueError("invalid_input")
+            result[key] = item
+        else:
+            if type(item) is not int or item < 0:
+                raise ValueError("invalid_input")
+            result[key] = item
+    return {"data": result, "schema_version": 1}
 
 
 def _unavailable_envelopes() -> dict[str, PublicEnvelope]:
@@ -228,7 +270,10 @@ class _Handler(BaseHTTPRequestHandler):
             return
         try:
             if family == "reconcile":
-                self._write_json(HTTPStatus.OK, self.provider.reconcile_snapshot())
+                self._write_json(
+                    HTTPStatus.OK,
+                    serialize_reconcile_public(self.provider.reconcile_snapshot()),
+                )
                 return
             payload = serialize_public(self.provider.snapshot(family))
         except Exception:
