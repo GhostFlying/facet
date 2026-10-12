@@ -82,6 +82,10 @@ def serialize_reconcile_public(value: dict) -> dict:
         "created_at",
         "completed_at",
     }
+    if type(value) is not dict:
+        raise ValueError("invalid_input")
+    envelope = value
+    value = envelope.get("data", envelope)
     if type(value) is not dict or not set(value).issubset(fields):
         raise ValueError("invalid_input")
     result = {}
@@ -102,7 +106,18 @@ def serialize_reconcile_public(value: dict) -> dict:
             if type(item) is not int or item < 0:
                 raise ValueError("invalid_input")
             result[key] = item
-    return {"data": result, "schema_version": 1}
+    freshness = envelope.get("freshness", "fresh")
+    age = envelope.get("age_seconds")
+    if freshness not in {"fresh", "stale", "unavailable"} or (
+        age is not None and (type(age) is not int or age < 0)
+    ):
+        raise ValueError("invalid_input")
+    return {
+        "data": result,
+        "schema_version": 1,
+        "freshness": freshness,
+        "age_seconds": age,
+    }
 
 
 def _unavailable_envelopes() -> dict[str, PublicEnvelope]:
