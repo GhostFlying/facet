@@ -90,9 +90,9 @@ def serialize_reconcile_public(value: dict) -> dict:
             result[key] = (
                 None
                 if item is None
-                else timestamp_from_sql(item).value.astimezone().isoformat(
-                    timespec="seconds"
-                )
+                else timestamp_from_sql(item)
+                .value.astimezone()
+                .isoformat(timespec="seconds")
             )
         elif key == "state":
             if type(item) is not str or len(item) > 64:

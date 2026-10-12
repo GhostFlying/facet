@@ -2,6 +2,7 @@
 
 import sqlite3
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -37,11 +38,12 @@ from facet.db.keys import job_key, partition_key
 from facet.db.models import (
     EpochPartitionRow,
     EpochRow,
+    RevisionGuard,
     SyncJobRow,
     ThreadAdmissionRow,
     TrackedThreadRow,
 )
-from facet.db.repositories import jobs, policy
+from facet.db.repositories import epochs, jobs, policy
 from facet.db.repositories.base import _get
 from facet.gmail.credentials import CredentialManager
 from facet.gmail.service_factory import GoogleGmailServiceFactory
@@ -178,6 +180,72 @@ def _prepare_epoch(owner, scope, epoch_id):
         ).fetchone()
         if existing is None:
             epochs.start_epoch(uow, owner.projection_id, epoch, (partition,))
+
+
+def _close_epoch(owner, result):
+    """Terminally close the reconcile lineage after its durable scan summary."""
+    with owner.session.transaction() as uow:
+        epoch = _get(uow, owner.projection_id, "epochs", (("epoch_id", result.run_id),))
+        partition = _get(
+            uow,
+            owner.projection_id,
+            "epoch_partitions",
+            (("epoch_id", result.run_id),),
+        )
+        if epoch is None or partition is None:
+            raise ValueError("reconcile_epoch_missing")
+        progress = replace(
+            partition.progress,
+            state=PartitionState.COMPLETE,
+            completed_pages=Count(partition.progress.completed_pages.value + 1),
+            observed_items=Count(result.listed),
+            page_token=None,
+            after_source_message_id=None,
+        )
+        epochs.advance_partition(
+            uow,
+            owner.projection_id,
+            replace(
+                partition,
+                progress=progress,
+                revision=Revision(partition.revision.value + 1),
+            ),
+            (),
+            RevisionGuard(epoch.revision),
+        )
+        state = (
+            EpochState.NEEDS_ATTENTION
+            if result.queued or result.remaining_issue
+            else EpochState.COMPLETED
+        )
+        epochs.advance_epoch(
+            uow,
+            owner.projection_id,
+            result.run_id,
+            state,
+            True,
+            Count(result.listed),
+            RevisionGuard(epoch.revision),
+        )
+
+
+def _attention_epoch(owner, epoch_id):
+    with owner.session.transaction() as uow:
+        epoch = _get(uow, owner.projection_id, "epochs", (("epoch_id", epoch_id),))
+        if epoch is not None and epoch.state not in {
+            EpochState.COMPLETED,
+            EpochState.COMPLETED_WITH_ISSUES,
+            EpochState.NEEDS_ATTENTION,
+        }:
+            epochs.advance_epoch(
+                uow,
+                owner.projection_id,
+                epoch_id,
+                EpochState.NEEDS_ATTENTION,
+                False,
+                None,
+                RevisionGuard(epoch.revision),
+            )
 
 
 def _enqueue(owner, run_id):
@@ -347,9 +415,11 @@ def run_reconcile(options):
             source_binding_revision=source_binding.binding_revision,
         )
         reconciler.prepare(request_key)
+        _prepare_epoch(owner, scope, reconciler.run_id)
         try:
             service = _source_service(owner, config)
         except (KeyboardInterrupt, SystemExit):
+            _attention_epoch(owner, reconciler.run_id)
             with owner.session.transaction() as uow:
                 uow._execute(
                     "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
@@ -363,6 +433,7 @@ def run_reconcile(options):
                 )
             raise
         except Exception as error:
+            _attention_epoch(owner, reconciler.run_id)
             code = getattr(error, "code", None)
             stage = getattr(error, "provider_stage", None)
             reason = getattr(error, "reason", None)
@@ -401,7 +472,9 @@ def run_reconcile(options):
                 result = reconciler.run(
                     request_key, enqueue_candidate=_enqueue(owner, request_id)
                 )
+                _close_epoch(owner, result)
             except (KeyboardInterrupt, SystemExit):
+                _attention_epoch(owner, reconciler.run_id)
                 with owner.session.transaction() as uow:
                     uow._execute(
                         "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
@@ -415,6 +488,7 @@ def run_reconcile(options):
                     )
                 raise
             except Exception as error:
+                _attention_epoch(owner, reconciler.run_id)
                 code = getattr(error, "code", None)
                 stage = getattr(error, "provider_stage", None)
                 reason = getattr(error, "reason", None)
