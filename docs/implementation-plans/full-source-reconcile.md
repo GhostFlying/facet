@@ -66,6 +66,13 @@ directly, reset cursors, delete rows, or claim unresolved work succeeded.
 
 ### Post-run hardening follow-up
 
+The full source reconcile scope is the same bounded discovery scope as the
+ordinary backfill: current enabled rules, with a window frozen at startup and
+ending at the startup fence, beginning six months before that fence. History
+events, legacy `source_missing` rows, and tracked-thread history outside this
+window are not reconcile inputs. History remains the trigger for ordinary
+incremental sync only.
+
 Before treating the source-only live measurement as a release candidate, the
 implementation must also:
 

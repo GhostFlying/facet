@@ -258,8 +258,6 @@ class SourceReconciler:
                     "WHERE projection_id=? AND run_id=?",
                     (self.owner.projection_id.value, self.run_id.value),
                 )
-            self._scan_tracked_threads(totals, enqueue_candidate)
-            self._scan_legacy_source_missing(totals, enqueue_candidate)
             self._finish(totals, with_issues=totals["remaining_issue"] > 0)
             return ReconcileResult(self.run_id, **totals)
         while True:
@@ -434,8 +432,6 @@ class SourceReconciler:
                 "WHERE projection_id=? AND run_id=?",
                 (self.owner.projection_id.value, self.run_id.value),
             )
-        self._scan_tracked_threads(totals, enqueue_candidate)
-        self._scan_legacy_source_missing(totals, enqueue_candidate)
         self._finish(totals, with_issues=totals["remaining_issue"] > 0)
         return ReconcileResult(self.run_id, **totals)
 

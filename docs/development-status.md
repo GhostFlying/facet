@@ -20,8 +20,8 @@ and an interrupted run may be abandoned and safely rerun from the beginning.
 Source metadata now has a Gmail batch-read path capped at 50 subrequests. On
 the real source, a 50-message sample took 20.019s with serial `message.get`
 versus 1.266s with one Gmail multipart batch. A source-only full run listed
-4,742 items, confirmed 4,444 existing mappings, and classified all 217 legacy
-records as `source_metadata_unavailable` after provider 404s; 419 provider
+4,742 items, confirmed 4,444 existing mappings, and retained the 217 legacy
+`source_missing` rows outside the current reconcile candidate set; 419 provider
 429s and 12 provider 403s remain attention. No Target write was performed.
 The tracked-thread adapter no longer sends the unsupported
 `includeSpamTrash` parameter. The candidate now preserves allowlisted provider
