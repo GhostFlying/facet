@@ -106,7 +106,9 @@ def serialize_reconcile_public(value: dict) -> dict:
             if type(item) is not int or item < 0:
                 raise ValueError("invalid_input")
             result[key] = item
-    freshness = envelope.get("freshness", "fresh")
+    freshness = envelope.get(
+        "freshness", "unavailable" if value.get("state") == "unavailable" else "fresh"
+    )
     age = envelope.get("age_seconds")
     if freshness not in {"fresh", "stale", "unavailable"} or (
         age is not None and (type(age) is not int or age < 0)
