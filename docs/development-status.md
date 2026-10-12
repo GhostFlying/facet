@@ -32,6 +32,12 @@ The run ended `completed_with_issues` because provider rate limits remain
 unresolved; this is expected fail-closed behavior, not a successful full
 coverage claim.
 
+After narrowing reconcile to the ordinary initial-backfill scope, a fresh
+source-only run listed 4,750 current candidates, read 4,267 metadata records,
+and produced zero metadata 404s. It retained 480 `429/rateLimitExceeded` and
+3 `403/rateLimitExceeded` attention records. The 217 historical
+`source_missing` events remained unchanged and were not included in this run.
+
 ### Dashboard activity stream — layout refinement in progress
 
 The activity stream keeps server-local time ordering, renders timestamps to

@@ -59,16 +59,21 @@ def _timestamp(value):
 
 
 def _scope(owner, config):
-    from facet.projection.backfill import six_calendar_month_start
-
     end = datetime.now(UTC)
+    initial = owner._connection.execute(
+        "SELECT window_start FROM epochs WHERE projection_id=? "
+        "AND kind='initial_backfill' ORDER BY created_at,epoch_id LIMIT 1",
+        (owner.projection_id.value,),
+    ).fetchone()
+    if initial is None or initial[0] is None:
+        raise ValueError("scope_required")
     revision = owner._connection.execute(
         "SELECT ruleset_revision FROM projections WHERE projection_id=?",
         (owner.projection_id.value,),
     ).fetchone()[0]
     return ReconcileScope(
         Revision(revision),
-        six_calendar_month_start(end),
+        timestamp_from_sql(initial[0]),
         _timestamp(end),
         _timestamp(end.replace(day=1, hour=0, minute=0, second=0, microsecond=0)),
     )
