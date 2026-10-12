@@ -268,7 +268,8 @@ def _read_snapshot(
         raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
     epoch_rows = connection.execute(
         "SELECT epoch_id,kind,state,created_at,discovery_complete,known_message_total "
-        "FROM epochs WHERE projection_id=? ORDER BY created_at DESC LIMIT 1",
+        "FROM epochs WHERE projection_id=? AND kind<>'source_reconcile' "
+        "ORDER BY created_at DESC LIMIT 1",
         (projection_id,),
     ).fetchall()
     epoch = epoch_rows[0] if epoch_rows else None

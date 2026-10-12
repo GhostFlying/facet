@@ -229,25 +229,6 @@ def _close_epoch(owner, result):
         )
 
 
-def _attention_epoch(owner, epoch_id):
-    with owner.session.transaction() as uow:
-        epoch = _get(uow, owner.projection_id, "epochs", (("epoch_id", epoch_id),))
-        if epoch is not None and epoch.state not in {
-            EpochState.COMPLETED,
-            EpochState.COMPLETED_WITH_ISSUES,
-            EpochState.NEEDS_ATTENTION,
-        }:
-            epochs.advance_epoch(
-                uow,
-                owner.projection_id,
-                epoch_id,
-                EpochState.NEEDS_ATTENTION,
-                False,
-                None,
-                RevisionGuard(epoch.revision),
-            )
-
-
 def _enqueue(owner, run_id):
     def enqueue(candidate, rule):
         message_id = ProviderId(candidate.message_id.value)
@@ -419,7 +400,6 @@ def run_reconcile(options):
         try:
             service = _source_service(owner, config)
         except (KeyboardInterrupt, SystemExit):
-            _attention_epoch(owner, reconciler.run_id)
             with owner.session.transaction() as uow:
                 uow._execute(
                     "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
@@ -433,7 +413,6 @@ def run_reconcile(options):
                 )
             raise
         except Exception as error:
-            _attention_epoch(owner, reconciler.run_id)
             code = getattr(error, "code", None)
             stage = getattr(error, "provider_stage", None)
             reason = getattr(error, "reason", None)
@@ -474,7 +453,6 @@ def run_reconcile(options):
                 )
                 _close_epoch(owner, result)
             except (KeyboardInterrupt, SystemExit):
-                _attention_epoch(owner, reconciler.run_id)
                 with owner.session.transaction() as uow:
                     uow._execute(
                         "UPDATE reconcile_runs SET state='abandoned',completed_at=?,"
@@ -488,7 +466,6 @@ def run_reconcile(options):
                     )
                 raise
             except Exception as error:
-                _attention_epoch(owner, reconciler.run_id)
                 code = getattr(error, "code", None)
                 stage = getattr(error, "provider_stage", None)
                 reason = getattr(error, "reason", None)

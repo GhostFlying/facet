@@ -80,7 +80,8 @@ def _latest_epoch(uow, projection_id):
         uow,
         "SELECT "
         + ",".join(COLUMNS["epochs"])
-        + " FROM epochs WHERE projection_id=? ORDER BY created_at DESC LIMIT 1",
+        + " FROM epochs WHERE projection_id=? AND kind<>'source_reconcile' "
+        "ORDER BY created_at DESC LIMIT 1",
         (projection_id.value,),
         maximum=1,
     )
