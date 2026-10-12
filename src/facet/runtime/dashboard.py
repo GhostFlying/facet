@@ -563,7 +563,12 @@ class LiveSnapshotProvider:
     def reconcile_snapshot(self):
         with self._lock:
             age = max(0, int(monotonic() - self._published_at))
-            freshness = "fresh" if self._ready and age < self._stale_after else "stale"
+            if self._reconcile.get("state") == "unavailable":
+                freshness = "unavailable"
+            else:
+                freshness = (
+                    "fresh" if self._ready and age < self._stale_after else "stale"
+                )
             return {
                 "data": dict(self._reconcile),
                 "schema_version": 1,
