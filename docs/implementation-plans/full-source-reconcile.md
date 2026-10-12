@@ -9,11 +9,11 @@ replace those gates.
 
 Add an explicit, repeatable `facet reconcile --source --full` path and
 `facet reconcile status` command.  The operation scans the current enabled
-sender/domain rules over the fixed six-month window plus complete available
-history for tracked threads, compares source candidates with durable mappings
-and jobs, queues only confirmed missing projection work, and closes only
-exceptions that the scan proves have converged.  It must never write Gmail
-directly, reset cursors, delete rows, or claim unresolved work succeeded.
+sender/domain rules over the same bounded six-month window as initial backfill,
+compares source candidates with durable mappings and jobs, and queues only
+confirmed missing projection work. History events and legacy source-missing
+rows are not reconcile inputs. It must never write Gmail directly, reset
+cursors, delete rows, or claim unresolved work succeeded.
 
 ## Scope
 
@@ -29,26 +29,24 @@ directly, reset cursors, delete rows, or claim unresolved work succeeded.
   first. Measure the serial-batch path before adding concurrency; if it remains
   too slow, run at most four independent batches concurrently with separate
   transports. Each subrequest keeps independent error classification.
-- Add a new controlled `source_metadata_unavailable` classification for an
-  unadmitted History candidate whose metadata remains unavailable after the
-  bounded recheck.  Keep managed source loss as `source_missing`.
+- Add a controlled `source_metadata_unavailable` classification for a current
+  rule-search candidate whose metadata is unavailable. Keep managed source
+  loss as `source_missing`.
 - Persist aggregate reconcile facts and safe provider diagnostics.  No raw
   mail, message/thread/history IDs in public output, or unfiltered provider
   responses in DB/logs.
 - Add source reconcile status to private CLI and read-only Dashboard aggregates.
-- Apply the same reconcile closeout to the existing 217 legacy
-  `source_missing` events; do not add a separate blind cleanup/reset path.
+- Leave existing legacy `source_missing` events outside the reconcile input;
+  retain them as historical diagnostics rather than adding a reset protocol.
 - Use a stable request key and explicit `--yes`/scope confirmation for starting
   a live source reconcile. The run records the immutable ruleset revision,
-  fixed window and tracked-thread selector before remote reads.
+  fixed window before remote reads.
 - Recheck the frozen ruleset and generation before each durable batch commit;
   rule changes do not widen the run. If the binding, scope, or generation
   changes, stop the run with a controlled maintenance attention state.
 - Use exact sender/domain query clauses and the provider's advertised domain
   capability. Unsupported domain recall fails closed; no unfiltered fallback.
-  Metadata matching remains a local exact rule check. Tracked-thread metadata
-  must use a Spam/Trash-inclusive provider read and filter drafts/non-draft
-  history locally.
+  Metadata matching remains a local exact rule check.
 
 ## Files and ownership
 
@@ -90,22 +88,19 @@ new maintenance protocol.
 
 1. Fake Gmail can run a full reconcile across multiple rule pages, deduplicate
    a message returned by multiple rules, rerun after an interruption without
-   duplicate jobs, and include
-   tracked-thread history older than the six-month window.
+   duplicate jobs, and keep the initial-backfill six-month lower bound fixed.
 2. An eligible untracked candidate creates the normal authorization path
    (`tracked_thread` + `expand_thread`); an active tracked generation may create
    a `project_message` child. Stopped/unadmitted candidates never revive a
    generation. No Target call occurs during reconcile.
-3. An unadmitted metadata 404 has a durable per-candidate recheck lineage; after
-   one replay-safe recheck it becomes `source_metadata_unavailable`. A
-   managed/mapped 404 remains `source_missing`. Unknown insert, recovery, auth,
-   storage, and multi-candidate states remain active issues.
+3. A metadata 404 for a candidate returned by the current rule search has a
+   durable per-candidate recheck lineage and remains an active issue. History
+   `source_missing` rows are not scanned or counted by this run. Unknown insert,
+   recovery, auth, storage, and multi-candidate states remain active issues.
 4. Reconcile closes only positive metadata/no-rule, exact existing-effect, or
    duplicate-effect cases. Candidate absence from a search is never proof of
-   no-rule or deletion. Unresolved work leaves `completed_with_issues`. The 217
-   legacy records are processed by this same path with no Gmail writes and no
-   row deletion; a still-unreadable record is recorded as terminal unknown, not
-   called a successful resolution.
+   no-rule or deletion. Unresolved work leaves `completed_with_issues`; legacy
+   source-missing records remain outside the run.
 5. Reconcile facts include run/scope/rule revision, aggregate
    counts, provider stage/status/reason, and a local diagnostic reference.
    Logs, DB public projections, Dashboard, and CLI public output pass the
@@ -127,20 +122,16 @@ not approve live Gmail reads or deployment.
 
 ## Stop gates
 
-Live verification follow-up: investigate the tracked-history drain failure using
-the production Gmail discovery schema; `threads.get` must use only supported
-parameters (Spam/Trash visibility is intrinsic to get-by-ID, not a list filter).
-Record provider throttling as incomplete coverage, not terminal source loss.
-Persist final counters including legacy reads and do not close the legacy
-events until the full scan and tracked-history stage have completed safely.
+Live verification follow-up: record provider throttling as incomplete coverage,
+not terminal source loss. Confirm the current-rule six-month scan excludes
+legacy History events and produces no historical 404s.
 
 - Stop without resetting state if the ruleset, binding, generation, writer
   owner, or reconcile snapshot is inconsistent.
 - Stop the run as `completed_with_issues` on provider pagination failure,
   incomplete persistence, unresolved recovery, or ambiguous candidate
   attribution.
-- Do not run the real 217-record closeout until offline tests and independent
-  implementation review pass on the exact candidate commit.
+- Do not treat the historical 217 records as a live reconcile closeout gate.
 
 ## Compatibility and state rules
 
