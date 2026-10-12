@@ -235,6 +235,26 @@ def _close_epoch(owner, result):
         )
 
 
+def _attention_epoch(owner, epoch_id):
+    with owner.session.transaction() as uow:
+        epoch = _get(uow, owner.projection_id, "epochs", (("epoch_id", epoch_id),))
+        if epoch is None or epoch.state in {
+            EpochState.COMPLETED,
+            EpochState.COMPLETED_WITH_ISSUES,
+            EpochState.NEEDS_ATTENTION,
+        }:
+            return
+        epochs.advance_epoch(
+            uow,
+            owner.projection_id,
+            epoch_id,
+            EpochState.NEEDS_ATTENTION,
+            False,
+            None,
+            RevisionGuard(epoch.revision),
+        )
+
+
 def _enqueue(owner, run_id):
     def enqueue(candidate, rule):
         message_id = ProviderId(candidate.message_id.value)
@@ -472,6 +492,8 @@ def run_reconcile(options):
                     )
                 raise
             except Exception as error:
+                if scan_started:
+                    _attention_epoch(owner, reconciler.run_id)
                 code = getattr(error, "code", None)
                 stage = getattr(error, "provider_stage", None)
                 reason = getattr(error, "reason", None)
