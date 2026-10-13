@@ -210,6 +210,44 @@ def test_batch_exhaustion_retains_every_result():
     assert clock.now == 0
 
 
+def test_guard_change_prevents_retry_dispatch():
+    clock = Clock()
+    checks = []
+
+    def guard():
+        checks.append(clock.now)
+        if clock.now:
+            raise ValueError("binding_changed")
+
+    retries = clock.retries(guard)
+    calls = []
+
+    def read():
+        calls.append(clock.now)
+        raise failure()
+
+    with pytest.raises(ValueError, match="binding_changed"):
+        retries.call(read)
+    assert calls == [0]
+
+
+def test_nonretryable_batch_member_is_never_replayed():
+    clock = Clock()
+    items = tuple(DiscoveryItem(ProviderId(x), ProviderId("t")) for x in ("a", "b"))
+    calls = []
+
+    def read(pending):
+        calls.append(tuple(x.message_id.value for x in pending))
+        if len(calls) == 1:
+            return {"a": failure(404), "b": failure()}
+        return {"b": "ok"}
+
+    result = clock.retries().batch(items, read)
+    assert isinstance(result["a"], ProviderFailure)
+    assert result["b"] == "ok"
+    assert calls == [("a", "b"), ("b",)]
+
+
 def test_source_reconciler_durable_seen_dedup_and_restart():
     from facet.contracts import ProviderPageToken
 
