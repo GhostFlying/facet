@@ -8,6 +8,16 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Reconcile read retries — reviewed candidate, live acceptance pending
+
+The bounded retry implementation honors delta-seconds and HTTP-date
+Retry-After, retries only transient source reads and failed batch members,
+and retains candidates before metadata reads. It keeps serial batches, eight
+retries per failed set and 30 minutes cumulative waiting. Root focused tests
+passed (95); independent implementation review approved candidate `7b0bfac`.
+No insert retry policy or schema change. Full CI and source-only live
+verification are the next gates; no successful full-coverage claim yet.
+
 ### Full source reconcile — source-only live measurement complete; hardening in progress
 
 The implementation plan is [full-source-reconcile](implementation-plans/full-source-reconcile.md).
