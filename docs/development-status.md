@@ -8,15 +8,29 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Reconcile read retries — reviewed candidate, live acceptance pending
+### Reconcile read retries — merged/deployed, live acceptance blocked on source OAuth
 
 The bounded retry implementation honors delta-seconds and HTTP-date
 Retry-After, retries only transient source reads and failed batch members,
 and retains candidates before metadata reads. It keeps serial batches, eight
 retries per failed set and 30 minutes cumulative waiting. Root focused tests
 passed (95); independent implementation review approved candidate `7b0bfac`.
-No insert retry policy or schema change. Full CI and source-only live
-verification are the next gates; no successful full-coverage claim yet.
+No insert retry policy or schema change. Full CI passed; source-only live
+verification remains pending, with no successful full-coverage claim yet.
+
+PR #121 merged at `6091fadf3e315e9aea4690365b869f04316c1147` after
+3002 full offline tests, Python 3.12/3.13 CI, and independent review including
+the lazy provider-library import follow-up `475a43c`. Its official full-SHA
+image was anonymously pulled through the approved Tailscale relay and selected
+in the local Compose configuration after a locked, verified state backup.
+The real source-only attempt stopped before scanning: token refresh returned
+`source_auth_required / invalid_grant`, and the run became abandoned with zero
+listed/queued items. Mapping/attempt/legacy-source-missing counts stayed
+4887/4889/217. The marker was cleared and the new Dashboard is available;
+ordinary sync correctly remains source-auth blocked, not healthy sync.
+Next: user completes source OAuth again, then repeat the authorized source-only
+measurement. Actual retry waiting, retry success and full coverage remain
+unverified on Gmail; no Target writes occurred in the failed maintenance run.
 
 ### Full source reconcile — source-only live measurement complete; hardening in progress
 
