@@ -8,13 +8,32 @@ URLs and exception text never cross into persistence or output layers.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from enum import StrEnum
 
 from facet.contracts import ErrorCode, Role, Timestamp
 
 _PROVIDER_REQUEST_TIMEOUT_SECONDS = 30
+
+
+def parse_retry_after(value, *, now=None) -> int | None:
+    """Normalize a provider deadline without retaining its raw header."""
+    if type(value) is not str or len(value) > 128:
+        return None
+    value = value.strip()
+    if value.isascii() and value.isdigit():
+        return int(value)
+    try:
+        deadline = parsedate_to_datetime(value)
+        if deadline.tzinfo is None:
+            return None
+        seconds = (deadline - (now or datetime.now(UTC))).total_seconds()
+        return math.ceil(seconds) if seconds > 0 else None
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 class ProviderReason(StrEnum):
@@ -260,8 +279,7 @@ def provider_failure(
         raw_retry = None
         if response is not None and hasattr(response, "get"):
             raw_retry = response.get("retry-after") or response.get("Retry-After")
-        if isinstance(raw_retry, str) and raw_retry.isdigit():
-            retry_after = int(raw_retry)
+        retry_after = parse_retry_after(raw_retry)
         return ProviderFailure(
             code,
             role,

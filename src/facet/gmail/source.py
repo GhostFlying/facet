@@ -445,17 +445,23 @@ class SourceAdapter:
             raise ProviderFailure(ErrorCode.INVALID_INPUT, self.role)
         if not items:
             return {}
+
+        def sequential():
+            results = {}
+            for item in items:
+                try:
+                    results[item.message_id.value] = self.reconcile_candidate(item)
+                except ProviderFailure as error:
+                    results[item.message_id.value] = error
+            return results
+
         http = getattr(self._service, "_http", None)
         if http is None:
-            return {
-                item.message_id.value: self.reconcile_candidate(item) for item in items
-            }
+            return sequential()
         try:
             from googleapiclient.http import BatchHttpRequest
         except ImportError:
-            return {
-                item.message_id.value: self.reconcile_candidate(item) for item in items
-            }
+            return sequential()
         results: dict[str, CandidateResult | ProviderFailure] = {}
 
         def callback(request_id, response, exception):
@@ -506,14 +512,17 @@ class SourceAdapter:
             )
         try:
             batch.execute(http=http)
-        except ProviderFailure:
-            raise
+        except ProviderFailure as error:
+            for item in items:
+                results.setdefault(item.message_id.value, error)
         except (KeyboardInterrupt, SystemExit):
             raise
         except Exception as error:
-            raise provider_failure(
+            failure = provider_failure(
                 error, self.role, provider_stage=ProviderStage.MESSAGE_GET
-            ) from None
+            )
+            for item in items:
+                results.setdefault(item.message_id.value, failure)
         return results
 
     def _candidate_result(

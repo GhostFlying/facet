@@ -24,6 +24,7 @@ from facet.db.codecs import StorageFailure, timestamp_to_sql
 from facet.db.repositories import events
 from facet.gmail.retry import ProviderFailure
 from facet.gmail.source import DiscoveryItem
+from facet.reconcile_retry import ReadRetries
 
 
 class ReconcileClassification(StrEnum):
@@ -89,6 +90,7 @@ class SourceReconciler:
         *,
         run_id=None,
         source_binding_revision=None,
+        read_retries=None,
     ):
         self.owner = owner
         self.source = source
@@ -97,6 +99,14 @@ class SourceReconciler:
         self.run_id = run_id or LocalId(uuid4().hex)
         self.source_binding_revision = source_binding_revision
         self._seen: set[str] = set()
+        self.read_retries = read_retries or ReadRetries(
+            self._assert_scope_revision, notify=self._retry_log
+        )
+
+    def _retry_log(self, errors, retry, delay, remaining):
+        from facet.status.logging import emit_reconcile_retry
+
+        emit_reconcile_retry(errors[0], retry, delay, remaining, len(errors))
 
     def _insert_run(self, uow, request_key: str) -> None:
         uow._execute(
@@ -262,36 +272,56 @@ class SourceReconciler:
             return ReconcileResult(self.run_id, **totals)
         while True:
             self._assert_scope_revision()
-            response = self.source.discover(
-                window_start=self.scope.window_start.value,
-                window_end=self.scope.window_end.value,
-                page_token=page,
-                query=query,
+            response = self.read_retries.call(
+                lambda page=page: self.source.discover(
+                    window_start=self.scope.window_start.value,
+                    window_end=self.scope.window_end.value,
+                    page_token=page,
+                    query=query,
+                )
             )
+            page_items = tuple(
+                {
+                    item.message_id.value: item
+                    for item in response.items
+                    if item.message_id.value not in self._seen
+                }.values()
+            )
+            for item in page_items:
+                totals["listed"] += 1
+                self._record(
+                    item,
+                    ReconcileClassification.SEEN,
+                    ReconcileDisposition.RECHECK_SCHEDULED,
+                    None,
+                    None,
+                    None,
+                )
+            with self.owner.session.transaction() as uow:
+                self._update_run(uow, {"listed_count": totals["listed"]}, token=page)
             batch_results = {}
             batch_reader = getattr(self.source, "reconcile_candidates_batch", None)
             if callable(batch_reader):
-                pending_items = tuple(
-                    item
-                    for item in response.items
-                    if item.message_id.value not in self._seen
-                )
+                pending_items = page_items
                 for offset in range(0, len(pending_items), 50):
                     batch_results.update(
-                        batch_reader(pending_items[offset : offset + 50])
+                        self.read_retries.batch(
+                            pending_items[offset : offset + 50], batch_reader
+                        )
                     )
             for item in response.items:
                 if item.message_id.value in self._seen:
                     continue
                 self._seen.add(item.message_id.value)
-                totals["listed"] += 1
                 try:
                     candidate = batch_results.get(item.message_id.value)
                     if candidate is None:
                         read_candidate = getattr(
                             self.source, "reconcile_candidate", self.source.candidate
                         )
-                        candidate = read_candidate(item)
+                        candidate = self.read_retries.call(
+                            lambda read=read_candidate, item=item: read(item)
+                        )
                     if isinstance(candidate, ProviderFailure):
                         raise candidate
                 except ProviderFailure as error:
@@ -436,6 +466,8 @@ class SourceReconciler:
         return ReconcileResult(self.run_id, **totals)
 
     def _assert_scope_revision(self):
+        self.owner.session._check()
+        self.owner.session._check_lineage()
         with self.owner.session.transaction() as uow:
             row = uow._execute(
                 "SELECT p.ruleset_revision,b.binding_revision,b.state "
