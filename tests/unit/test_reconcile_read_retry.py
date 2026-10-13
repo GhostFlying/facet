@@ -211,6 +211,8 @@ def test_batch_exhaustion_retains_every_result():
 
 
 def test_source_reconciler_durable_seen_dedup_and_restart():
+    from facet.contracts import ProviderPageToken
+
     with TemporaryDirectory(dir=f"/run/user/{os.geteuid()}") as root:
         config = initial_template("source@example.invalid", "target@example.invalid")
         raw = dump_config(config)
@@ -234,10 +236,19 @@ def test_source_reconciler_durable_seen_dedup_and_restart():
                 ),
             )
             calls = []
+            list_calls = []
 
             class Source:
                 def discover(self, **kwargs):
-                    return DiscoveryPage((item, item), None, 1)
+                    list_calls.append(kwargs["page_token"])
+                    if len(list_calls) == 1:
+                        raise failure()
+                    token = (
+                        ProviderPageToken("next")
+                        if kwargs["page_token"] is None
+                        else None
+                    )
+                    return DiscoveryPage((item, item), token, 1)
 
                 def candidate(self, value):
                     return self.reconcile_candidate(value)
@@ -267,6 +278,7 @@ def test_source_reconciler_durable_seen_dedup_and_restart():
             assert (result.listed, result.queued, result.remaining_issue) == (1, 1, 0)
             assert len(calls) == 2
             assert len(queued) == 1
+            assert len(list_calls) == 3
             replay = reconciler.run(
                 key, enqueue_candidate=lambda *args: pytest.fail("re-enqueued")
             )
