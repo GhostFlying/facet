@@ -14,8 +14,6 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from enum import StrEnum
 
-import httplib2
-
 from facet.contracts import ErrorCode, Role, Timestamp
 
 _PROVIDER_REQUEST_TIMEOUT_SECONDS = 30
@@ -294,9 +292,13 @@ def provider_failure(
             reason=provider_reason(body),
             request_dispatched=True,
         )
-    if isinstance(
-        error, (TimeoutError, ConnectionError, OSError, httplib2.ServerNotFoundError)
-    ):
+    try:
+        from httplib2 import ServerNotFoundError
+    except ImportError:
+        network_types = (TimeoutError, ConnectionError, OSError)
+    else:
+        network_types = (TimeoutError, ConnectionError, OSError, ServerNotFoundError)
+    if isinstance(error, network_types):
         return ProviderFailure(
             ErrorCode.NETWORK_UNAVAILABLE,
             role,
