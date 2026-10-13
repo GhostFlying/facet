@@ -1,6 +1,8 @@
 """CLI entry points for explicit, source-only full reconcile."""
 
+import signal
 import sqlite3
+import threading
 import time
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -363,12 +365,19 @@ def run_reconcile(options):
     config = load_config(raw)
     request_id = LocalId(getattr(options, "request_id", None) or uuid4().hex)
     marker = None
+    previous_sigterm = None
     if getattr(options, "action", None) != "status":
         try:
             marker = acquire_marker(paths.root, request_id.value)
         except RuntimeError as error:
             raise ValueError(str(error)) from None
     owner = None
+    if marker is not None and threading.current_thread() is threading.main_thread():
+
+        def interrupted(*_):
+            raise KeyboardInterrupt
+
+        previous_sigterm = signal.signal(signal.SIGTERM, interrupted)
     try:
         while owner is None:
             try:
@@ -539,12 +548,16 @@ def run_reconcile(options):
                 "queued": result.queued,
                 "reset": result.reset,
                 "remaining_issue": result.remaining_issue,
+                "retry_wait_seconds": round(reconciler.read_retries.waited, 3),
+                "retry_success_count": reconciler.read_retries.retried_success,
             }, ()
         finally:
             close = getattr(service, "close", None)
             if callable(close):
                 close()
     finally:
+        if previous_sigterm is not None:
+            signal.signal(signal.SIGTERM, previous_sigterm)
         if owner is not None:
             owner.close()
         if marker is not None:

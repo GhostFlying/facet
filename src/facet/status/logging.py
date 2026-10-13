@@ -67,6 +67,10 @@ class SafeLogEvent:
     retry_after_seconds: int | None = None
     elapsed_ms: int | None = None
     raw_digest: Sha256Hex | None = None
+    retry_index: int | None = None
+    wait_seconds: int | None = None
+    remaining_wait_seconds: int | None = None
+    failure_count: int | None = None
 
     def __post_init__(self):
         _exact(self, SafeLogEvent)
@@ -81,7 +85,14 @@ class SafeLogEvent:
         _exact(self.provider_stage, ProviderStage, nullable=True)
         _exact(self.reason, ProviderReason, nullable=True)
         _exact(self.raw_digest, Sha256Hex, nullable=True)
-        for value in (self.retry_after_seconds, self.elapsed_ms):
+        for value in (
+            self.retry_after_seconds,
+            self.elapsed_ms,
+            self.retry_index,
+            self.wait_seconds,
+            self.remaining_wait_seconds,
+            self.failure_count,
+        ):
             _count(value, nullable=True)
         _require(
             self.http_status is None
@@ -153,6 +164,10 @@ def emit_safe(event: SafeLogEvent) -> None:
             "retry_after_seconds",
             "elapsed_ms",
             "raw_digest",
+            "retry_index",
+            "wait_seconds",
+            "remaining_wait_seconds",
+            "failure_count",
         ):
             value = getattr(event, name)
             if value is not None:
@@ -163,6 +178,30 @@ def emit_safe(event: SafeLogEvent) -> None:
         _write(_FIXED_FAILURE)
         return
     _write(payload)
+
+
+def emit_reconcile_retry(error, retry, delay, remaining, failures):
+    import math
+
+    emit_safe(
+        SafeLogEvent(
+            LogEventKind.DEPENDENCY_STATE,
+            SafeLogLevel.WARNING,
+            Timestamp(datetime.now(UTC)),
+            Component.SOURCE,
+            Role.SOURCE,
+            error.code,
+            None,
+            provider_stage=error.provider_stage,
+            reason=error.reason,
+            http_status=error.status,
+            retry_after_seconds=error.retry_after_seconds,
+            retry_index=retry,
+            wait_seconds=math.ceil(delay),
+            remaining_wait_seconds=max(0, int(remaining)),
+            failure_count=failures,
+        )
+    )
 
 
 def emit_operation(stage, *, code=None, count=None, elapsed_ms=None, raw_digest=None):
