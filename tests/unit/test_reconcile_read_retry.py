@@ -231,6 +231,31 @@ def test_guard_change_prevents_retry_dispatch():
     assert calls == [0]
 
 
+def test_clock_crossing_deadline_never_sleeps_negative():
+    values = iter([0, 0, 2, 2])
+    sleeps = []
+    retries = ReadRetries(
+        lambda: None,
+        clock=lambda: next(values),
+        sleep=lambda value: sleeps.append(value),
+        jitter=lambda: 0,
+    )
+    assert retries.wait([failure()], 1)
+    assert sleeps == [1]
+
+
+def test_dns_failure_is_retryable_network_error():
+    import httplib2
+
+    from facet.gmail.retry import provider_failure
+
+    value = provider_failure(
+        httplib2.ServerNotFoundError("PRIVATE-DNS-SENTINEL"), Role.SOURCE
+    )
+    assert retryable(value)
+    assert "PRIVATE-DNS-SENTINEL" not in str(value)
+
+
 def test_nonretryable_batch_member_is_never_replayed():
     clock = Clock()
     items = tuple(DiscoveryItem(ProviderId(x), ProviderId("t")) for x in ("a", "b"))

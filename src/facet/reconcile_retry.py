@@ -51,8 +51,11 @@ class ReadRetries:
             self.notify(errors, retry, delay, WAIT_BUDGET_SECONDS - self.waited)
         start = self.clock()
         deadline = start + delay
-        while self.clock() < deadline:
-            self.sleep(min(1, deadline - self.clock()))
+        while True:
+            remaining = deadline - self.clock()
+            if remaining <= 0:
+                break
+            self.sleep(min(1, remaining))
         self.waited += max(delay, self.clock() - start)
         self.guard()
         return True
