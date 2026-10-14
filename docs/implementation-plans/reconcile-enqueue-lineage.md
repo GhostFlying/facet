@@ -50,3 +50,18 @@ construction, unchanged mapping/attempt counts, and same-key terminal replay
 without extra jobs/admissions. Retrying a failed live run uses a fresh key.
 Existing interrupted running/draining same-key behavior is not validated by
 this narrow correction; stop if that separate edge is encountered.
+
+## Acceptance receipt
+
+Independent implementation review approved code candidate `4f0ea6c`, ran 39
+focused tests, and reproduced each old defect independently with in-memory
+mutation checks. Root full baseline: 3004 passed in 876.62 seconds; required CI
+passed. PR #122 merged at `ff6965991ea9d151bd02b0ce8f85d149cff72c7e`.
+The corrected diagnostic image completed a real source-only run: 4769 listed and
+read, 4761 mapped, 8 queued, zero 404/issues/seen. It recovered 2128 reads with
+159.142 seconds cumulative waiting; durable elapsed was 2099.964693 seconds.
+Maintenance mapping/attempt/legacy counts stayed 4887/4889/217, FK checks were
+clean, and a locked backup was verified. Official image deployment succeeded;
+ordinary sync remains blocked by target refresh `invalid_grant`. Target reauth
+and completion of the queued projections are separate next steps, not claimed
+by this source-only acceptance.
