@@ -14,7 +14,7 @@ const fixture = () => {
   const values = {
     status: {phase: 'incremental', health: 'healthy', source: role('source', 'source_readonly'), target: role('target', 'target_insert_readonly'), last_poll_at: timestamp, last_verified_insert_at: timestamp, heartbeat_at: timestamp, cycle_in_progress: false},
     progress: {epoch: {kind: 'initial_backfill', state: 'completed', started_at: timestamp}, discovery_complete: true, scanned_threads: 777, discovered_threads: 777, completed_threads: 777, known_message_total: 4234, confirmed_messages: 4340, jobs: {queued: 0, claimed: 0, retry_wait: 0, blocked: 0, needs_attention: 0, completed: 9010, cancelled: 3, source_missing: 0, failed: 0}, oldest_runnable_job_age_seconds: null, verified_last_hour: null, verified_last_day: null, rate: {value: null, unit: 'messages_per_second', window_seconds: 60, sample_count: 0}, latency: {p50: null, p95: null, unit: 'milliseconds', window_seconds: 60, sample_count: 0}},
-    issues: {groups: []},
+    issues: {groups: [], historical_source_warning_count: 217},
     rules: {entries: [{kind: 'allow_sender', value: 'sender@example.test', enabled: true}, {kind: 'action_label_add_sender', value: 'Facet/AddSender', enabled: true}]},
     activity: {entries: [
       {rule_kind: 'allow_sender', rule_value: 'sender@example.test', matched_count: 4, observed_at: timestamp},
@@ -58,6 +58,7 @@ const fixture = () => {
         for (const id of ['confirmed', 'queued', 'attention', 'job-queued', 'job-failed']) assert.equal(await text(id), 'Unknown');
         assert.equal(await page.locator('#health').getAttribute('class'), 'badge');
         assert.match(await text('issues'), /Unknown/);
+        await expectText('history-warnings', 'Unknown');
       };
       await page.goto(base.href);
       await expectText('confirmed', '4340');
@@ -147,6 +148,18 @@ const fixture = () => {
         failure = null;
         await refresh(); await expectText('health', 'Healthy');
       }
+
+      // Historical coverage receipts remain visible, without degrading health.
+      snapshots = fixture();
+      await refresh(); await expectText('health', 'Healthy');
+      await expectText('history-warnings', '217');
+      // Later zero-closure runs still report the retained aggregate total.
+      await refresh(); await expectText('history-warnings', '217');
+      snapshots.status.data.health = 'degraded';
+      snapshots.issues.data.groups = [{code: 'source_missing', count: 1, role: null, first_at: timestamp, last_at: timestamp, retryable: false, next_retry_at: null, suggestion: 'inspect_work'}];
+      await refresh(); await expectText('health', 'Degraded');
+      await expectText('history-warnings', '217');
+      assert.match(await text('issues'), /source_missing/);
 
       // Negative malformed enum fixture is never echoed into DOM or later requests.
       snapshots = fixture(); snapshots.status.data.health = 'PRIVATE_NEGATIVE_SENTINEL';

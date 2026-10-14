@@ -8,6 +8,36 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Covered History failures — live convergence verified; merge gates running
+
+The 2026-10-14 approved [correction plan](implementation-plans/reconcile-history-convergence.md)
+adds atomic terminal bookkeeping for old unadmitted message-added source errors
+after complete current-scope source coverage, including successful same-key
+replay. It reuses job audits and covering-epoch membership, without schema
+changes or another Gmail scan. Historical warning totals are separate from
+active issue groups and do not count as confirmed projections. Partial/stale
+coverage, managed/stopped threads, mappings, insert attempts, action work and
+claims remain protected. Plan review approved digest
+`fb215e365495d07387ab45c54116ccb13576965f8e1be031333acb63e19c65cb`.
+
+Focused SQLite tests verify real reconciler finalization/replay, provenance,
+guard refusal, rollback, warning persistence and mixed active faults. Synthetic
+browser acceptance passed desktop/mobile. Independent implementation review
+approved `c566a3f`, including current-action receipt protection; the focused
+follow-up passed 51 tests. Full offline baseline and required CI remain running,
+so this is not yet a merged release.
+
+On the stopped test deployment, a writer-locked SQLite/config/credential backup
+passed integrity checks. The supported source-only CLI replayed the original
+successful reconcile request on the reviewed local candidate, without another
+mailbox scan. It closed all 217 eligible old resolver failures and retained 217
+covering-run audit receipts. Active `source_missing` is now zero; mapping count
+4896, insert-attempt count 4898 and the History checkpoint were unchanged by
+maintenance. Foreign-key checks passed. Ordinary sync has resumed on the local
+diagnostic image; the Issues endpoint exposes no active groups and 217 retained
+historical warnings. Final fresh-cycle health and official immutable-image
+deployment remain to be verified after the merge gates pass.
+
 ### Full source reconcile verified; both roles reauthorized and sync restored
 
 Source reauthorization completed with verified binding and unchanged scope.

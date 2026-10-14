@@ -22,6 +22,7 @@ from facet.contracts import (
 )
 from facet.db.codecs import StorageFailure, timestamp_to_sql
 from facet.db.repositories import events
+from facet.db.repositories.history_convergence import converge_covered_history
 from facet.gmail.retry import ProviderFailure
 from facet.gmail.source import DiscoveryItem
 from facet.reconcile_retry import ReadRetries
@@ -238,9 +239,14 @@ class SourceReconciler:
                 elif int(existing[11]) != self.scope.ruleset_revision.value:
                     raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
                 elif existing[1] in {"completed", "completed_with_issues"}:
+                    values = [int(existing[index] or 0) for index in range(3, 11)]
+                    if existing[1] == "completed":
+                        values[6] += converge_covered_history(
+                            uow, self.owner.projection_id, LocalId(existing[0]), _now()
+                        )
                     return ReconcileResult(
                         LocalId(existing[0]),
-                        *[int(existing[index] or 0) for index in range(3, 11)],
+                        *values,
                     )
                 if existing is not None:
                     uow._execute(
@@ -737,6 +743,7 @@ class SourceReconciler:
             )
 
     def _finish(self, totals, *, with_issues):
+        self._assert_scope_revision()
         with self.owner.session.transaction() as uow:
             self._update_run(
                 uow, {f"{name}_count": value for name, value in totals.items()}
@@ -753,3 +760,11 @@ class SourceReconciler:
                     self.run_id.value,
                 ),
             )
+            closed = (
+                0
+                if with_issues
+                else converge_covered_history(
+                    uow, self.owner.projection_id, self.run_id, _now()
+                )
+            )
+        totals["reset"] += closed

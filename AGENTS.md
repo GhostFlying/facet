@@ -317,6 +317,14 @@ rule and recovery invariants remain.
   or a concrete failure is explainable. Auth/network/rate-limit failures retain
   jobs. Disk persistence failure prevents cursor advance. Source loss that cannot
   be recovered from target is `source_missing`.
+- Product decision (2026-10-14): a complete current-scope source reconcile may
+  terminally consume pre-fence unadmitted message-added History failures with no
+  tracked/admitted thread, mapping, insert intent, claim or action work. Preserve
+  original errors and per-job covering-run audit lineage as historical warnings,
+  never as confirmed copies. Partial/stale scans and protected source loss or
+  unknown insert cannot authorize closure. History is not scanned; this is
+  guarded post-run bookkeeping, also supported by successful same-key replay.
+  Historical warnings do not by themselves degrade current sync health.
 - Back up stopped/locked state with the SQLite backup API plus config/bindings/
   credentials. Never copy only the live main DB and ignore WAL. Migrate with a
   backup; failure must not initialize an empty DB. Restore validates accounts and

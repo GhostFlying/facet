@@ -146,6 +146,7 @@ def _IssueGroup(value):
 def _Issues(value):
     return {
         "groups": [_IssueGroup(group) for group in value.groups],
+        "historical_source_warning_count": value.historical_source_warning_count,
     }
 
 

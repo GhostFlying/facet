@@ -126,7 +126,7 @@ def test_fixed_public_record_field_inventory():
             "next_retry_at",
             "suggestion",
         ],
-        "Issues": ["groups"],
+        "Issues": ["groups", "historical_source_warning_count"],
         "ActivityEntry": [
             "rule_kind",
             "rule_value",

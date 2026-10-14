@@ -88,6 +88,13 @@ digest/RFC 未变、账号 binding 和 active generation 有效且没有 mapping
 
 Source 已删除且尚未取得内容的邮件无法恢复，应显示 `source_missing`。数据库丢失会降低可靠去重能力；备份是部署的一部分，不能把 target 存在等同于全部本地状态可重建。
 
+2026-10-14 用户确认：未被接纳、没有 tracked thread/mapping/insert intent 的旧
+`message_added` History 读取失败不代表已经选定的邮件丢失。完整成功的 source
+reconcile 在当前规则、账号和固定窗口证据一致时，可以将扫描开始前的这类异常
+收敛为已处理的历史未知记录。保留原错误、事件和 covering-run 审计，不算投影
+成功；历史警告不再导致 Degraded。部分校对、新发生的错误、已接纳邮件丢失和
+unknown insert 等活动故障不能因此关闭。History 仍不作为全量扫描输入。
+
 ## Dashboard 和内容存储
 
 第一期提供只读 Dashboard，展示同步状态、进度、完成数量、异常和诊断。HTTPS 与 Web 用户认证由前置 Nginx 负责，Facet 提供 HTTP。Gmail OAuth 仍负责服务访问邮箱的授权，不由 Nginx 代替。Dashboard 的运营时间按同步服务器本地时区显示；持久化和排序仍使用 UTC。

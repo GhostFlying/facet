@@ -84,7 +84,7 @@
         <div class="row"><dt>Confirmed · last day</dt><dd id="day">Unknown</dd></div><div class="row"><dt>Rate</dt><dd id="rate">Unknown</dd></div>
         <div class="row"><dt>Latency p50 / p95</dt><dd id="latency">Unknown</dd></div>
       </dl><p class="muted">No samples means Unknown, not zero. No sync latency or completion-time promise.</p></section>
-      <section class="wide"><h2>Exceptions · grouped operational issues</h2><div id="issues">Unknown</div></section>
+      <section class="wide"><h2>Exceptions · grouped operational issues</h2><div id="issues">Unknown</div><p class="muted">Historical unavailable History records covered by full reconcile: <span id="history-warnings">Unknown</span>. Retained for diagnosis, not active faults or confirmed copies.</p></section>
       <section><h2>Diagnostics</h2><dl>
         <div class="row"><dt>App version</dt><dd id="version">Unknown</dd></div><div class="row"><dt>Commit SHA</dt><dd id="commit-sha">Unknown</dd></div><div class="row"><dt>Schema version</dt><dd id="schema">Unknown</dd></div>
         <div class="row"><dt>Sync owners</dt><dd id="owners">Unknown</dd></div><div class="row"><dt>DB readable / writable</dt><dd id="database">Unknown</dd></div>
@@ -143,6 +143,8 @@
             result.latency = l.unit === 'milliseconds' && count(l.sample_count) > 0 && metric(l.p50) !== null && metric(l.p95) !== null ? `${l.p50} / ${l.p95} ms · ${count(l.sample_count)} samples · ${metric(l.window_seconds) ?? 'Unknown'} s window` : null;
           } else if (family === 'issues') {
             if (!Array.isArray(data.groups) || data.groups.length > 96) throw new Error();
+            result.historyWarnings = count(data.historical_source_warning_count);
+            if (result.historyWarnings === null) throw new Error();
             result.groups = data.groups.map(group => {
               if (!object(group) || !codes.has(group.code) || count(group.count) === null || group.count < 1 || typeof group.retryable !== 'boolean') throw new Error();
               return {code: group.code, count: group.count, role: label(group.role, {source: 'Source', target: 'Target', null: 'Projection'}), first: time(group.first_at), last: time(group.last_at), retryable: group.retryable, next: time(group.next_retry_at), advice: label(group.suggestion, advice)};
@@ -169,6 +171,7 @@
           valueIds.forEach(id => put(id, null));
           put('health', 'Unknown'); get('health').className = 'badge';
           put('issues', 'Unknown — no current exception snapshot.'); put('freshness', note);
+          put('history-warnings', null);
         };
         const render = ([s, p, i, r, a, d]) => {
           if ([s, p, i, r, a, d].some(data => data.freshness !== 'Fresh' || data.expires <= performance.now())) { unavailable('Stale or unavailable snapshot — current sync health and counts are unknown.'); return; }
@@ -191,6 +194,7 @@
             row.append(kind, value); get('rules').append(row);
           });
           get('issues').replaceChildren();
+          put('history-warnings', i.historyWarnings);
           if (!i.groups.length) put('issues', 'No reported exception groups in this fresh snapshot.');
           i.groups.forEach(group => {
             const card = document.createElement('div'); card.className = 'issue';

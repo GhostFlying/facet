@@ -287,6 +287,12 @@ Unknown History gap 通过 `recovery gap preview/approve` 显式选择 UTC range
 Repair 必须引用一个已完成或明确部分完成的 audit，以及明确选择的 source message/
 thread 集合；不能默认修整个邮箱。Preview 构造固定 repair operation，start 再检查
 mapping missing、active generation、账号与新异常；只修 production-managed mail。
+完整成功的 `facet reconcile --source --full` 会持久化收敛被当前范围覆盖的旧未接纳
+History 404，而不是再扫描这些事件。同一成功 request key 的重放可以补做这个收敛，
+不重复 Gmail 搜索；规则、source binding、固定范围和候选计数必须仍然匹配。
+`reconcile status` 展示 reset 与历史警告聚合，不显示 Gmail ID。保留错误审计与
+run/epoch/job 关联，不删除事件、改变 cursor、自动 insert 或关闭 protected recovery。
+
 Read-only target audit 不自动 repair。处理途中 source_missing/unknown outcome 仍用
 原队列/recovery 状态机，不能因 repair 名称盲插。
 

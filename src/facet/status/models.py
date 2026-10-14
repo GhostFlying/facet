@@ -349,10 +349,12 @@ class IssueGroup:
 @dataclass(frozen=True, slots=True, repr=False)
 class Issues:
     groups: tuple[IssueGroup, ...]
+    historical_source_warning_count: PublicCount = 0
 
     def __post_init__(self):
         _exact(self, Issues)
         _exact(self.groups, tuple)
+        _count(self.historical_source_warning_count)
         _require(len(self.groups) <= 96)
         previous = None
         roles = {None: 0, Role.SOURCE: 1, Role.TARGET: 2}
