@@ -62,6 +62,9 @@ read, 4761 mapped, 8 queued, zero 404/issues/seen. It recovered 2128 reads with
 159.142 seconds cumulative waiting; durable elapsed was 2099.964693 seconds.
 Maintenance mapping/attempt/legacy counts stayed 4887/4889/217, FK checks were
 clean, and a locked backup was verified. Official image deployment succeeded;
-ordinary sync remains blocked by target refresh `invalid_grant`. Target reauth
-and completion of the queued projections are separate next steps, not claimed
-by this source-only acceptance.
+ordinary startup first exposed target refresh `invalid_grant`. After separately
+authorized target reauth with unchanged scope, an ordinary 67.005-second sync
+cycle verified all 8 queued candidates; mappings increased to 4895 and the
+ordinary queued jobs drained. This later Target-write evidence is separate from
+the source-only run and does not alter its zero-insert receipt. Legacy History
+issues remain unchanged.

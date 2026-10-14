@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Full source reconcile verified; deployed sync blocked on target OAuth
+### Full source reconcile verified; both roles reauthorized and sync restored
 
 Source reauthorization completed with verified binding and unchanged scope.
 The next run exposed two enqueue wiring defects, now fixed in merged
@@ -34,12 +34,16 @@ reviewed file. A fresh real source-only run completed on 2026-10-14:
 After writer-locked SQLite/config/credential backup with integrity OK, local
 Compose selected the anonymously pulled official full-SHA image. Its registry
 digest is `sha256:b54f2944b095f660429a1a833b7a6cae228ce79bd7268c3ea632c16e3c7e08e8`.
-Dashboard health and the fresh read-only reconcile endpoint are verified. Ordinary
-sync startup now fails at target token refresh with
-`target_auth_required / invalid_grant`; it is not healthy sync. The 8 jobs remain
-queued, not confirmed copies. Next: user authorizes the existing target role
-again, then verify normal sync with unchanged accounts/rules/window. Do not
-broaden scopes or treat this test-host evidence as final Phase 1 acceptance.
+Dashboard health and the fresh read-only reconcile endpoint are verified. Initial
+normal startup failed at target token refresh with `invalid_grant`; subsequent
+user-authorized target reauthorization completed with verified binding and
+unchanged scopes. The restored ordinary cycle completed successfully in 67.005
+seconds and confirmed all 8 reconcile-queued candidates. Mapping count is now
+4895; ordinary queued jobs drained. The 217 legacy History source-missing jobs
+remain untouched; a successful cycle is not proof that all historical attention
+has been resolved. Next: verify automatic subsequent polling and retain this
+deployment for ordinary sync. No new account, rule scope, historical window or
+cleanup is implied; this is test-host evidence, not final Phase 1 acceptance.
 
 ### Earlier source-OAuth-blocked retry deployment (superseded above)
 
