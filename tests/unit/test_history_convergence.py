@@ -37,6 +37,7 @@ from facet.db.codecs import (
     EventProcessing,
     StorageFailure,
     ThreadStopReason,
+    timestamp_to_sql,
 )
 from facet.db.keys import event_key, job_key
 from facet.db.models import (
@@ -389,6 +390,47 @@ def test_action_work_is_preserved(state):
     assert owner._connection.execute(
         "SELECT state FROM action_commands"
     ).fetchone() == ("pending",)
+
+
+@pytest.mark.parametrize("relationship", ["event", "thread"])
+def test_current_action_receipts_are_preserved(state, relationship):
+    owner, r, key = state
+    event_id, _ = legacy(owner, r)
+    trigger = event_id
+    thread = "unrelated-thread"
+    if relationship == "thread":
+        trigger, _ = legacy(owner, r, thread="different-thread")
+        thread = "SYNTHETIC_PRIVATE_THREAD"
+    with owner.session.transaction() as uow:
+        uow._execute(
+            "INSERT INTO current_action_receipts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                owner.projection_id.value,
+                uuid4().hex,
+                thread,
+                "add_domain",
+                "synthetic-label",
+                1,
+                trigger.value,
+                timestamp_to_sql(Timestamp(datetime.now(UTC))),
+                None,
+                None,
+                None,
+                None,
+                "suppressed",
+            ),
+        )
+    before = owner._connection.execute(
+        "SELECT * FROM current_action_receipts"
+    ).fetchall()
+    assert r.run(key).reset == 0
+    assert (
+        owner._connection.execute("SELECT * FROM current_action_receipts").fetchall()
+        == before
+    )
+    assert set(owner._connection.execute("SELECT state FROM sync_jobs").fetchall()) == {
+        ("source_missing",)
+    }
 
 
 @pytest.mark.parametrize("unknown", [False, True])

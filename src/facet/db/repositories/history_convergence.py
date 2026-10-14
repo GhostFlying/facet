@@ -72,7 +72,11 @@ def converge_covered_history(uow, projection_id, run_id, observed_at):
         "WHERE c.projection_id=j.projection_id AND c.job_id=j.job_id) "
         "AND NOT EXISTS(SELECT 1 FROM action_commands a "
         "WHERE a.projection_id=e.projection_id "
-        "AND (a.event_id=e.event_id OR a.source_thread_id=e.source_thread_id))",
+        "AND (a.event_id=e.event_id OR a.source_thread_id=e.source_thread_id)) "
+        "AND NOT EXISTS(SELECT 1 FROM current_action_receipts a "
+        "WHERE a.projection_id=e.projection_id "
+        "AND (a.trigger_event_id=e.event_id "
+        "OR a.source_thread_id=e.source_thread_id))",
         (projection_id.value, fence, fence, fence),
     ).fetchall()
     if not rows:
