@@ -8,6 +8,23 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
+### Covered History failures — convergence implementation candidate
+
+The 2026-10-14 approved [correction plan](implementation-plans/reconcile-history-convergence.md)
+adds atomic terminal bookkeeping for old unadmitted message-added source errors
+after complete current-scope source coverage, including successful same-key
+replay. It reuses job audits and covering-epoch membership, without schema
+changes or another Gmail scan. Historical warning totals are separate from
+active issue groups and do not count as confirmed projections. Partial/stale
+coverage, managed/stopped threads, mappings, insert attempts, action work and
+claims remain protected. Plan review approved digest
+`fb215e365495d07387ab45c54116ccb13576965f8e1be031333acb63e19c65cb`.
+
+Focused SQLite tests verify real reconciler finalization/replay, provenance,
+guard refusal, rollback, warning persistence and mixed active faults. Synthetic
+browser acceptance passed desktop/mobile. Candidate review/full baseline/CI and
+live closure remain pending; the deployed 217 records have not yet been changed.
+
 ### Full source reconcile verified; both roles reauthorized and sync restored
 
 Source reauthorization completed with verified binding and unchanged scope.

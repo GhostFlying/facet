@@ -31,6 +31,7 @@ from facet.contracts import (
 from facet.db.codecs import timestamp_from_sql
 from facet.db.repositories import epochs, reads
 from facet.db.repositories.base import _decode, _query
+from facet.db.repositories.history_convergence import historical_warning_count
 from facet.db.repositories.serialization import COLUMNS
 from facet.status.errors import catalog_entry
 from facet.status.models import (
@@ -163,7 +164,10 @@ def _issues(uow, projection_id, sampled_at, error_code) -> Issues:
         )
     if error_code is not None and error_code not in groups:
         groups[error_code] = _issue(error_code, 1, sampled_at, sampled_at)
-    return Issues(tuple(groups[code] for code in sorted(groups)))
+    return Issues(
+        tuple(groups[code] for code in sorted(groups)),
+        historical_warning_count(uow, projection_id),
+    )
 
 
 def _activity(uow, projection_id) -> Activity:
@@ -222,6 +226,7 @@ def _reconcile_summary(uow, projection_id):
         "remaining_issue": row[11],
         "created_at": row[12],
         "completed_at": row[13],
+        "historical_source_warning_count": historical_warning_count(uow, projection_id),
     }
 
 

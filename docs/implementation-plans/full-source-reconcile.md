@@ -37,7 +37,9 @@ cursors, delete rows, or claim unresolved work succeeded.
   responses in DB/logs.
 - Add source reconcile status to private CLI and read-only Dashboard aggregates.
 - Leave existing legacy `source_missing` events outside the reconcile input;
-  retain them as historical diagnostics rather than adding a reset protocol.
+  retain them as historical diagnostics. The 2026-10-14 approved correction adds
+  guarded post-success convergence of pre-fence unadmitted failures, not History
+  scanning or a general reset protocol; see reconcile-history-convergence.md.
 - Use a stable request key and explicit `--yes`/scope confirmation for starting
   a live source reconcile. The run records the immutable ruleset revision,
   fixed window before remote reads.
@@ -95,7 +97,9 @@ new maintenance protocol.
    generation. No Target call occurs during reconcile.
 3. A metadata 404 for a candidate returned by the current rule search has a
    durable per-candidate recheck lineage and remains an active issue. History
-   `source_missing` rows are not scanned or counted by this run. Unknown insert,
+   `source_missing` rows are not scanned or counted as candidates. Successful
+   post-run convergence may count eligible historical closures as resets.
+   Unknown insert,
    recovery, auth, storage, and multi-candidate states remain active issues.
 4. Reconcile closes only positive metadata/no-rule, exact existing-effect, or
    duplicate-effect cases. Candidate absence from a search is never proof of

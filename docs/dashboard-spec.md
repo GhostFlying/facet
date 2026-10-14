@@ -78,6 +78,11 @@ Discovery 完成后的 `known_message_total` 是搜索候选消息数，不是�
 
 异常以受控 error code 和固定文案显示，例如 `source_auth_required`、`target_rate_limited`、`insert_result_unknown`、`source_missing`、`target_missing`、`duplicate_candidates`、`database_unavailable`。可提供“在部署主机重新授权 Target”“等待自动重试”“运行受限的 CLI 诊断”等建议，不插入 Gmail 返回的 message 或 URL。
 
+完整成功的 source reconcile 可将受覆盖的旧未接纳 History 404 持久化收敛。
+异常区域另行展示历史警告总数（跨所有保留的 covering-run receipts 去重），不
+把历史警告计入活动 issue groups、confirmed messages 或 Degraded。不得只在 UI
+过滤活动 DB 错误；真实活动故障、授权、freshness 和健康计算保持原有门槛。
+
 Dashboard 诊断与 CLI doctor 共享检查逻辑，但使用单独的公开输出模型；CLI 的本地账号绑定、路径和对象 IDs 不进入 Web 响应。Debug 开关不能绕过 Web 白名单。
 
 ## 数据持久化

@@ -46,6 +46,7 @@ from facet.db.models import (
 )
 from facet.db.repositories import epochs, jobs, policy
 from facet.db.repositories.base import _get
+from facet.db.repositories.history_convergence import historical_warning_count
 from facet.gmail.credentials import CredentialManager
 from facet.gmail.service_factory import GoogleGmailServiceFactory
 from facet.gmail.source import SourceAdapter
@@ -121,6 +122,8 @@ def _status(owner):
     ).fetchone()
     if row is None:
         return {"state": "never_run"}
+    with owner.session.transaction() as uow:
+        warnings = historical_warning_count(uow, owner.projection_id)
     return {
         "state": row[0],
         "ruleset_revision": row[2],
@@ -136,6 +139,7 @@ def _status(owner):
         "remaining_issue": row[12],
         "created_at": row[13],
         "completed_at": row[14],
+        "historical_source_warning_count": warnings,
     }
 
 
