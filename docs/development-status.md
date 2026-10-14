@@ -8,29 +8,44 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Source reauthorization complete; reconcile enqueue wiring correction
+### Full source reconcile verified; both roles reauthorized and sync restored
 
-Source-only reauthorization completed with verified binding and unchanged role
-scope. The next source-only run encountered one logged 429 batch retry, then
-failed with public `persistence_failure`. It retained 100 `seen` candidates and
-classified only one readable/matched candidate before aborting; this is incomplete
-coverage, despite its summary having zero remaining issues. Mapping/attempt/old
-History-source-missing counts remain 4887/4889/217. SQLite integrity and foreign
-key checks pass, and the maintenance marker was released. Ordinary sync remains
-stopped while the corrected maintenance candidate is verified.
+Source reauthorization completed with verified binding and unchanged scope.
+The next run exposed two enqueue wiring defects, now fixed in merged
+[PR #122](https://github.com/GhostFlying/facet/pull/122) at
+`ff6965991ea9d151bd02b0ce8f85d149cff72c7e`. Independent candidate review approved
+`4f0ea6c`; 3004 full offline tests passed in 876.62 seconds, as did Python
+3.12/3.13 CI and image checks. The reviewer separately mutation-tested each
+defect. The failed run's 100 `seen` facts remain historical incomplete coverage,
+not successful classification or deleted records.
 
-The actual production-call regression reproduces incorrect candidate field
-access before enqueue; a second static defect passes the CLI request ID rather
-than the prepared reconcile epoch ID. The narrow
-[correction plan](implementation-plans/reconcile-enqueue-lineage.md) was
-independently approved including this evidence correction. Both accesses and
-epoch wiring are corrected locally. Focused tests cover real SQLite tracked and
-untracked enqueue, epoch associations, terminal same-key replay, source-only
-behavior and unchanged mapping/attempt counts (35 tests passed). Full baseline,
-candidate review, CI, merge and a successful real rerun remain pending. No Target
-write or legacy History cleanup occurred in this maintenance attempt.
+The corrected local diagnostic image used the previous official image plus the
+sole modified production source file; its imported module hash matched the
+reviewed file. A fresh real source-only run completed on 2026-10-14:
 
-### Reconcile read retries — merged/deployed, live acceptance blocked on source OAuth
+- Fixed initial window start: 2026-04-01 08:00:00 +08:00; frozen ruleset 11.
+- Listed/read/matched: 4769; mapped: 4761; queued: 8.
+- Metadata 404: 0; remaining issues: 0; retained `seen`: 0.
+- Retry-recovered reads: 2128; cumulative wait: 159.142 seconds.
+- Durable run elapsed: 2099.964693 seconds (34m59.965s).
+- Mapping/attempt counts stayed 4887/4889; no Target writes in maintenance.
+- Legacy History `source_missing`: still 217, outside this scan and untouched.
+
+After writer-locked SQLite/config/credential backup with integrity OK, local
+Compose selected the anonymously pulled official full-SHA image. Its registry
+digest is `sha256:b54f2944b095f660429a1a833b7a6cae228ce79bd7268c3ea632c16e3c7e08e8`.
+Dashboard health and the fresh read-only reconcile endpoint are verified. Initial
+normal startup failed at target token refresh with `invalid_grant`; subsequent
+user-authorized target reauthorization completed with verified binding and
+unchanged scopes. The restored ordinary cycle completed successfully in 67.005
+seconds and confirmed all 8 reconcile-queued candidates. Mapping count is now
+4895; ordinary queued jobs drained. The 217 legacy History source-missing jobs
+remain untouched; a successful cycle is not proof that all historical attention
+has been resolved. Next: verify automatic subsequent polling and retain this
+deployment for ordinary sync. No new account, rule scope, historical window or
+cleanup is implied; this is test-host evidence, not final Phase 1 acceptance.
+
+### Earlier source-OAuth-blocked retry deployment (superseded above)
 
 The bounded retry implementation honors delta-seconds and HTTP-date
 Retry-After, retries only transient source reads and failed batch members,
