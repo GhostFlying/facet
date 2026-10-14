@@ -1,12 +1,34 @@
 # Facet development status
 
-Updated: 2026-10-12 (PRC; historical UTC receipts retain their original dates)
+Updated: 2026-10-14 (PRC; historical UTC receipts retain their original dates)
 
 This is the durable handoff for autonomous development. Update it with evidence
 at the end of each coherent implementation unit. Do not store account addresses,
 mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
+
+### Source reauthorization complete; reconcile enqueue wiring correction
+
+Source-only reauthorization completed with verified binding and unchanged role
+scope. The next source-only run encountered one logged 429 batch retry, then
+failed with public `persistence_failure`. It retained 100 `seen` candidates and
+classified only one readable/matched candidate before aborting; this is incomplete
+coverage, despite its summary having zero remaining issues. Mapping/attempt/old
+History-source-missing counts remain 4887/4889/217. SQLite integrity and foreign
+key checks pass, and the maintenance marker was released. Ordinary sync remains
+stopped while the corrected maintenance candidate is verified.
+
+The actual production-call regression reproduces incorrect candidate field
+access before enqueue; a second static defect passes the CLI request ID rather
+than the prepared reconcile epoch ID. The narrow
+[correction plan](implementation-plans/reconcile-enqueue-lineage.md) was
+independently approved including this evidence correction. Both accesses and
+epoch wiring are corrected locally. Focused tests cover real SQLite tracked and
+untracked enqueue, epoch associations, terminal same-key replay, source-only
+behavior and unchanged mapping/attempt counts (35 tests passed). Full baseline,
+candidate review, CI, merge and a successful real rerun remain pending. No Target
+write or legacy History cleanup occurred in this maintenance attempt.
 
 ### Reconcile read retries — merged/deployed, live acceptance blocked on source OAuth
 

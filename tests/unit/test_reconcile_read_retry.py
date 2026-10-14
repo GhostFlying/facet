@@ -349,3 +349,122 @@ def test_source_reconciler_durable_seen_dedup_and_restart():
             assert owner._connection.execute(
                 "select classification from reconcile_candidates"
             ).fetchone() == ("queued",)
+
+
+@pytest.mark.parametrize("tracked", [False, True])
+def test_cli_reconcile_enqueues_with_actual_epoch_and_replays(monkeypatch, tracked):
+    from test_projection_worker import _ready_owner, _trusted_parent
+
+    from facet.cli import reconcile as cli
+    from facet.contracts import Visibility
+    from facet.db.codecs import PrivateAddress
+    from facet.gmail.source import CandidateResult
+    from facet.projection.admission import DiscoveryCandidate
+    from facet.projection.rules import normalize_sender
+
+    with TemporaryDirectory(dir=_trusted_parent()) as root:
+        owner = _ready_owner(Path(root), object(), monkeypatch, seed=tracked)
+        close_owner = owner.close
+        item = DiscoveryItem(
+            ProviderId("synthetic-reconcile-new"), ProviderId("thread-1")
+        )
+        reads = []
+
+        class Source:
+            def profile(self):
+                return None
+
+            def discover(self, **kwargs):
+                assert not owner._connection.in_transaction
+                reads.append("list")
+                return DiscoveryPage((item,), None, 1)
+
+            def candidate(self, value):
+                assert not owner._connection.in_transaction
+                return CandidateResult(
+                    candidate=DiscoveryCandidate(
+                        value.message_id,
+                        value.thread_id,
+                        normalize_sender("synthetic@example.com"),
+                        PrivateAddress(owner.config.projection.source_email),
+                        Visibility.NORMAL,
+                        False,
+                        Timestamp(datetime(2026, 10, 1, tzinfo=UTC)),
+                    )
+                )
+
+        monkeypatch.setattr(cli, "read_managed_config", lambda _: b"synthetic-config")
+        monkeypatch.setattr(cli, "load_config", lambda _: owner.config)
+        monkeypatch.setattr(StateOwner, "open", lambda *_: owner)
+        monkeypatch.setattr(StateOwner, "close", lambda _: None)
+        monkeypatch.setattr(cli, "_source_service", lambda *_: object())
+        monkeypatch.setattr(cli, "SourceAdapter", lambda *_a, **_k: Source())
+        monkeypatch.setattr(
+            "facet.gmail.target.TargetAdapter",
+            lambda *_a, **_k: pytest.fail("source reconcile constructed target"),
+        )
+
+        def counts():
+            return tuple(
+                owner._connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+                for table in ("message_mappings", "insert_attempts")
+            )
+
+        options = SimpleNamespace(
+            state_dir=str(owner.state_dir),
+            source=True,
+            full=True,
+            yes=True,
+            request_id=uuid4().hex,
+        )
+        try:
+            before = counts()
+            first, _ = cli.run_reconcile(options)
+            assert first["listed"] == first["queued"] == 1
+            assert first["remaining_issue"] == 0
+            assert first["run_id"] != options.request_id
+            expected_kind = "project_message" if tracked else "expand_thread"
+            assert owner._connection.execute(
+                "SELECT kind,origin_epoch_id,subject_epoch_id FROM sync_jobs "
+                "WHERE origin_epoch_id=?",
+                (first["run_id"],),
+            ).fetchall() == [
+                (
+                    expected_kind,
+                    first["run_id"],
+                    None if tracked else first["run_id"],
+                )
+            ]
+            assert owner._connection.execute(
+                "SELECT count(*) FROM epoch_jobs WHERE epoch_id=?",
+                (first["run_id"],),
+            ).fetchone() == (1,)
+            assert owner._connection.execute(
+                "SELECT classification FROM reconcile_candidates WHERE run_id=?",
+                (first["run_id"],),
+            ).fetchall() == [("queued",)]
+            jobs_before = owner._connection.execute(
+                "SELECT count(*) FROM sync_jobs"
+            ).fetchone()
+            admissions_before = owner._connection.execute(
+                "SELECT count(*) FROM thread_admissions"
+            ).fetchone()
+            second, _ = cli.run_reconcile(options)
+            assert second == first
+            assert reads == ["list"]
+            assert (
+                owner._connection.execute("SELECT count(*) FROM sync_jobs").fetchone()
+                == jobs_before
+            )
+            assert (
+                owner._connection.execute(
+                    "SELECT count(*) FROM thread_admissions"
+                ).fetchone()
+                == admissions_before
+            )
+            assert counts() == before
+            assert (
+                owner._connection.execute("PRAGMA foreign_key_check").fetchall() == []
+            )
+        finally:
+            close_owner()

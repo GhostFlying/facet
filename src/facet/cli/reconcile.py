@@ -22,7 +22,6 @@ from facet.contracts import (
     PartitionProgress,
     PartitionState,
     Priority,
-    ProviderId,
     Revision,
     Role,
     Timestamp,
@@ -259,8 +258,8 @@ def _attention_epoch(owner, epoch_id):
 
 def _enqueue(owner, run_id):
     def enqueue(candidate, rule):
-        message_id = ProviderId(candidate.message_id.value)
-        thread_id = ProviderId(candidate.thread_id.value)
+        message_id = candidate.source_message_id
+        thread_id = candidate.source_thread_id
         now = Timestamp(datetime.now(UTC))
         with owner.session.transaction() as uow:
             existing = _get(
@@ -484,7 +483,7 @@ def run_reconcile(options):
                 reconciler.admission = SourceCandidateAdmission(source, admission)
                 scan_started = True
                 result = reconciler.run(
-                    request_key, enqueue_candidate=_enqueue(owner, request_id)
+                    request_key, enqueue_candidate=_enqueue(owner, reconciler.run_id)
                 )
                 _close_epoch(owner, result)
             except (KeyboardInterrupt, SystemExit):
