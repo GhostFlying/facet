@@ -1,6 +1,6 @@
 # Facet development status
 
-Updated: 2026-10-14 (PRC; historical UTC receipts retain their original dates)
+Updated: 2026-10-21 (UTC+8; historical UTC receipts retain their original dates)
 
 This is the durable handoff for autonomous development. Update it with evidence
 at the end of each coherent implementation unit. Do not store account addresses,
@@ -8,7 +8,34 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Covered History failures — live convergence verified; merge gates running
+### Untracked History eligibility — implementation under verification
+
+The [reviewed plan](implementation-plans/history-eligibility.md) moves
+SPAM/TRASH/DRAFT automatic-admission exclusion before sender interpretation,
+after strict identity/date/metadata/label validation. Exclusion is a typed
+no-effect result, with no fabricated sender or new tracked-thread restriction.
+Eligible malformed From is invalid_input; invalid identity/metadata is
+consistency_failure. Provider failures retain their typed codes. Reconcile
+counts positive exclusions as successful metadata/no-rule, not active errors.
+
+A narrow legacy convergence path can close only untracked message-added
+request_conflict pairs after fresh source metadata positively proves exclusion.
+It rechecks revisions and all protected effects atomically and retains the
+original error in an audit. Provider failure, source loss, eligible messages,
+action work, stopped/tracked threads and insert/mapping work cannot authorize
+this repair. Regression tests cover real adapter/durable History, stale reads,
+action receipts, audit rollback, no raw/content persistence and reconcile
+accounting. Independent review requested one correction: persist provider
+Retry-After for the complete unprotected legacy recheck cohort and stop the
+pass, retaining attention/error facts across restart. The revised plan is
+independently approved and the correction is implemented with restart/expiry,
+fallback and protected-work tests. Full offline checks and final candidate
+review are pending;
+the running deployment has not yet changed. The user authorized fix/push then
+full source reconcile on the existing test deployment, within its current
+accounts/rules/window and existing ordinary sync scope.
+
+### Covered History failures — merged and live deployment verified
 
 The 2026-10-14 approved [correction plan](implementation-plans/reconcile-history-convergence.md)
 adds atomic terminal bookkeeping for old unadmitted message-added source errors
@@ -24,8 +51,10 @@ Focused SQLite tests verify real reconciler finalization/replay, provenance,
 guard refusal, rollback, warning persistence and mixed active faults. Synthetic
 browser acceptance passed desktop/mobile. Independent implementation review
 approved `c566a3f`, including current-action receipt protection; the focused
-follow-up passed 51 tests. Full offline baseline and required CI remain running,
-so this is not yet a merged release.
+follow-up passed 51 tests. Full offline baseline passed 3033 tests in 871.38
+seconds; Python 3.12/3.13 CI and image build passed. [PR #124](https://github.com/GhostFlying/facet/pull/124)
+merged at `7bffd2193e07f14ac8178cbaaaf9a38c2e8baa8b`; its Actions image publication
+completed. This is engineering/test-deployment evidence, not a formal release.
 
 On the stopped test deployment, a writer-locked SQLite/config/credential backup
 passed integrity checks. The supported source-only CLI replayed the original
@@ -33,10 +62,16 @@ successful reconcile request on the reviewed local candidate, without another
 mailbox scan. It closed all 217 eligible old resolver failures and retained 217
 covering-run audit receipts. Active `source_missing` is now zero; mapping count
 4896, insert-attempt count 4898 and the History checkpoint were unchanged by
-maintenance. Foreign-key checks passed. Ordinary sync has resumed on the local
-diagnostic image; the Issues endpoint exposes no active groups and 217 retained
-historical warnings. Final fresh-cycle health and official immutable-image
-deployment remain to be verified after the merge gates pass.
+maintenance. Foreign-key checks passed. Ordinary sync resumed first on the local
+diagnostic image and then on the anonymously pulled official full-SHA image,
+after a second locked, integrity-checked state/config/credential backup. Registry
+digest: `sha256:d345df471ea3eaeedbf5d9ff836d9823f666c0bd2bc1dfac22abb2c6125cc60c`.
+The official image's baked and Dashboard commit SHA match the merge commit;
+its first ordinary cycle completed Healthy with fresh snapshots, no active
+issue groups and 217 retained historical warnings. Single-writer, DB read/write
+and source/target scope diagnostics are OK. Previous images/backups remain for
+rollback. Continue ordinary sync within the existing accounts/rules/window;
+no new Gmail scope or final Phase 1 acceptance is implied.
 
 ### Full source reconcile verified; both roles reauthorized and sync restored
 

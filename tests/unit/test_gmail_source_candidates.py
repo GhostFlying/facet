@@ -6,11 +6,67 @@ from facet.contracts import ErrorCode, ProviderId
 from facet.db.codecs import ActionKind, PrivateAddress
 from facet.gmail.retry import ProviderFailure
 from facet.gmail.source import (
+    CandidateAttention,
     CandidateAttentionReason,
+    CandidateExclusion,
+    CandidateExclusionReason,
+    CandidateResult,
     DiscoveryItem,
     DiscoveryQuery,
     SourceAdapter,
 )
+
+
+@pytest.mark.parametrize("label", ["SPAM", "TRASH", "DRAFT"])
+@pytest.mark.parametrize("headers", [(), ({"name": "From", "value": "bad@@private"},)])
+def test_ineligible_metadata_excludes_before_sender_parsing(
+    gmail_controller, label, headers
+):
+    result = _candidates(
+        gmail_controller, _metadata(labels=(label,), headers=headers)
+    ).items[0]
+    assert result.excluded == CandidateExclusion(
+        CandidateExclusionReason(label.lower()), ProviderId("m-1"), ProviderId("t-1")
+    )
+    assert result.candidate is result.attention is None
+    assert "m-1" not in repr(result.excluded)
+
+
+@pytest.mark.parametrize(
+    "change,reason",
+    [
+        ({"threadId": "wrong"}, CandidateAttentionReason.INVALID_METADATA),
+        ({"internalDate": "bad"}, CandidateAttentionReason.INVALID_METADATA),
+        (
+            {"labelIds": ["SPAM", "unsupported"]},
+            CandidateAttentionReason.UNSUPPORTED_LABELS,
+        ),
+    ],
+)
+def test_exclusion_does_not_hide_invalid_metadata(gmail_controller, change, reason):
+    result = _candidates(gmail_controller, _metadata(labels=("SPAM",)) | change).items[
+        0
+    ]
+    assert result.excluded is None
+    assert result.attention.reason is reason
+    assert reason.error_code is ErrorCode.CONSISTENCY_FAILURE
+
+
+def test_candidate_result_requires_exactly_one_variant():
+    excluded = CandidateExclusion(
+        CandidateExclusionReason.SPAM, ProviderId("m-1"), ProviderId("t-1")
+    )
+    with pytest.raises(ValueError):
+        CandidateResult()
+    with pytest.raises(ValueError):
+        CandidateResult(
+            excluded=excluded,
+            attention=CandidateAttention(
+                CandidateAttentionReason.MALFORMED_FROM,
+                ProviderId("m-1"),
+                ProviderId("t-1"),
+            ),
+        )
 
 
 def _list_args():

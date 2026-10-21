@@ -354,6 +354,17 @@ class SourceReconciler:
                             status,
                         )
                     continue
+                if candidate.excluded is not None:
+                    totals["metadata_success"] += 1
+                    self._record(
+                        item,
+                        ReconcileClassification.NO_RULE,
+                        ReconcileDisposition.ALREADY_CONVERGED,
+                        None,
+                        candidate.excluded.reason.value,
+                        None,
+                    )
+                    continue
                 if candidate.attention is not None:
                     totals["remaining_issue"] += 1
                     self._record(
@@ -532,7 +543,17 @@ class SourceReconciler:
                         status,
                     )
                 continue
-            if result.attention is not None:
+            if result.excluded is not None:
+                totals["metadata_success"] += 1
+                self._record(
+                    item,
+                    ReconcileClassification.NO_RULE,
+                    ReconcileDisposition.ALREADY_CONVERGED,
+                    None,
+                    result.excluded.reason.value,
+                    None,
+                )
+            elif result.attention is not None:
                 totals["remaining_issue"] += 1
                 self._record(
                     item,

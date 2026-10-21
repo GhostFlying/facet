@@ -326,6 +326,7 @@ def test_source_reconciler_durable_seen_dedup_and_restart():
                         raise failure()
                     return SimpleNamespace(
                         attention=None,
+                        excluded=None,
                         candidate=SimpleNamespace(is_draft=False, observed_at=now),
                     )
 

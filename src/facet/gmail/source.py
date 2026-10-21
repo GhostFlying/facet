@@ -61,6 +61,8 @@ __all__ = (
     "ThreadMetadata",
     "CandidateAttentionReason",
     "CandidateAttention",
+    "CandidateExclusionReason",
+    "CandidateExclusion",
     "CandidateResult",
     "CandidatePage",
     "SourceAdapter",
@@ -197,18 +199,58 @@ class CandidateAttentionReason(StrEnum):
     INVALID_METADATA = "invalid_metadata"
     PROVIDER_FAILURE = "provider_failure"
 
+    @property
+    def error_code(self) -> ErrorCode:
+        if self in {self.MISSING_METADATA, self.MULTIPLE_FROM, self.MALFORMED_FROM}:
+            return ErrorCode.INVALID_INPUT
+        if self is self.PROVIDER_FAILURE:
+            return ErrorCode.NETWORK_UNAVAILABLE
+        return ErrorCode.CONSISTENCY_FAILURE
+
+
+class CandidateExclusionReason(StrEnum):
+    SPAM = "spam"
+    TRASH = "trash"
+    DRAFT = "draft"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CandidateExclusion:
+    """Positive metadata proof of automatic-admission ineligibility only."""
+
+    reason: CandidateExclusionReason
+    message_id: ProviderId
+    thread_id: ProviderId
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.reason) is not CandidateExclusionReason
+            or type(self.message_id) is not ProviderId
+            or type(self.thread_id) is not ProviderId
+        ):
+            raise ValueError("invalid_input")
+
+    def __repr__(self) -> str:
+        return "<excluded candidate>"
+
 
 @dataclass(frozen=True, slots=True, repr=False)
 class CandidateAttention:
     reason: CandidateAttentionReason
     message_id: ProviderId
     thread_id: ProviderId
+    provider_code: ErrorCode | None = None
 
     def __post_init__(self) -> None:
         if (
             type(self.reason) is not CandidateAttentionReason
             or type(self.message_id) is not ProviderId
             or type(self.thread_id) is not ProviderId
+            or type(self.provider_code) not in {ErrorCode, type(None)}
+            or (
+                self.provider_code is not None
+                and self.reason is not CandidateAttentionReason.PROVIDER_FAILURE
+            )
         ):
             raise ValueError("invalid_input")
 
@@ -217,18 +259,35 @@ class CandidateAttention:
 
     __str__ = __repr__
 
+    @property
+    def error_code(self) -> ErrorCode:
+        return self.provider_code or self.reason.error_code
+
 
 @dataclass(frozen=True, slots=True, repr=False)
 class CandidateResult:
     candidate: DiscoveryCandidate | None = None
     attention: CandidateAttention | None = None
+    excluded: CandidateExclusion | None = None
 
     def __post_init__(self) -> None:
-        if type(self.candidate) not in {DiscoveryCandidate, type(None)} or type(
-            self.attention
-        ) not in {CandidateAttention, type(None)}:
+        if (
+            type(self.candidate) not in {DiscoveryCandidate, type(None)}
+            or type(self.attention) not in {CandidateAttention, type(None)}
+            or type(self.excluded)
+            not in {
+                CandidateExclusion,
+                type(None),
+            }
+        ):
             raise ValueError("invalid_input")
-        if (self.candidate is None) == (self.attention is None):
+        if (
+            sum(
+                value is not None
+                for value in (self.candidate, self.attention, self.excluded)
+            )
+            != 1
+        ):
             raise ValueError("invalid_input")
 
     def __repr__(self) -> str:
@@ -548,6 +607,7 @@ class SourceAdapter:
                     CandidateAttentionReason.PROVIDER_FAILURE,
                     item.message_id,
                     item.thread_id,
+                    error.code,
                 )
             )
         return self._candidate_from_value(item, account, value, history=history)
@@ -562,6 +622,7 @@ class SourceAdapter:
             ValueError,
             OverflowError,
             OSError,
+            ProviderFailure,
         ):
             return CandidateResult(
                 attention=CandidateAttention(
@@ -582,6 +643,10 @@ class SourceAdapter:
                 )
             )
         state = _candidate_state(metadata)
+        if isinstance(state, CandidateExclusionReason):
+            return CandidateResult(
+                excluded=CandidateExclusion(state, item.message_id, item.thread_id)
+            )
         if isinstance(state, CandidateAttentionReason):
             return CandidateResult(
                 attention=CandidateAttention(state, item.message_id, item.thread_id)
@@ -900,13 +965,24 @@ _SYSTEM_LABELS = frozenset(
 
 def _candidate_state(
     metadata: MessageMetadata,
-) -> tuple[object, Visibility, bool] | CandidateAttentionReason:
+) -> (
+    tuple[object, Visibility, bool]
+    | CandidateAttentionReason
+    | CandidateExclusionReason
+):
     labels = set(metadata.labels)
     if any(
         label not in _SYSTEM_LABELS and not label.startswith("Label_")
         for label in labels
     ):
         return CandidateAttentionReason.UNSUPPORTED_LABELS
+    for label, reason in (
+        ("DRAFT", CandidateExclusionReason.DRAFT),
+        ("SPAM", CandidateExclusionReason.SPAM),
+        ("TRASH", CandidateExclusionReason.TRASH),
+    ):
+        if label in labels:
+            return reason
     from_values = tuple(
         value for name, value in metadata.headers if name.casefold() == "from"
     )
