@@ -19,3 +19,19 @@
   History notifications; no History scan or absence-as-exclusion inference.
 
 Implementation review and the exact candidate SHA will be recorded after review.
+
+## Retry deadline correction
+
+The independent implementation reviewer `eligibility_implementation_review`
+(GPT-6.1 Sol xhigh) requested changes on `4629f29`: legacy exclusion rechecks
+discarded provider Retry-After and could repeat immediately. A synthetic
+two-call reproduction confirmed the issue; the review's 145 focused tests
+otherwise passed. This candidate is not accepted for live operation.
+
+The original plan reviewer independently approved the narrow plan delta,
+SHA-256 `9be301d92b34c500069df0482f01cddc4ecd84640724814abb7ccf9f4273ba4a`.
+Use existing next_attempt_at while retaining attention/request_conflict, defer
+the entire unprotected legacy cohort beyond the selection limit, preserve
+longer deadlines, and stop the pass. Only metadata rechecks use this backoff;
+existing-effect and label convergence remain available without network reads.
+Restart, expiry, fallback delay and protected-work tests cover this correction.

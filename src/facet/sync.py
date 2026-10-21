@@ -1010,7 +1010,27 @@ class ForegroundSync:
                 if error.code not in {ErrorCode.REQUEST_CONFLICT, ErrorCode.OWNER_BUSY}:
                     raise
                 if error.code is ErrorCode.REQUEST_CONFLICT:
-                    resolved += self._converge_excluded_event(job)
+                    try:
+                        resolved += self._converge_excluded_event(job)
+                    except ProviderFailure as provider_error:
+                        if blocks_sync(provider_error):
+                            raise
+                        from facet.db.repositories import ineligible_events
+
+                        with self._owner.session.transaction() as uow:
+                            ineligible_events.defer_rechecks(
+                                uow,
+                                self._projection,
+                                Timestamp(
+                                    _now().value
+                                    + timedelta(
+                                        seconds=max(
+                                            60, provider_error.retry_after_seconds or 0
+                                        )
+                                    )
+                                ),
+                            )
+                        break
             else:
                 resolved += 1
         return resolved
@@ -1028,6 +1048,11 @@ class ForegroundSync:
         if eligible is None:
             return False
         event, current_job = eligible
+        if (
+            current_job.next_attempt_at is not None
+            and current_job.next_attempt_at.value > _now().value
+        ):
+            return False
         if self._progress:
             self._progress()
         item = DiscoveryItem(
@@ -1036,7 +1061,11 @@ class ForegroundSync:
         try:
             result = self._source.history_candidate(item)
         except ProviderFailure as error:
-            if blocks_sync(error):
+            if (
+                blocks_sync(error)
+                or error.code is ErrorCode.SOURCE_RATE_LIMITED
+                or error.retry_after_seconds is not None
+            ):
                 raise
             return False
         excluded = result.excluded

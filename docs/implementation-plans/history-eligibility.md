@@ -24,6 +24,14 @@ existing checkout on `p/luchengxuan/history-eligibility`.
   projection work for that message/thread; recheck exact event/job revisions
   inside one transaction and record an audit. No automatic retry/admission of
   eligible or malformed mail; missing/provider-failed reads retain attention.
+  If a legacy metadata recheck is throttled or carries Retry-After, stop that
+  legacy pass and persist a not-before deadline in the existing next_attempt_at
+  field for all currently repairable legacy message-added pairs. Preserve their
+  attention state and request_conflict error; only this metadata-recheck path
+  uses the deadline, never ordinary admission retry. Selection and the final
+  pre-read guard honor the deadline across restart. Extend existing deadlines
+  when necessary; do not touch protected work or label-change jobs. No schema
+  change or new scheduler. Test two candidates plus restart before expiry.
   Do not close ambiguity or infer exclusion from search absence. No raw reads.
 - Tests cover the actual Gmail adapter plus durable sync, exclusion precedence,
   eligible malformed metadata classification, tracked Spam/Trash and draft

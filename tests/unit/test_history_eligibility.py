@@ -1,7 +1,7 @@
 """Real adapter eligibility through durable History and guarded legacy repair."""
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -11,12 +11,14 @@ from test_history_admission import HistorySource, _runner
 from test_projection_worker import _ready_owner, _trusted_parent
 from test_sync import _Target
 
-from facet.contracts import ErrorCode, LocalId, ProviderId, Role
+from facet.contracts import ErrorCode, LocalId, ProviderId, Role, Timestamp
+from facet.contracts.records import JobSubjectResolveEvent
 from facet.db.codecs import PrivateAddress
-from facet.db.keys import event_key
+from facet.db.keys import event_key, job_key
 from facet.db.repositories.base import _get, _insert
 from facet.gmail.retry import ProviderFailure
 from facet.gmail.source import SourceAdapter
+from facet.runtime.state_owner import StateOwner
 
 
 @pytest.fixture
@@ -181,6 +183,8 @@ def test_legacy_repair_requires_positive_exclusion(state, case):
 
 @pytest.mark.parametrize("relationship", ["event", "thread"])
 def test_prior_action_receipt_prevents_even_metadata_recheck(state, relationship):
+    from facet.db.repositories import ineligible_events
+
     owner, _, _, _ = state
     runner = seed_legacy(state)
     with owner.session.transaction() as uow:
@@ -218,6 +222,15 @@ def test_prior_action_receipt_prevents_even_metadata_recheck(state, relationship
             ),
         )
     assert runner._converge_completed_events(100) == 0
+    with owner.session.transaction() as uow:
+        ineligible_events.defer_rechecks(
+            uow,
+            owner.projection_id,
+            Timestamp(datetime.now(UTC) + timedelta(seconds=120)),
+        )
+    assert owner._connection.execute(
+        "SELECT next_attempt_at FROM sync_jobs"
+    ).fetchone() == (None,)
 
 
 def test_legacy_repair_audit_failure_rolls_back_completion(state, monkeypatch):
@@ -240,3 +253,92 @@ def test_legacy_repair_audit_failure_rolls_back_completion(state, monkeypatch):
     assert owner._connection.execute(
         "SELECT state,last_error_code FROM sync_jobs"
     ).fetchone() == ("needs_attention", "request_conflict")
+
+
+def add_legacy(state):
+    owner = state[0]
+    with owner.session.transaction() as uow:
+        eid, jid = uow._execute(
+            "SELECT event_id,job_id FROM sync_jobs LIMIT 1"
+        ).fetchone()
+        old_event = _get(
+            uow, owner.projection_id, "source_events", (("event_id", LocalId(eid)),)
+        )
+        old_job = _get(
+            uow, owner.projection_id, "sync_jobs", (("job_id", LocalId(jid)),)
+        )
+        key = replace(
+            old_event.event.key,
+            history_record_id=ProviderId(uuid4().hex),
+            source_message_id=ProviderId(uuid4().hex),
+        )
+        event = replace(
+            old_event,
+            event_id=LocalId(uuid4().hex),
+            event_key=event_key(owner.projection_id, key),
+            event=replace(
+                old_event.event, key=key, source_thread_id=ProviderId(uuid4().hex)
+            ),
+        )
+        subject = JobSubjectResolveEvent("resolve_event", key)
+        job = replace(
+            old_job,
+            job_id=LocalId(uuid4().hex),
+            stable_key=job_key(owner.projection_id, subject),
+            subject=subject,
+        )
+        _insert(uow, owner.projection_id, "source_events", event)
+        _insert(uow, owner.projection_id, "sync_jobs", job, event_id=event.event_id)
+
+
+@pytest.mark.parametrize("retry_after", [None, 120])
+def test_retry_after_defers_entire_legacy_cohort_across_restart(
+    state, monkeypatch, retry_after
+):
+    import facet.sync as sync
+    from facet.db.repositories import ineligible_events
+
+    owner, source, target, _ = state
+    runner = seed_legacy(state)
+    add_legacy(state)
+    now = Timestamp(datetime.now(UTC))
+    monkeypatch.setattr(sync, "_now", lambda: now)
+    calls = []
+
+    def throttled(item):
+        calls.append(item)
+        raise ProviderFailure(
+            ErrorCode.SOURCE_RATE_LIMITED,
+            Role.SOURCE,
+            status=429,
+            retry_after_seconds=retry_after,
+        )
+
+    source.history_candidate = throttled
+    # Selection limit is one; every unprotected legacy pair must be delayed.
+    assert runner._converge_completed_events(1) == 0
+    assert len(calls) == 1
+    delay = retry_after or 60
+    expected = int((now.value + timedelta(seconds=delay)).timestamp() * 1e6)
+    assert owner._connection.execute(
+        "SELECT DISTINCT state,last_error_code,next_attempt_at FROM sync_jobs"
+    ).fetchall() == [("needs_attention", "request_conflict", expected)]
+    owner.close()
+    with StateOwner.open(owner.state_dir, owner.config) as reopened:
+        source.owner = reopened
+        again = _runner(reopened, source, target)
+        assert again._converge_completed_events(100) == 0
+        assert len(calls) == 1
+        # Shorter cooldowns never shorten a persisted provider deadline.
+        with reopened.session.transaction() as uow:
+            ineligible_events.defer_rechecks(
+                uow,
+                reopened.projection_id,
+                Timestamp(now.value + timedelta(seconds=30)),
+            )
+        assert reopened._connection.execute(
+            "SELECT DISTINCT next_attempt_at FROM sync_jobs"
+        ).fetchall() == [(expected,)]
+        now = Timestamp(now.value + timedelta(seconds=delay + 1))
+        assert again._converge_completed_events(100) == 0
+        assert len(calls) == 2  # first throttle stops this pass, too

@@ -25,7 +25,12 @@ original error in an audit. Provider failure, source loss, eligible messages,
 action work, stopped/tracked threads and insert/mapping work cannot authorize
 this repair. Regression tests cover real adapter/durable History, stale reads,
 action receipts, audit rollback, no raw/content persistence and reconcile
-accounting. Full offline checks and independent candidate review are pending;
+accounting. Independent review requested one correction: persist provider
+Retry-After for the complete unprotected legacy recheck cohort and stop the
+pass, retaining attention/error facts across restart. The revised plan is
+independently approved and the correction is implemented with restart/expiry,
+fallback and protected-work tests. Full offline checks and final candidate
+review are pending;
 the running deployment has not yet changed. The user authorized fix/push then
 full source reconcile on the existing test deployment, within its current
 accounts/rules/window and existing ordinary sync scope.

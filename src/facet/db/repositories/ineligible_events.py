@@ -1,6 +1,6 @@
 """Narrow repair of legacy untracked automatic-admission notifications."""
 
-from facet.contracts import ErrorCode, JobState, Timestamp
+from facet.contracts import ErrorCode, JobState, LocalId, Timestamp
 from facet.contracts.records import SourceEventKeyMessageAdded
 
 from ..codecs import AuditKind, AuditObjectKind, EventProcessing, timestamp_to_sql
@@ -54,6 +54,41 @@ def repairable(uow, projection_id, event_id, job_id):
         ),
     ).fetchone()
     return None if protected else (event, job)
+
+
+@_mutating
+def defer_rechecks(uow, projection_id, not_before):
+    """Apply provider backoff to the entire unprotected legacy repair cohort."""
+    if type(not_before) is not Timestamp:
+        raise ValueError("invalid_input")
+    rows = uow._execute(
+        "SELECT j.event_id,j.job_id FROM sync_jobs j "
+        "JOIN source_events e ON e.projection_id=j.projection_id "
+        "AND e.event_id=j.event_id WHERE j.projection_id=? "
+        "AND j.kind='resolve_event' AND j.state='needs_attention' "
+        "AND j.last_error_code='request_conflict' AND e.tag='message_added'",
+        (projection_id.value,),
+    ).fetchall()
+    for event_id, job_id in rows:
+        pair = repairable(uow, projection_id, LocalId(event_id), LocalId(job_id))
+        if pair is None:
+            continue
+        _, job = pair
+        if (
+            job.next_attempt_at is not None
+            and job.next_attempt_at.value >= not_before.value
+        ):
+            continue
+        uow._execute(
+            "UPDATE sync_jobs SET next_attempt_at=?,revision=revision+1 "
+            "WHERE projection_id=? AND job_id=? AND revision=?",
+            (
+                timestamp_to_sql(not_before),
+                projection_id.value,
+                job_id,
+                job.revision.value,
+            ),
+        )
 
 
 @_mutating
