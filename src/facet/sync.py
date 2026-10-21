@@ -69,7 +69,7 @@ from facet.db.repositories import epochs, events, intents, jobs, policy, reads
 from facet.db.repositories.base import _decode, _get, _query
 from facet.db.repositories.serialization import COLUMNS
 from facet.gmail.retry import ProviderFailure, blocks_sync
-from facet.gmail.source import CandidateAttentionReason, DiscoveryItem, DiscoveryQuery
+from facet.gmail.source import DiscoveryItem, DiscoveryQuery
 from facet.projection.action_consumer import ActionEffectConsumer
 from facet.projection.admission import (
     AdmissionAttentionReason,
@@ -192,12 +192,9 @@ class SourceCandidateAdmission:
                 raise
             return DiscoveryDecision(False, attention=error.code)
         if result.attention is not None:
-            code = (
-                ErrorCode.SOURCE_AUTH_REQUIRED
-                if result.attention.reason is CandidateAttentionReason.PROVIDER_FAILURE
-                else ErrorCode.REQUEST_CONFLICT
-            )
-            return DiscoveryDecision(False, attention=code)
+            return DiscoveryDecision(False, attention=result.attention.error_code)
+        if result.excluded is not None:
+            return DiscoveryDecision(False)
         if recovering and not (
             epoch.window_start.value
             <= result.candidate.observed_at.value
@@ -1012,9 +1009,47 @@ class ForegroundSync:
             except StorageFailure as error:
                 if error.code not in {ErrorCode.REQUEST_CONFLICT, ErrorCode.OWNER_BUSY}:
                     raise
+                if error.code is ErrorCode.REQUEST_CONFLICT:
+                    resolved += self._converge_excluded_event(job)
             else:
                 resolved += 1
         return resolved
+
+    def _converge_excluded_event(self, job):
+        from facet.db.repositories import ineligible_events
+
+        if self._should_stop and self._should_stop():
+            return False
+        event_id = self._event_id(job)
+        with self._owner.session.transaction() as uow:
+            eligible = ineligible_events.repairable(
+                uow, self._projection, event_id, job.job_id
+            )
+        if eligible is None:
+            return False
+        event, current_job = eligible
+        if self._progress:
+            self._progress()
+        item = DiscoveryItem(
+            event.event.key.source_message_id, event.event.source_thread_id
+        )
+        try:
+            result = self._source.history_candidate(item)
+        except ProviderFailure as error:
+            if blocks_sync(error):
+                raise
+            return False
+        excluded = result.excluded
+        if (
+            excluded is None
+            or excluded.message_id != item.message_id
+            or excluded.thread_id != item.thread_id
+        ):
+            return False
+        with self._owner.session.transaction() as uow:
+            return ineligible_events.consume_excluded(
+                uow, self._projection, event, current_job, _now()
+            )
 
     def _ignore_untracked_deletion(self, resolve_job: SyncJobRow) -> bool:
         """Close a deletion event only when its source thread was never tracked."""
@@ -1293,15 +1328,16 @@ class ForegroundSync:
                 if selected_policy.enabled_allow_rules:
                     result = self._source.history_candidate(item)
                     if result.attention is not None:
-                        raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
-                    decision = selected_policy.evaluate(
-                        result.candidate, _now(), prospective=True
-                    )
-                    if decision.attention_reason in {
+                        raise StorageFailure(result.attention.error_code)
+                    if result.excluded is None:
+                        decision = selected_policy.evaluate(
+                            result.candidate, _now(), prospective=True
+                        )
+                    if decision is not None and decision.attention_reason in {
                         AdmissionAttentionReason.SOURCE_ACCOUNT_MISMATCH,
                         AdmissionAttentionReason.CANDIDATE_INVALID,
                     }:
-                        raise StorageFailure(ErrorCode.REQUEST_CONFLICT)
+                        raise StorageFailure(ErrorCode.CONSISTENCY_FAILURE)
             else:
                 metadata = self._source.message_metadata(item.message_id)
                 if (

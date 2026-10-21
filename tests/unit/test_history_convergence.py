@@ -49,7 +49,13 @@ from facet.db.models import (
 )
 from facet.db.repositories import history_convergence, policy
 from facet.db.repositories.base import _insert
-from facet.gmail.source import DiscoveryPage
+from facet.gmail.source import (
+    CandidateExclusion,
+    CandidateExclusionReason,
+    CandidateResult,
+    DiscoveryItem,
+    DiscoveryPage,
+)
 from facet.reconcile import SourceReconciler
 from facet.runtime.dashboard import snapshot_from_owner
 from facet.runtime.foreground_runtime import load_persisted_admission
@@ -144,6 +150,24 @@ def close(owner, r):
         return history_convergence.converge_covered_history(
             uow, owner.projection_id, r.run_id, Timestamp(datetime.now(UTC))
         )
+
+
+@pytest.mark.parametrize("reason", list(CandidateExclusionReason))
+def test_reconcile_excluded_candidate_is_successful_no_rule(state, reason):
+    owner, r, key = state
+    item = DiscoveryItem(ProviderId("excluded-message"), ProviderId("excluded-thread"))
+    r.source.discover = lambda **kwargs: DiscoveryPage((item,), None, 1)
+    r.source.candidate = lambda item: CandidateResult(
+        excluded=CandidateExclusion(reason, item.message_id, item.thread_id)
+    )
+    result = r.run(key, enqueue_candidate=lambda *args: pytest.fail("excluded enqueue"))
+    assert (result.listed, result.metadata_success, result.remaining_issue) == (1, 1, 0)
+    assert owner._connection.execute(
+        "SELECT classification,provider_reason FROM reconcile_candidates"
+    ).fetchone() == ("no_rule", reason.value)
+    assert owner._connection.execute("SELECT state FROM reconcile_runs").fetchone() == (
+        "completed",
+    )
 
 
 def test_successful_finalization_and_replay_preserve_warning(state):
