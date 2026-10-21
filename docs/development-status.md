@@ -8,7 +8,7 @@ mail identifiers, private fixtures, tokens, or raw diagnostics here.
 
 ## Current state
 
-### Untracked History eligibility — implementation under verification
+### Untracked History eligibility — merged, deployed and source coverage verified
 
 The [reviewed plan](implementation-plans/history-eligibility.md) moves
 SPAM/TRASH/DRAFT automatic-admission exclusion before sender interpretation,
@@ -25,15 +25,57 @@ original error in an audit. Provider failure, source loss, eligible messages,
 action work, stopped/tracked threads and insert/mapping work cannot authorize
 this repair. Regression tests cover real adapter/durable History, stale reads,
 action receipts, audit rollback, no raw/content persistence and reconcile
-accounting. Independent review requested one correction: persist provider
-Retry-After for the complete unprotected legacy recheck cohort and stop the
-pass, retaining attention/error facts across restart. The revised plan is
-independently approved and the correction is implemented with restart/expiry,
-fallback and protected-work tests. Full offline checks and final candidate
-review are pending;
-the running deployment has not yet changed. The user authorized fix/push then
-full source reconcile on the existing test deployment, within its current
-accounts/rules/window and existing ordinary sync scope.
+accounting. Independent review requested and verified one correction: persist
+provider Retry-After for the complete unprotected legacy recheck cohort and
+stop the pass, retaining attention/error facts across restart. Root focused
+tests passed 161; independent final review approved `b55957a` after 147 focused
+tests and a repeated throttling fault injection. The revised plan digest is
+`9be301d92b34c500069df0482f01cddc4ecd84640724814abb7ccf9f4273ba4a`.
+[PR #126](https://github.com/GhostFlying/facet/pull/126) merged as
+`99fa3238bed2d512867da153f250bea078241267`. Candidate and merged-main CI passed
+3061 tests and 48 CLI smoke tests per Python 3.12/3.13; lint, formatting, locked
+dependencies, CLI help, safety and amd64/arm64 image builds passed. The local
+3059-test run began before the retry correction; final exact CI is the complete
+candidate acceptance evidence.
+
+The user authorized fix/push and then full source reconcile on the existing
+test deployment. The official image was published and pulled anonymously;
+registry index digest and Actions record agree:
+`sha256:b3b55608d3cb0f95b6f73eeadd3f83d2ab51b25374bbd0bfc8e7be1ed3dff92a`.
+Its baked SHA and all four changed production modules matched the reviewed
+source. Stopped, writer-locked SQLite/config/credential backups passed integrity,
+foreign-key, complete business-state and credential/config readback checks.
+Normal startup closed the one legacy ineligible notification with its original
+request_conflict completion audit. A second verified backup preceded the
+supported source-only CLI full reconcile.
+
+The live run completed on 2026-10-21 at 13:00:42 +08:00:
+
+- Frozen scope: current enabled rules, 2026-04-01 08:00:00 through
+  2026-10-21 12:19:01.913495 +08:00.
+- Listed/read/matched/mapped: 4897; queued projection work: 0.
+- Metadata 404: 0; remaining issues: 0; durable elapsed: 2499.920009 seconds
+  (41m39.920s).
+- Retry-recovered reads: 2092; cumulative retry waiting: 184.443 seconds.
+- Guarded coverage closed both eligible old source_missing notifications;
+  historical warning audits increased from 217 to 219, retaining originals.
+- Independent readback at service restart proved unchanged mappings (5031),
+  insert attempts (5033), absence-retry records, History checkpoints, tracked
+  threads/admissions, rules and action records; foreign keys passed. No Target
+  write occurred in maintenance. A previously retained unknown attempt with an
+  absence-retry receipt and confirmed mapping remained unchanged; there was no
+  active unknown-insert blocker.
+
+Ordinary sync resumed on the official image and completed its first cycle.
+At 13:05:30 +08:00, the fresh 13:05:12 snapshot was healthy, with no active
+issues or queued/claimed/retry/failed/attention/source-missing jobs. Ordinary
+incremental processing confirmed two additional messages (5033 total); this
+is separate from the source-only maintenance counts above. Docker health was
+healthy with zero restarts; HTTPS Dashboard and status returned 200. Diagnostics
+confirmed the official commit, one sync owner and working DB read/write checks.
+Existing accounts, rules and ordinary sync authority are unchanged.
+This is bounded test-host evidence, not final Phase 1/dogfood or version release
+acceptance. Prior image and verified backups remain available for rollback.
 
 ### Covered History failures — merged and live deployment verified
 
