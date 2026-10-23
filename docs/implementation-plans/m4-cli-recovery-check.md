@@ -1,8 +1,8 @@
 # M4 recovery inspection and check
 
-Status: candidate `aa646bb` has independent implementation approval; full
-candidate CI and merge remain pending. Base candidate: `origin/main` at
-`adaea8a42af49e5d2788673a45ac7dd324de0741`.
+Status: integrated in PR #75 at main `e31392151c8b59a8bbb9f053f25063e5cc8e746b`.
+Implementation candidate `aa646bb` has independent implementation approval;
+the follow-up test-only FD-baseline fix `85f3cb9` also passed independent review.
 
 ## User-observable delivery
 
@@ -76,5 +76,6 @@ read-only check alone.
    target or DB state.
 3. `recovery list/show` are offline, owner-scoped, and do not import Gmail or
    OAuth; public output contains no item identifiers.
-4. Focused tests, full offline suite, Ruff/format/lock/safety, wheel smoke, and
-   candidate CI pass. No live Gmail operation is performed.
+4. Focused recovery/bootstrap/credential tests pass; the full candidate CI
+   (Python 3.12/3.13 and no-publish image build), Ruff/format/lock/safety and
+   wheel smoke pass. No live Gmail operation is performed.
